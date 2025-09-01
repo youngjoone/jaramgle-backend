@@ -1,5 +1,7 @@
 package com.fairylearn.backend.filter;
 
+import com.fairylearn.backend.auth.CustomOAuth2User;
+import com.fairylearn.backend.repository.UserRepository;
 import com.fairylearn.backend.util.JwtProvider;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -29,6 +31,7 @@ import java.util.ArrayList;
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtProvider jwtProvider;
+    private final UserRepository userRepository; // Inject UserRepository
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -66,11 +69,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         if (subject != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             log.debug("JWT token is valid for subject: {}", subject);
-            UserDetails userDetails = new User(subject, "", new ArrayList<>());
-            UsernamePasswordAuthenticationToken authenticationToken =
-                    new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-            SecurityContextHolder.getContext().setAuthentication(authenticationToken);
-            log.debug("Authentication set for subject: {}", subject);
+            // Load UserEntity and create CustomOAuth2User
+            String finalSubject = subject; // Make a final copy
+            userRepository.findByEmail(finalSubject).ifPresent(userEntity -> {
+                CustomOAuth2User customOAuth2User = new CustomOAuth2User(
+                        userEntity.getId(),
+                        userEntity.getEmail(),
+                        userEntity.getNickname(),
+                        userEntity.getProvider(),
+                        new ArrayList<>() // Authorities
+                );
+                UsernamePasswordAuthenticationToken authenticationToken =
+                        new UsernamePasswordAuthenticationToken(customOAuth2User, null, customOAuth2User.getAuthorities());
+                SecurityContextHolder.getContext().setAuthentication(authenticationToken);
+                log.debug("Authentication set for subject: {}", finalSubject); // Use finalSubject
+            });
         } else if (subject == null) {
             log.debug("Subject is null after extraction or token is invalid.");
         } else {
