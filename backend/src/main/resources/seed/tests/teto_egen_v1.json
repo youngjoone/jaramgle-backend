@@ -1,0 +1,602 @@
+{
+  "code": "teto_egen",
+  "title": "테토/에겐 성향 테스트 (평소/일/연애)",
+  "version": 1,
+  "status": "PUBLISHED",
+  "questions": [
+    {
+      "no": 1,
+      "body": "계획을 세우고 지키는 편이다.",
+      "domain": "baseline",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "TE",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "EG",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "body": "새로운 변화를 즐기는 편이다.",
+      "domain": "baseline",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "EG",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "TE",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 3,
+      "body": "일정을 미리 정해두면 마음이 편하다.",
+      "domain": "baseline",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "TE",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "EG",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 4,
+      "body": "즉흥적으로 움직이는 편이다.",
+      "domain": "baseline",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "EG",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "TE",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 5,
+      "body": "정리·정돈이 되어야 집중이 잘 된다.",
+      "domain": "baseline",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "TE",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "EG",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 6,
+      "body": "분위기에 따라 계획을 자주 바꾼다.",
+      "domain": "baseline",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "EG",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "TE",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 7,
+      "body": "업무는 프로세스와 규칙을 우선한다.",
+      "domain": "work",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "TE",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "EG",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 8,
+      "body": "변수가 생기면 우선 실행하며 조정한다.",
+      "domain": "work",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "EG",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "TE",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 9,
+      "body": "마감과 일정 관리를 철저히 지키려 한다.",
+      "domain": "work",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "TE",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "EG",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 10,
+      "body": "회의나 업무흐름이 자유로운 게 더 생산적이다.",
+      "domain": "work",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "EG",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "TE",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 11,
+      "body": "재현 가능한 방식이 즉흥 아이디어보다 중요하다.",
+      "domain": "work",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "TE",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "EG",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 12,
+      "body": "일은 유연하게 흘러야 효율적이다.",
+      "domain": "work",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "EG",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "TE",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 13,
+      "body": "데이트도 일정과 계획이 있을 때 편하다.",
+      "domain": "love",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "TE",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "EG",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 14,
+      "body": "상대의 기분과 흐름에 맞춰 즉흥적으로 움직인다.",
+      "domain": "love",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "EG",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "TE",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 15,
+      "body": "약속과 역할을 명확히 하는 편이다.",
+      "domain": "love",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "TE",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "EG",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 16,
+      "body": "예상치 못한 이벤트를 즐기는 편이다.",
+      "domain": "love",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "EG",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "TE",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 17,
+      "body": "관계에서도 원칙과 일관성이 중요하다.",
+      "domain": "love",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "TE",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "EG",
+          "weight": 2
+        }
+      ]
+    },
+    {
+      "no": 18,
+      "body": "분위기와 감정에 따라 계획을 바꿀 수 있다.",
+      "domain": "love",
+      "scale_type": "likert5",
+      "choices": [
+        {
+          "label": "매우 그렇다",
+          "value": "EG",
+          "weight": 2
+        },
+        {
+          "label": "그렇다",
+          "value": "EG",
+          "weight": 1
+        },
+        {
+          "label": "보통이다",
+          "value": "N",
+          "weight": 0
+        },
+        {
+          "label": "아니다",
+          "value": "TE",
+          "weight": 1
+        },
+        {
+          "label": "전혀 아니다",
+          "value": "TE",
+          "weight": 2
+        }
+      ]
+    }
+  ]
+}

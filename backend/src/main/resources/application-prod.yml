@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    # Placeholder for PostgreSQL connection details
+    # url: jdbc:postgresql://localhost:5432/your_db
+    # username: your_user
+    # password: your_password
+    driverClassName: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/postgres
