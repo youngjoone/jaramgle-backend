@@ -30,6 +30,11 @@ public class StoryService {
         return storyRepository.findByIdAndUserId(storyId, userId);
     }
 
+    @Transactional(readOnly = true)
+    public List<StoryPage> getStoryPagesByStoryId(Long storyId) {
+        return storyPageRepository.findByStoryIdOrderByPageNoAsc(storyId);
+    }
+
     @Transactional
     public Story saveNewStory(String userId, String title, String ageRange, String topicsJson, String language, String lengthLevel, List<String> pageTexts) {
         // 1. Ensure slot is available
