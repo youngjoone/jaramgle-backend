@@ -1,0 +1,289 @@
+{
+  "code": "mbti",
+  "title": "MBTI 스타일 성격 검사",
+  "version": 1,
+  "status": "PUBLISHED",
+  "questions": [
+    { "no": 1,  "body": "사람 많은 모임에서 에너지를 얻는다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"E","weight":2},
+        {"label":"그렇다","value":"E","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"I","weight":1},
+        {"label":"전혀 아니다","value":"I","weight":2}
+      ]},
+    { "no": 2,  "body": "혼자 있는 시간이 나를 회복시킨다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"I","weight":2},
+        {"label":"그렇다","value":"I","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"E","weight":1},
+        {"label":"전혀 아니다","value":"E","weight":2}
+      ]},
+    { "no": 3,  "body": "새로운 사람을 만나는 게 즐겁다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"E","weight":2},
+        {"label":"그렇다","value":"E","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"I","weight":1},
+        {"label":"전혀 아니다","value":"I","weight":2}
+      ]},
+    { "no": 4,  "body": "모르는 사람과 대화하는 게 부담스럽다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"I","weight":2},
+        {"label":"그렇다","value":"I","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"E","weight":1},
+        {"label":"전혀 아니다","value":"E","weight":2}
+      ]},
+    { "no": 5,  "body": "발표나 토론 자리가 익숙하다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"E","weight":2},
+        {"label":"그렇다","value":"E","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"I","weight":1},
+        {"label":"전혀 아니다","value":"I","weight":2}
+      ]},
+    { "no": 6,  "body": "깊고 집중적인 대화를 선호한다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"I","weight":2},
+        {"label":"그렇다","value":"I","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"E","weight":1},
+        {"label":"전혀 아니다","value":"E","weight":2}
+      ]},
+    { "no": 7,  "body": "시끌벅적한 환경이 편하다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"E","weight":2},
+        {"label":"그렇다","value":"E","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"I","weight":1},
+        {"label":"전혀 아니다","value":"I","weight":2}
+      ]},
+    { "no": 8,  "body": "조용한 환경에서 집중이 잘 된다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"I","weight":2},
+        {"label":"그렇다","value":"I","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"E","weight":1},
+        {"label":"전혀 아니다","value":"E","weight":2}
+      ]},
+
+    { "no": 9,  "body": "사실과 데이터 중심의 설명을 선호한다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"S","weight":2},
+        {"label":"그렇다","value":"S","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"N","weight":1},
+        {"label":"전혀 아니다","value":"N","weight":2}
+      ]},
+    { "no": 10, "body": "아이디어와 가능성을 상상하는 게 즐겁다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"N","weight":2},
+        {"label":"그렇다","value":"N","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"S","weight":1},
+        {"label":"전혀 아니다","value":"S","weight":2}
+      ]},
+    { "no": 11, "body": "현재의 구체적인 사실에 집중한다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"S","weight":2},
+        {"label":"그렇다","value":"S","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"N","weight":1},
+        {"label":"전혀 아니다","value":"N","weight":2}
+      ]},
+    { "no": 12, "body": "미래의 가능성을 자주 떠올린다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"N","weight":2},
+        {"label":"그렇다","value":"N","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"S","weight":1},
+        {"label":"전혀 아니다","value":"S","weight":2}
+      ]},
+    { "no": 13, "body": "실용적인 해결책을 우선한다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"S","weight":2},
+        {"label":"그렇다","value":"S","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"N","weight":1},
+        {"label":"전혀 아니다","value":"N","weight":2}
+      ]},
+    { "no": 14, "body": "독창적인 접근법을 찾는 편이다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"N","weight":2},
+        {"label":"그렇다","value":"N","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"S","weight":1},
+        {"label":"전혀 아니다","value":"S","weight":2}
+      ]},
+    { "no": 15, "body": "세부 사항을 꼼꼼히 챙긴다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"S","weight":2},
+        {"label":"그렇다","value":"S","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"N","weight":1},
+        {"label":"전혀 아니다","value":"N","weight":2}
+      ]},
+    { "no": 16, "body": "큰 그림을 먼저 본다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"N","weight":2},
+        {"label":"그렇다","value":"N","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"S","weight":1},
+        {"label":"전혀 아니다","value":"S","weight":2}
+      ]},
+
+    { "no": 17, "body": "의사결정에서 논리와 원칙을 우선한다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"T","weight":2},
+        {"label":"그렇다","value":"T","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"F","weight":1},
+        {"label":"전혀 아니다","value":"F","weight":2}
+      ]},
+    { "no": 18, "body": "의사결정에서 감정과 관계를 고려한다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"F","weight":2},
+        {"label":"그렇다","value":"F","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"T","weight":1},
+        {"label":"전혀 아니다","value":"T","weight":2}
+      ]},
+    { "no": 19, "body": "직설적인 피드백을 주는 편이다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"T","weight":2},
+        {"label":"그렇다","value":"T","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"F","weight":1},
+        {"label":"전혀 아니다","value":"F","weight":2}
+      ]},
+    { "no": 20, "body": "상대방의 감정을 우선 배려한다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"F","weight":2},
+        {"label":"그렇다","value":"F","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"T","weight":1},
+        {"label":"전혀 아니다","value":"T","weight":2}
+      ]},
+    { "no": 21, "body": "공정성이 더 중요하다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"T","weight":2},
+        {"label":"그렇다","value":"T","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"F","weight":1},
+        {"label":"전혀 아니다","value":"F","weight":2}
+      ]},
+    { "no": 22, "body": "조화가 더 중요하다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"F","weight":2},
+        {"label":"그렇다","value":"F","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"T","weight":1},
+        {"label":"전혀 아니다","value":"T","weight":2}
+      ]},
+    { "no": 23, "body": "비판을 비교적 담담히 받아들인다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"T","weight":2},
+        {"label":"그렇다","value":"T","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"F","weight":1},
+        {"label":"전혀 아니다","value":"F","weight":2}
+      ]},
+    { "no": 24, "body": "칭찬에 크게 동기부여된다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"F","weight":2},
+        {"label":"그렇다","value":"F","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"T","weight":1},
+        {"label":"전혀 아니다","value":"T","weight":2}
+      ]},
+
+    { "no": 25, "body": "계획 세우는 것을 좋아한다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"J","weight":2},
+        {"label":"그렇다","value":"J","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"P","weight":1},
+        {"label":"전혀 아니다","value":"P","weight":2}
+      ]},
+    { "no": 26, "body": "즉흥적으로 움직이는 편이다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"P","weight":2},
+        {"label":"그렇다","value":"P","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"J","weight":1},
+        {"label":"전혀 아니다","value":"J","weight":2}
+      ]},
+    { "no": 27, "body": "마감일을 철저히 지킨다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"J","weight":2},
+        {"label":"그렇다","value":"J","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"P","weight":1},
+        {"label":"전혀 아니다","value":"P","weight":2}
+      ]},
+    { "no": 28, "body": "상황에 따라 일정을 유연하게 바꾼다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"P","weight":2},
+        {"label":"그렇다","value":"P","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"J","weight":1},
+        {"label":"전혀 아니다","value":"J","weight":2}
+      ]},
+    { "no": 29, "body": "정돈된 공간을 선호한다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"J","weight":2},
+        {"label":"그렇다","value":"J","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"P","weight":1},
+        {"label":"전혀 아니다","value":"P","weight":2}
+      ]},
+    { "no": 30, "body": "다소 어수선해도 괜찮다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"P","weight":2},
+        {"label":"그렇다","value":"P","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"J","weight":1},
+        {"label":"전혀 아니다","value":"J","weight":2}
+      ]},
+    { "no": 31, "body": "목표 달성을 최우선으로 둔다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"J","weight":2},
+        {"label":"그렇다","value":"J","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"P","weight":1},
+        {"label":"전혀 아니다","value":"P","weight":2}
+      ]},
+    { "no": 32, "body": "과정과 경험을 즐긴다.", "scale_type": "likert5",
+      "choices": [
+        {"label":"매우 그렇다","value":"P","weight":2},
+        {"label":"그렇다","value":"P","weight":1},
+        {"label":"보통이다","value":"N","weight":0},
+        {"label":"아니다","value":"J","weight":1},
+        {"label":"전혀 아니다","value":"J","weight":2}
+      ]}
+  ],
+  "scoring": {
+    "type": "axis",
+    "axes": ["E","I","S","N","T","F","J","P"]
+  },
+  "results": {
+    "INTJ":"전략적이고 분석적. 장점: 계획/통찰, 단점: 융통성 부족.",
+    "INTP":"논리적이고 호기심 많음. 장점: 문제해결, 단점: 실행력 약함.",
+    "ENTJ":"리더십과 결단. 장점: 조직/추진, 단점: 엄격함.",
+    "ENTP":"창의적 토론가. 장점: 아이디어, 단점: 마무리 약함.",
+    "INFJ":"의미와 가치 지향. 장점: 통찰/공감, 단점: 현실세부 약함.",
+    "INFP":"이상과 진정성. 장점: 배려/창의, 단점: 결단력 약함.",
+    "ENFJ":"조화로운 리더. 장점: 소통/조정, 단점: 과한 배려.",
+    "ENFP":"열정적 탐색가. 장점: 상상력/사람, 단점: 산만함.",
+    "ISTJ":"책임감 있는 실무형. 장점: 신뢰/체계, 단점: 경직.",
+    "ISFJ":"헌신적 조력자. 장점: 세심/성실, 단점: 자기주장 약함.",
+    "ESTJ":"현실적 관리자. 장점: 규율/효율, 단점: 융통성 부족.",
+    "ESFJ":"사교적 돌봄형. 장점: 협력/배려, 단점: 눈치 과다.",
+    "ISTP":"분석적 행동가. 장점: 문제해결/유연, 단점: 감정표현 약함.",
+    "ISFP":"온화한 예술가. 장점: 감수성/자유, 단점: 장기계획 약함.",
+    "ESTP":"실전형 도전자. 장점: 실행/순발, 단점: 충동적.",
+    "ESFP":"에너지 넘치는 퍼포머. 장점: 분위기/적응, 단점: 계획성 약함."
+  }
+}
