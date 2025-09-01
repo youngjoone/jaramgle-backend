@@ -27,7 +27,7 @@
 로컬 프로필로 애플리케이션을 실행한 후, 다음 주소로 H2 데이터베이스 콘솔에 접근할 수 있습니다.
 
 *   **URL:** `http://localhost:8080/h2-console`
-*   **JDBC URL:** `jdbc:h2:~/findme`
+*   **JDBC URL:** `jdbc:h2:~/fairylearn`
 *   **User Name:** `sa` (기본값)
 *   **Password:** (비워둠)
 
