@@ -4,6 +4,7 @@ import com.fairylearn.backend.auth.CustomOAuth2User;
 import com.fairylearn.backend.dto.StoryDto;
 import com.fairylearn.backend.dto.StoryPageDto;
 import com.fairylearn.backend.dto.StorySaveRequest;
+import com.fairylearn.backend.dto.StoryGenerateRequest; // Import StoryGenerateRequest
 import com.fairylearn.backend.dto.StorageQuotaDto;
 import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.service.StoryService;
@@ -53,8 +54,17 @@ public class StoryController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    // Endpoint for story generation (as per 02_GENERATION_TASK.md)
     @PostMapping("/stories")
-    public ResponseEntity<StoryDto> createStory(@Valid @RequestBody StorySaveRequest request, @AuthenticationPrincipal CustomOAuth2User principal) {
+    public ResponseEntity<StoryDto> generateStory(@Valid @RequestBody StoryGenerateRequest request, @AuthenticationPrincipal CustomOAuth2User principal) {
+        Story newStory = storyService.generateAndSaveStory(String.valueOf(principal.getId()), request);
+        return new ResponseEntity<>(StoryDto.fromEntity(newStory), HttpStatus.CREATED);
+    }
+
+    // Endpoint for saving an existing story (e.g., from a wizard or import)
+    // Renamed from createStory and changed path to avoid conflict with generation endpoint
+    @PostMapping("/stories/save") // New path for saving existing stories
+    public ResponseEntity<StoryDto> saveExistingStory(@Valid @RequestBody StorySaveRequest request, @AuthenticationPrincipal CustomOAuth2User principal) {
         Story newStory = storyService.saveNewStory(
                 String.valueOf(principal.getId()),
                 request.getTitle(),
