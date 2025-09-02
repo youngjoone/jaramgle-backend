@@ -154,11 +154,11 @@ def health_check():
     return {"status": "ok"}
 
 @app.post("/ai/generate", response_model=GenerateResponse)
-def generate_poem(request: Request, gen_req: GenerateRequest = Body(...)):
+def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(...)):
     try:
         # Call OpenAIClient to generate text
         response = openai_client.generate_text(gen_req, request.state.request_id)
-        return response
+        return JSONResponse(content=response.dict()) # Return raw_json for debugging
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -169,5 +169,5 @@ def generate_poem(request: Request, gen_req: GenerateRequest = Body(...)):
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"code": "GENERATION_ERROR", "message": f"시 생성 중 오류 발생: {e}"}
+            detail={"code": "GENERATION_ERROR", "message": f"스토리 생성 중 오류 발생: {e}"}
         )

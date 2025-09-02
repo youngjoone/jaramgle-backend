@@ -3,3 +3,6 @@ spring:
     name: backend
   profiles:
     active: local
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false

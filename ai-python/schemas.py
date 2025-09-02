@@ -14,7 +14,7 @@ class GenerateRequest(BaseModel):
 
 # New StoryOutput
 class StoryPage(BaseModel):
-    pageNo: int
+    page: int
     text: str
 
 class QA(BaseModel):

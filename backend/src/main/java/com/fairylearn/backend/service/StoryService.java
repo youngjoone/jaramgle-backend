@@ -2,7 +2,9 @@ package com.fairylearn.backend.service;
 
 import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.dto.StoryGenerateRequest;
-import com.fairylearn.backend.dto.StoryGenerateResponse;
+import com.fairylearn.backend.dto.LlmGenerateResponse;
+import com.fairylearn.backend.dto.LlmStoryOutput;
+import com.fairylearn.backend.dto.StoryPageDto;
 import com.fairylearn.backend.entity.StoryPage;
 import com.fairylearn.backend.repository.StoryRepository;
 import com.fairylearn.backend.repository.StoryPageRepository;
@@ -16,6 +18,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import reactor.util.retry.Retry; // Import Retry
 
 import java.time.Duration; // Import Duration
+import java.util.Comparator;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import java.time.LocalDateTime;
@@ -86,40 +90,65 @@ public class StoryService {
 
         // 2. Build prompt payload for ai-python service
         ObjectNode promptPayload = objectMapper.createObjectNode();
-        promptPayload.put("ageRange", request.getAgeRange());
+        promptPayload.put("age_range", request.getAgeRange());
         promptPayload.putArray("topics").addAll(request.getTopics().stream().map(s -> objectMapper.getNodeFactory().textNode(s)).collect(Collectors.toList()));
         promptPayload.putArray("objectives").addAll(request.getObjectives().stream().map(s -> objectMapper.getNodeFactory().textNode(s)).collect(Collectors.toList()));
-        promptPayload.put("minPages", request.getMinPages());
+        promptPayload.put("min_pages", request.getMinPages());
         promptPayload.put("language", request.getLanguage());
         if (request.getTitle() != null) {
             promptPayload.put("title", request.getTitle());
         }
 
-        StoryGenerateResponse generatedResponse;
+        LlmGenerateResponse generatedResponse;
         try {
             // 3. Call ai-python service with retry logic
             generatedResponse = webClient.post()
-                    .uri("/generate") // Assuming /generate endpoint in ai-python
+                    .uri("/ai/generate") // Corrected endpoint
                     .bodyValue(promptPayload)
                     .retrieve()
-                    .bodyToMono(StoryGenerateResponse.class)
+                    .bodyToMono(LlmGenerateResponse.class)
                     .retryWhen(Retry.fixedDelay(1, Duration.ofSeconds(2)) // Retry once after 2 seconds
                             .filter(throwable -> throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException.InternalServerError) // Only retry on 5xx errors
                             .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
                                     new RuntimeException("LLM generation failed after retries: " + retrySignal.failure().getMessage(), retrySignal.failure())))
                     .block(); // Block to get the result synchronously for now
-        } catch (Exception e) {
+        } catch (org.springframework.web.reactive.function.client.WebClientResponseException e) { // Catch specific WebClientResponseException
+            System.err.println("Error response from AI service: " + e.getResponseBodyAsString()); // Log response body
+            throw new RuntimeException("Failed to generate story from LLM service: " + e.getStatusCode() + " " + e.getStatusText() + " from POST http://localhost:8000/ai/generate", e);
+        } catch (Exception e) { // Catch generic exceptions
             // Handle LLM call failure
             throw new RuntimeException("Failed to generate story from LLM service: " + e.getMessage(), e);
         }
 
         // 4. Validate JSON output against schema (basic validation for now)
-        if (generatedResponse == null || generatedResponse.getTitle() == null || generatedResponse.getPages() == null || generatedResponse.getPages().isEmpty()) {
+        if (generatedResponse == null || generatedResponse.getStory() == null || generatedResponse.getStory().getTitle() == null || generatedResponse.getStory().getPages() == null || generatedResponse.getStory().getPages().isEmpty()) {
             throw new IllegalArgumentException("Invalid LLM output: Missing title or pages.");
         }
-        for (var page : generatedResponse.getPages()) {
-            if (page.getPageNo() == null || page.getText() == null || page.getText().length() < 80 || page.getText().length() > 120) {
-                throw new IllegalArgumentException("Invalid LLM output: Page content validation failed.");
+
+        List<StoryPageDto> pages = generatedResponse.getStory().getPages();
+        int actualPageCount = pages.size();
+        int requestedMinPages = request.getMinPages();
+
+        if (actualPageCount < requestedMinPages) {
+            throw new IllegalArgumentException(String.format("Invalid LLM output: Page count mismatch. Requested minPages: %d, Actual pages: %d", requestedMinPages, actualPageCount));
+        }
+
+        // Sort pages by pageNo for consistent validation
+        pages.sort(Comparator.comparing(StoryPageDto::getPageNo));
+
+        AtomicInteger expectedPageNo = new AtomicInteger(1);
+        for (StoryPageDto page : pages) {
+            if (page.getPageNo() == null) {
+                throw new IllegalArgumentException(String.format("Invalid LLM output: Page number is null for page %s.", page.getText()));
+            }
+            if (page.getPageNo() != expectedPageNo.getAndIncrement()) {
+                throw new IllegalArgumentException(String.format("Invalid LLM output: Page number is not continuous or starts from 0. Expected: %d, Actual: %d", expectedPageNo.get() - 1, page.getPageNo()));
+            }
+            if (page.getText() == null || page.getText().isBlank()) {
+                throw new IllegalArgumentException(String.format("Invalid LLM output: Page text is null or blank for page %d.", page.getPageNo()));
+            }
+            if (page.getText().length() < 81 || page.getText().length() > 165) {
+                throw new IllegalArgumentException(String.format("Invalid LLM output: Page text length out of range for page %d. Length: %d", page.getPageNo(), page.getText().length()));
             }
         }
 
@@ -127,7 +156,7 @@ public class StoryService {
         Story story = new Story(
                 null,
                 userId,
-                generatedResponse.getTitle(),
+                generatedResponse.getStory().getTitle(),
                 request.getAgeRange(), // Use request's ageRange
                 String.join(",", request.getTopics()), // Use request's topics
                 request.getLanguage(), // Use request's language
@@ -137,7 +166,7 @@ public class StoryService {
         );
         story = storyRepository.save(story);
 
-        for (var pageDto : generatedResponse.getPages()) {
+        for (var pageDto : generatedResponse.getStory().getPages()) {
             StoryPage page = new StoryPage(null, story, pageDto.getPageNo(), pageDto.getText());
             storyPageRepository.save(page);
         }
