@@ -1,21 +1,22 @@
 package com.fairylearn.backend.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies; // Import PropertyNamingStrategies
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.codec.json.Jackson2JsonDecoder;
 import org.springframework.http.codec.json.Jackson2JsonEncoder;
-import org.springframework.web.reactive.function.client.ExchangeStrategies; // Import ExchangeStrategies
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 
 @Configuration
 public class WebClientConfig {
 
     @Bean
-    public WebClient webClient() {
+    public WebClient webClient(@Value("${ai.python.base-url}") String baseUrl) {
         ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE); // Configure snake_case
+        objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
 
         ExchangeStrategies exchangeStrategies = ExchangeStrategies.builder()
                 .codecs(configurer -> {
@@ -24,8 +25,8 @@ public class WebClientConfig {
                 }).build();
 
         return WebClient.builder()
-                .baseUrl("http://localhost:8000")
-                .exchangeStrategies(exchangeStrategies) // Apply custom ObjectMapper
+                .baseUrl(baseUrl)
+                .exchangeStrategies(exchangeStrategies)
                 .build();
     }
 }

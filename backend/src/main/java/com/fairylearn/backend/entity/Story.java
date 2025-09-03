@@ -40,4 +40,7 @@ public class Story {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    @Column(columnDefinition = "TEXT")
+    private String quiz;
 }
