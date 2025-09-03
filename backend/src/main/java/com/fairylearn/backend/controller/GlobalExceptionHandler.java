@@ -1,16 +1,18 @@
 package com.fairylearn.backend.controller;
 
+import com.fairylearn.backend.dto.ApiError;
 import com.fairylearn.backend.exception.BizException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice; // Changed to RestControllerAdvice
+import org.springframework.web.reactive.function.client.WebClientResponseException; // Import WebClientResponseException
 
 import java.util.HashMap;
 import java.util.Map;
 
-@ControllerAdvice
+@RestControllerAdvice // Changed from ControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BizException.class)
@@ -34,5 +36,22 @@ public class GlobalExceptionHandler {
             errors.put(fieldName, errorMessage);
         });
         return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(WebClientResponseException.class)
+    public ResponseEntity<ApiError> handleWebClient(WebClientResponseException ex) {
+        // 파이썬 LLM 400/422는 422로 승격, 5xx는 502 등으로 매핑
+        HttpStatus status = switch (ex.getStatusCode().value()) {
+            case 400, 422 -> HttpStatus.UNPROCESSABLE_ENTITY; // 422
+            case 500, 502, 503 -> HttpStatus.BAD_GATEWAY;     // 502
+            default -> HttpStatus.INTERNAL_SERVER_ERROR;       // 500
+        };
+        return ResponseEntity.status(status).body(ApiError.of("AI_ERROR", ex.getMessage()));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiError> handleGeneric(Exception ex) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(ApiError.of("INTERNAL_ERROR", "서버 오류"));
     }
 }

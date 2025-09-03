@@ -14,6 +14,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import jakarta.servlet.http.HttpServletResponse; // Import HttpServletResponse
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.servlet.util.matcher.MvcRequestMatcher;
@@ -39,6 +40,7 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .formLogin(AbstractHttpConfigurer::disable)
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers(mvcMatcherBuilder.pattern("/error")).permitAll() // Add this line
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/health")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/public/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/oauth2/authorization/**")).permitAll()
@@ -51,7 +53,14 @@ public class SecurityConfig {
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/auth/signup")).permitAll()
                 .anyRequest().authenticated()
             )
-            .exceptionHandling(exception -> exception.authenticationEntryPoint(jwtAuthenticationEntryPoint)) // Configure custom entry point
+            .exceptionHandling(exception -> exception
+                .authenticationEntryPoint(jwtAuthenticationEntryPoint)
+                .accessDeniedHandler((req, res, ex) -> { // Add this accessDeniedHandler
+                    res.setStatus(HttpServletResponse.SC_FORBIDDEN); // 403
+                    res.setContentType("application/json");
+                    res.getWriter().write("{\"code\": \"ACCESS_DENIED\"}");
+                })
+            )
             
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(requestIdFilter, CorsFilter.class) // Add RequestIdFilter before CorsFilter
