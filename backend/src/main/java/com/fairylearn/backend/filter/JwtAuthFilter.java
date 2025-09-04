@@ -1,6 +1,7 @@
 package com.fairylearn.backend.filter;
 
 import com.fairylearn.backend.auth.CustomOAuth2User;
+import com.fairylearn.backend.exception.JwtAuthenticationException; // Import custom exception
 import com.fairylearn.backend.repository.UserRepository;
 import com.fairylearn.backend.util.JwtProvider;
 import jakarta.servlet.FilterChain;
@@ -11,11 +12,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.security.core.AuthenticationException;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.SignatureException;
 import io.jsonwebtoken.MalformedJwtException;
@@ -57,14 +55,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             if (!jwtProvider.validateToken(token)) {
                 log.warn("JWT token validation failed for subject: {}", subject);
-                throw new AuthenticationException("Invalid JWT token") {};
             }
         } catch (ExpiredJwtException e) {
             log.warn("Invalid JWT token for URI: {}. Error: JWT expired", request.getRequestURI());
-            throw new AuthenticationException("Expired JWT token") {};
+            subject = null; // Ensure subject is null so that authentication is not processed
         } catch (MalformedJwtException | UnsupportedJwtException | IllegalArgumentException | SecurityException e) {
             log.warn("Invalid JWT token for URI: {}. Error: {}", request.getRequestURI(), e.getMessage());
-            throw new AuthenticationException("Invalid JWT token") {};
+            subject = null; // Ensure subject is null so that authentication is not processed
         }
 
         if (subject != null && SecurityContextHolder.getContext().getAuthentication() == null) {

@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice; // Changed to RestControllerAdvice
+import com.fairylearn.backend.exception.JwtAuthenticationException; // Import JwtAuthenticationException
 import org.springframework.web.reactive.function.client.WebClientResponseException; // Import WebClientResponseException
 
 import java.util.HashMap;
