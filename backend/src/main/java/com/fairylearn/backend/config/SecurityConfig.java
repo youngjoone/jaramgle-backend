@@ -40,17 +40,16 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .formLogin(AbstractHttpConfigurer::disable)
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers(mvcMatcherBuilder.pattern("/error")).permitAll() // Add this line
+                .requestMatchers(mvcMatcherBuilder.pattern(org.springframework.http.HttpMethod.OPTIONS, "/**")).permitAll() // Permit all OPTIONS requests
+                .requestMatchers(mvcMatcherBuilder.pattern("/error")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/health")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/public/**")).permitAll()
+                .requestMatchers(mvcMatcherBuilder.pattern("/api/auth/**")).permitAll() // Consolidated auth paths
                 .requestMatchers(mvcMatcherBuilder.pattern("/oauth2/authorization/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/login/oauth2/code/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/h2-console/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/swagger-ui/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/v3/api-docs/**")).permitAll()
-                .requestMatchers(mvcMatcherBuilder.pattern("/api/auth/login")).permitAll() // Allow custom login
-                .requestMatchers(mvcMatcherBuilder.pattern("/api/auth/refresh")).permitAll() // Allow token refresh
-                .requestMatchers(mvcMatcherBuilder.pattern("/api/auth/signup")).permitAll()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(exception -> exception
