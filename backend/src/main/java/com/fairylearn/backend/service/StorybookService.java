@@ -29,6 +29,13 @@ public class StorybookService {
 
     @Transactional
     public StorybookPage createStorybook(Long storyId) {
+        // Check if storybook pages already exist for this story
+        List<StorybookPage> existingPages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
+        if (!existingPages.isEmpty()) {
+            log.info("Storybook pages already exist for storyId: {}. Returning first page.", storyId);
+            return existingPages.get(0);
+        }
+
         Story story = storyRepository.findById(storyId)
                 .orElseThrow(() -> new IllegalArgumentException("Story not found"));
 
@@ -88,11 +95,14 @@ public class StorybookService {
             throw new RuntimeException("Failed to get image path from AI service.");
         }
 
+        // Construct the web-accessible URL
+        String webAccessibleUrl = String.format("http://localhost:8080/images/%s", responseDto.getFilePath());
+
         StorybookPage storybookPage = new StorybookPage();
         storybookPage.setStory(story);
         storybookPage.setPageNumber(pageNumber);
         storybookPage.setText(text);
-        storybookPage.setImageUrl(responseDto.getFilePath());
+        storybookPage.setImageUrl(webAccessibleUrl);
 
         return storybookPageRepository.save(storybookPage);
     }

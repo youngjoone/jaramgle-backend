@@ -190,7 +190,7 @@ def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Bo
             f.write(image_data)
             
         logger.info(f"Image saved to {file_path}")
-        return GenerateImageResponse(file_path=file_path)
+        return GenerateImageResponse(file_path=filename) # Return only filename
 
     except Exception as e:
         logger.error(f"Image generation failed for Request ID: {request.state.request_id}", exc_info=True)
