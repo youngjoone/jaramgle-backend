@@ -1,0 +1,8 @@
+CREATE TABLE storybook_pages (
+    id BIGSERIAL PRIMARY KEY,
+    story_id BIGINT NOT NULL,
+    page_number INT NOT NULL,
+    text TEXT,
+    image_url VARCHAR(255),
+    CONSTRAINT fk_storybook_pages_story FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+);

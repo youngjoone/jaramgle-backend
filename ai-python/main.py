@@ -6,12 +6,14 @@ from pydantic import BaseModel
 import uuid
 import time
 import logging
+import base64
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from schemas import GenerateRequest, GenerateResponse # Import all necessary models
-from service.openai_client import OpenAIClient # Import OpenAIClient
-from config import Config # Import Config class
+from schemas import GenerateRequest, GenerateResponse, GenerateImageRequest, GenerateImageResponse
+from service.openai_client import OpenAIClient
+from config import Config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -170,4 +172,29 @@ def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(..
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "GENERATION_ERROR", "message": f"스토리 생성 중 오류 발생: {e}"}
+        )
+
+@app.post("/ai/generate-image", response_model=GenerateImageResponse)
+def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Body(...)):
+    IMAGE_DIR = "/Users/kyj/testimagedir"
+    try:
+        b64_json = openai_client.generate_image(img_req.text, request.state.request_id)
+        
+        image_data = base64.b64decode(b64_json)
+        
+        # Create a unique filename
+        filename = f"{uuid.uuid4()}.png"
+        file_path = os.path.join(IMAGE_DIR, filename)
+        
+        with open(file_path, "wb") as f:
+            f.write(image_data)
+            
+        logger.info(f"Image saved to {file_path}")
+        return GenerateImageResponse(file_path=file_path)
+
+    except Exception as e:
+        logger.error(f"Image generation failed for Request ID: {request.state.request_id}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "IMAGE_GENERATION_ERROR", "message": str(e)}
         )

@@ -22,6 +22,7 @@ import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -56,7 +57,7 @@ public class StoryService {
     @Transactional
     public Story saveNewStory(String userId, String title, String ageRange, String topicsJson, String language, String lengthLevel, List<String> pageTexts) {
         storageQuotaService.ensureSlotAvailable(userId);
-        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null);
+        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, new ArrayList<>());
         story = storyRepository.save(story);
         for (int i = 0; i < pageTexts.size(); i++) {
             StoryPage page = new StoryPage(null, story, i + 1, pageTexts.get(i));
@@ -103,7 +104,8 @@ public class StoryService {
                 null,
                 "READY",
                 LocalDateTime.now(),
-                quizJson
+                quizJson,
+                new ArrayList<>()
         );
         story = storyRepository.save(story);
 
