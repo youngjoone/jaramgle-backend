@@ -71,3 +71,10 @@ class GenerateResponse(BaseModel):
     story: StoryOutput
     raw_json: str
     moderation: Moderation = Field(default_factory=Moderation)
+
+# -------- Image Generation --------
+class GenerateImageRequest(BaseModel):
+    text: str
+
+class GenerateImageResponse(BaseModel):
+    file_path: str

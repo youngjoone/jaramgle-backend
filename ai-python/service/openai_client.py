@@ -45,8 +45,8 @@ class OpenAIClient:
         {{
           "story": {{
             "title": "string",
-            "pages": [{{ "page": 1, "text": "string" }}],
-            "quiz": [{{ "q": "string", "options": ["string","string","string"], "a": 0 }}]
+            "pages": [{{"page": 1, "text": "string"}}],
+            "quiz": [{{"q": "string", "options": ["string","string","string"], "a": 0}}]
           }}
         }}
 
@@ -140,3 +140,18 @@ class OpenAIClient:
             raw_json=json.dumps(story_data, ensure_ascii=False),
             moderation=moderation,
         )
+
+    def generate_image(self, text: str, request_id: str) -> str:
+        prompt = f"A children's storybook illustration for the following scene: {text}"
+        logger.info(f"Generating image for request_id {request_id} with prompt: {prompt}")
+
+        response = self.client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+            response_format="b64_json"
+        )
+
+        return response.data[0].b64_json

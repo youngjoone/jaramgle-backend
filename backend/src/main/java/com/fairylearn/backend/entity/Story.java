@@ -7,6 +7,8 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "stories")
@@ -43,4 +45,7 @@ public class Story {
 
     @Column(columnDefinition = "TEXT")
     private String quiz;
+
+    @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<StorybookPage> storybookPages = new ArrayList<>();
 }
