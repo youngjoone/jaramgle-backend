@@ -45,6 +45,7 @@ public class SecurityConfig {
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/health")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/public/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/auth/**")).permitAll() // Consolidated auth paths
+                .requestMatchers(mvcMatcherBuilder.pattern("/images/**")).permitAll() // Permit access to images
                 .requestMatchers(mvcMatcherBuilder.pattern("/oauth2/authorization/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/login/oauth2/code/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/h2-console/**")).permitAll()
@@ -78,4 +79,3 @@ public class SecurityConfig {
         return authenticationConfiguration.getAuthenticationManager();
     }
 }
-

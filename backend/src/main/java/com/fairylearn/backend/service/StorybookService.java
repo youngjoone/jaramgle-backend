@@ -47,6 +47,7 @@ public class StorybookService {
         // Synchronously generate the first page
         StoryPage firstOriginalPage = originalPages.get(0);
         StorybookPage firstStorybookPage = generateAndSaveStorybookPage(story, 1, firstOriginalPage.getText());
+        log.info("createStorybook: First page generated and saved. ID: {}", firstStorybookPage.getId());
 
         // Asynchronously generate the rest
         if (originalPages.size() > 1) {
@@ -59,7 +60,10 @@ public class StorybookService {
 
     @Transactional(readOnly = true)
     public List<StorybookPage> getStorybookPages(Long storyId) {
-        return storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
+        log.info("Fetching storybook pages for storyId: {}", storyId);
+        List<StorybookPage> pages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
+        log.info("Found {} storybook pages for storyId: {}", pages.size(), storyId);
+        return pages;
     }
 
     @Async
@@ -70,9 +74,10 @@ public class StorybookService {
             StoryPage originalPage = remainingPages.get(i);
             int pageNumber = i + 2; // Starts from page 2
             try {
-                generateAndSaveStorybookPage(story, pageNumber, originalPage.getText());
+                StorybookPage generatedPage = generateAndSaveStorybookPage(story, pageNumber, originalPage.getText());
+                log.info("Async: Generated and saved page {} for storyId: {}. ID: {}", pageNumber, story.getId(), generatedPage.getId());
             } catch (Exception e) {
-                log.error("Failed to generate image for storyId: {}, pageNumber: {}. Error: {}", 
+                log.error("Async: Failed to generate image for storyId: {}, pageNumber: {}. Error: {}", 
                         story.getId(), pageNumber, e.getMessage());
                 // In a real application, you might want to set an error state for this page
             }
@@ -104,6 +109,8 @@ public class StorybookService {
         storybookPage.setText(text);
         storybookPage.setImageUrl(webAccessibleUrl);
 
-        return storybookPageRepository.save(storybookPage);
+        StorybookPage savedPage = storybookPageRepository.save(storybookPage);
+        log.info("Saved storybook page {} for storyId: {}. Image URL: {}", pageNumber, story.getId(), webAccessibleUrl);
+        return savedPage;
     }
 }
