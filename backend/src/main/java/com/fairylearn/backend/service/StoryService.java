@@ -57,7 +57,7 @@ public class StoryService {
     @Transactional
     public Story saveNewStory(String userId, String title, String ageRange, String topicsJson, String language, String lengthLevel, List<String> pageTexts) {
         storageQuotaService.ensureSlotAvailable(userId);
-        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, new ArrayList<>());
+        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, new ArrayList<>());
         story = storyRepository.save(story);
         for (int i = 0; i < pageTexts.size(); i++) {
             StoryPage page = new StoryPage(null, story, i + 1, pageTexts.get(i));
@@ -101,10 +101,11 @@ public class StoryService {
                 request.getAgeRange(),
                 String.join(",", request.getTopics()),
                 request.getLanguage(),
-                null,
+                null, // lengthLevel
                 "READY",
                 LocalDateTime.now(),
                 quizJson,
+                null, // fullAudioUrl
                 new ArrayList<>()
         );
         story = storyRepository.save(story);
@@ -170,5 +171,34 @@ public class StoryService {
         );
         AiQuiz quiz = new AiQuiz("토끼의 이름은 무엇이었나요?", List.of("토토", "코코", "모모"), 0);
         return new StableStoryDto(title, pages, quiz);
+    }
+
+    @Transactional
+    public String generateAudio(Long storyId, String userId) {
+        Story story = storyRepository.findByIdAndUserId(storyId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Story not found or not owned by user."));
+
+        if (story.getFullAudioUrl() != null && !story.getFullAudioUrl().isEmpty()) {
+            return story.getFullAudioUrl();
+        }
+
+        List<StoryPage> pages = storyPageRepository.findByStoryIdOrderByPageNoAsc(storyId);
+        String fullText = pages.stream()
+                .map(StoryPage::getText)
+                .collect(Collectors.joining("\n\n"));
+
+        // Call Python AI service to generate audio
+        String audioFileName = webClient.post()
+                .uri("/ai/generate-tts") // Assuming this is the endpoint in the Python service
+                .bodyValue(fullText)
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        String audioUrl = "/api/audio/" + audioFileName;
+        story.setFullAudioUrl(audioUrl);
+        storyRepository.save(story);
+
+        return audioUrl;
     }
 }
