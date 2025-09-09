@@ -49,8 +49,10 @@ public class SecurityConfig {
                 .requestMatchers(mvcMatcherBuilder.pattern("/oauth2/authorization/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/login/oauth2/code/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/h2-console/**")).permitAll()
+                .requestMatchers(mvcMatcherBuilder.pattern("/swagger-ui.html")).permitAll() // Specific Swagger UI HTML
                 .requestMatchers(mvcMatcherBuilder.pattern("/swagger-ui/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/v3/api-docs/**")).permitAll()
+                .requestMatchers(mvcMatcherBuilder.pattern("/webjars/**")).permitAll() // Swagger UI static resources
                 .anyRequest().authenticated()
             )
             .exceptionHandling(exception -> exception
