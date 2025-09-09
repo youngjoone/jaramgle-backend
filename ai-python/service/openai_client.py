@@ -155,3 +155,13 @@ class OpenAIClient:
         )
 
         return response.data[0].b64_json
+
+    def create_tts(self, text: str, voice: str = "alloy") -> bytes:
+        logger.info(f"Generating TTS for text: {text[:30]}...")
+        response = self.client.audio.speech.create(
+            model="tts-1",
+            voice=voice,
+            input=text,
+            response_format="mp3"
+        )
+        return response.read()

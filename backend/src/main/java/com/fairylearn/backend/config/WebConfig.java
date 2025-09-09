@@ -12,6 +12,9 @@ public class WebConfig implements WebMvcConfigurer {
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/images/**")
                 .addResourceLocations("file:///Users/kyj/testimagedir/");
+
+        registry.addResourceHandler("/api/audio/**")
+                .addResourceLocations("file:///Users/kyj/testaudiodir/");
     }
 
     @Override

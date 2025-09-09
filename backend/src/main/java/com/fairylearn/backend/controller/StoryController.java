@@ -82,4 +82,10 @@ public class StoryController {
         storyService.deleteStory(id, String.valueOf(principal.getId()));
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/stories/{id}/audio")
+    public ResponseEntity<String> generateAudio(@PathVariable Long id, @AuthenticationPrincipal CustomOAuth2User principal) {
+        String audioUrl = storyService.generateAudio(id, String.valueOf(principal.getId()));
+        return ResponseEntity.ok(audioUrl);
+    }
 }

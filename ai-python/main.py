@@ -198,3 +198,28 @@ def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Bo
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "IMAGE_GENERATION_ERROR", "message": str(e)}
         )
+
+@app.post("/ai/generate-tts")
+def generate_tts_endpoint(request: Request, text: str = Body(..., media_type="text/plain")):
+    AUDIO_DIR = "/Users/kyj/testaudiodir"
+    try:
+        # Ensure the directory exists
+        os.makedirs(AUDIO_DIR, exist_ok=True)
+
+        audio_data = openai_client.create_tts(text)
+        
+        filename = f"{uuid.uuid4()}.mp3"
+        file_path = os.path.join(AUDIO_DIR, filename)
+        
+        with open(file_path, "wb") as f:
+            f.write(audio_data)
+            
+        logger.info(f"Audio file saved to {file_path}")
+        return Response(content=filename, media_type="text/plain")
+
+    except Exception as e:
+        logger.error(f"TTS generation failed for Request ID: {request.state.request_id}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "TTS_GENERATION_ERROR", "message": str(e)}
+        )
