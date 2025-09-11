@@ -2,7 +2,7 @@ package com.fairylearn.backend.service;
 
 import com.fairylearn.backend.dto.LoginRequest;
 import com.fairylearn.backend.dto.SignupRequest;
-import com.fairylearn.backend.entity.UserEntity;
+import com.fairylearn.backend.entity.User;
 import com.fairylearn.backend.exception.BizException;
 import com.fairylearn.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +21,7 @@ public class AuthService {
 
     private static final Pattern PASSWORD_PATTERN = Pattern.compile("(?=.*[A-Za-z])(?=.*\\d).{8,}");
 
-    public UserEntity signup(SignupRequest req) {
+    public User signup(SignupRequest req) {
         userRepository.findByEmail(req.getEmail()).ifPresent(user -> {
             throw new BizException("EMAIL_TAKEN", "Email already taken");
         });
@@ -30,18 +30,18 @@ public class AuthService {
             throw new BizException("INVALID_PASSWORD", "Password must be at least 8 characters long and contain at least one letter and one number");
         }
 
-        UserEntity user = new UserEntity();
+        User user = new User();
         user.setEmail(req.getEmail());
         user.setPasswordHash(passwordEncoder.encode(req.getPassword()));
-        user.setNickname(req.getNickname());
-        user.setEmailVerified(true);
+        user.setName(req.getNickname()); // nickname -> name
+        user.setProvider("local"); // Mark as local user
         user.setCreatedAt(LocalDateTime.now());
 
         return userRepository.save(user);
     }
 
-    public UserEntity login(LoginRequest req) {
-        UserEntity user = userRepository.findByEmail(req.getEmail())
+    public User login(LoginRequest req) {
+        User user = userRepository.findByEmail(req.getEmail())
                 .orElseThrow(() -> new BizException("INVALID_CREDENTIALS", "Invalid email or password"));
 
         if (!passwordEncoder.matches(req.getPassword(), user.getPasswordHash())) {

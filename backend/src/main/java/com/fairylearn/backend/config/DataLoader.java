@@ -1,6 +1,6 @@
 package com.fairylearn.backend.config;
 
-import com.fairylearn.backend.entity.UserEntity;
+import com.fairylearn.backend.entity.User;
 import com.fairylearn.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.CommandLineRunner;
@@ -19,11 +19,11 @@ public class DataLoader implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         if (userRepository.findByEmail("admin@admin.admin").isEmpty()) {
-            UserEntity adminUser = new UserEntity();
+            User adminUser = new User();
             adminUser.setEmail("admin@admin.admin");
             adminUser.setPasswordHash(passwordEncoder.encode("asdf1234"));
-            adminUser.setNickname("Admin");
-            adminUser.setEmailVerified(true);
+            adminUser.setName("Admin");
+            adminUser.setProvider("local");
             adminUser.setCreatedAt(LocalDateTime.now());
             userRepository.save(adminUser);
             System.out.println("Admin user created: admin@admin.admin");
