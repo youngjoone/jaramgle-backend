@@ -6,7 +6,7 @@ import com.fairylearn.backend.dto.MockPaymentRequest;
 import com.fairylearn.backend.dto.MockPaymentResponse;
 import com.fairylearn.backend.entity.Entitlement;
 import com.fairylearn.backend.entity.Purchase;
-import com.fairylearn.backend.entity.UserEntity; // Import UserEntity
+import com.fairylearn.backend.entity.User; // Import User
 import com.fairylearn.backend.repository.EntitlementRepository;
 import com.fairylearn.backend.repository.PurchaseRepository;
 import com.fairylearn.backend.repository.UserRepository; // Import UserRepository
@@ -86,7 +86,7 @@ public class BillingService {
             Object principal = authentication.getPrincipal();
             if (principal instanceof UserDetails) {
                 String email = ((UserDetails) principal).getUsername();
-                UserEntity user = userRepository.findByEmail(email)
+                User user = userRepository.findByEmail(email)
                         .orElseThrow(() -> new IllegalArgumentException("User not found with email: " + email));
                 return user.getId();
             } else if (principal instanceof CustomOAuth2User) {

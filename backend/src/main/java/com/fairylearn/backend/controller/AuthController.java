@@ -3,7 +3,7 @@ package com.fairylearn.backend.controller;
 import com.fairylearn.backend.service.AuthService;
 import com.fairylearn.backend.dto.LoginRequest;
 import com.fairylearn.backend.dto.SignupRequest;
-import com.fairylearn.backend.entity.UserEntity;
+import com.fairylearn.backend.entity.User;
 import com.fairylearn.backend.util.JwtProvider;
 import com.fairylearn.backend.entity.RefreshTokenEntity;
 import com.fairylearn.backend.repository.RefreshTokenRepository;
@@ -41,7 +41,7 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<Map<String, String>> login(@Valid @RequestBody LoginRequest loginRequest) {
-        UserEntity user = authService.login(loginRequest);
+        User user = authService.login(loginRequest);
 
         // Generate access token
         String accessToken = jwtProvider.generateToken(user.getEmail()); // Use user's email as subject

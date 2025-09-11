@@ -1,6 +1,7 @@
 package com.fairylearn.backend.config;
 
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import com.fairylearn.backend.auth.CustomOAuth2UserService;
 import com.fairylearn.backend.filter.JwtAuthFilter;
 import com.fairylearn.backend.filter.RequestIdFilter; // Import RequestIdFilter
 import com.fairylearn.backend.auth.OAuth2SuccessHandler;
@@ -30,6 +31,7 @@ public class SecurityConfig {
     private final JwtAuthFilter jwtAuthFilter;
     private final RequestIdFilter requestIdFilter; // Inject RequestIdFilter
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint; // Inject JwtAuthenticationEntryPoint
+    private final CustomOAuth2UserService customOAuth2UserService; // Inject CustomOAuth2UserService
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, HandlerMappingIntrospector introspector) throws Exception {
@@ -55,6 +57,12 @@ public class SecurityConfig {
                 .requestMatchers(mvcMatcherBuilder.pattern("/v3/api-docs/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/webjars/**")).permitAll() // Swagger UI static resources
                 .anyRequest().authenticated()
+            )
+            .oauth2Login(oauth2 -> oauth2
+                .userInfoEndpoint(userInfo -> userInfo
+                    .userService(customOAuth2UserService)
+                )
+                .successHandler(oAuth2SuccessHandler)
             )
             .exceptionHandling(exception -> exception
                 .authenticationEntryPoint(jwtAuthenticationEntryPoint)

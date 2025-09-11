@@ -68,12 +68,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             log.debug("JWT token is valid for subject: {}", subject);
             // Load UserEntity and create CustomOAuth2User
             String finalSubject = subject; // Make a final copy
-            userRepository.findByEmail(finalSubject).ifPresent(userEntity -> {
+            userRepository.findByEmail(finalSubject).ifPresent(user -> {
                 CustomOAuth2User customOAuth2User = new CustomOAuth2User(
-                        userEntity.getId(),
-                        userEntity.getEmail(),
-                        userEntity.getNickname(),
-                        userEntity.getProvider(),
+                        user.getId(),
+                        user.getEmail(),
+                        user.getName(), // getNickname() -> getName()
+                        user.getProvider(),
                         new ArrayList<>() // Authorities
                 );
                 UsernamePasswordAuthenticationToken authenticationToken =
