@@ -14,6 +14,10 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
+import com.fairylearn.backend.entity.User; // New import
+import java.time.Instant; // For Instant
+import java.time.temporal.ChronoUnit; // For ChronoUnit
+import java.util.stream.Collectors; // For Collectors
 
 @Component
 public class JwtProvider {
@@ -35,6 +39,18 @@ public class JwtProvider {
     public String generateToken(String subject) {
         Map<String, Object> claims = new HashMap<>();
         return createToken(claims, subject);
+    }
+
+    public String generateToken(User user) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+            .subject(String.valueOf(user.getId()))          // sub = 내부 userId
+            .claim("email", user.getEmail())
+            .claim("roles", user.getRoleKey())                   // ["USER","ADMIN"] 등
+            .issuedAt(Date.from(now))
+            .expiration(Date.from(now.plus(expirationMinutes, ChronoUnit.MINUTES))) // Use expirationMinutes from properties
+            .signWith(getSigningKey(), Jwts.SIG.HS256)
+            .compact();
     }
 
     public String generateRefreshToken(String subject) {
@@ -77,11 +93,15 @@ public class JwtProvider {
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
-        final Claims claims = extractAllClaims(token);
+        final Claims claims = parse(token); // Call the public parse method
         return claimsResolver.apply(claims);
     }
 
-    private Claims extractAllClaims(String token) {
-        return Jwts.parser().verifyWith(getSigningKey()).build().parseSignedClaims(token).getPayload();
+    public Claims parse(String token) {
+        return Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 }
