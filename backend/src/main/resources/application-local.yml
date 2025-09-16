@@ -19,8 +19,8 @@ spring:
       client:
         registration:
           google:
-            client-id: ${GOOGLE_CLIENT_ID}
-            client-secret: ${GOOGLE_CLIENT_SECRET}
+            client-id: 1093953420579-hvtg3btvbdp6en06g56j9akpk76rjsia.apps.googleusercontent.com
+            client-secret: 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
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
             scope:
               - openid

@@ -29,20 +29,30 @@ public class OAuthAttributes {
         if ("naver".equals(registrationId)) {
             return ofNaver("id", attributes);
         }
-        // Add other providers like Google, Kakao here if needed
-        // return ofGoogle(userNameAttributeName, attributes);
+        if ("google".equals(registrationId)) {
+            return ofGoogle(userNameAttributeName, attributes);
+        }
         return null; // Or throw an exception for unsupported providers
     }
 
     private static OAuthAttributes ofNaver(String userNameAttributeName, Map<String, Object> attributes) {
-        Map<String, Object> response = (Map<String, Object>) attributes.get("response");
-
         return OAuthAttributes.builder()
-                .name((String) response.get("name"))
-                .email((String) response.get("email"))
+                .name((String) attributes.get("name"))
+                .email((String) attributes.get("email"))
                 .provider("naver")
-                .providerId((String) response.get("id"))
-                .attributes(response)
+                .providerId((String) attributes.get("id"))
+                .attributes(attributes)
+                .nameAttributeKey(userNameAttributeName)
+                .build();
+    }
+
+    private static OAuthAttributes ofGoogle(String userNameAttributeName, Map<String, Object> attributes) {
+        return OAuthAttributes.builder()
+                .name((String) attributes.get("name"))
+                .email((String) attributes.get("email"))
+                .provider("google")
+                .providerId((String) attributes.get("sub")) // Google's unique ID for the user
+                .attributes(attributes)
                 .nameAttributeKey(userNameAttributeName)
                 .build();
     }

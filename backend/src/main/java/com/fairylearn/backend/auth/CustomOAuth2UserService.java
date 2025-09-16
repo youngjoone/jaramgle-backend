@@ -1,7 +1,5 @@
 package com.fairylearn.backend.auth;
 
-import com.fairylearn.backend.entity.User;
-import com.fairylearn.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
@@ -13,11 +11,11 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
+import java.util.Map;
 
 @RequiredArgsConstructor
 @Service
 public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequest, OAuth2User> {
-    private final UserRepository userRepository;
 
     @Override
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
@@ -25,27 +23,21 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
         OAuth2User oAuth2User = delegate.loadUser(userRequest);
 
         String registrationId = userRequest.getClientRegistration().getRegistrationId();
-        String userNameAttributeName = userRequest.getClientRegistration().getProviderDetails().getUserInfoEndpoint().getUserNameAttributeName();
+        String userNameAttributeName = userRequest.getClientRegistration()
+                .getProviderDetails().getUserInfoEndpoint().getUserNameAttributeName();
 
-        OAuthAttributes attributes = OAuthAttributes.of(registrationId, userNameAttributeName, oAuth2User.getAttributes());
+        Map<String, Object> attributes = oAuth2User.getAttributes();
 
-        User user = saveOrUpdate(attributes);
+        // For Naver, attributes are nested in a 'response' map, so we extract it.
+        // For other providers (like Google), attributes are at the top level.
+        if ("naver".equals(registrationId)) {
+            attributes = (Map<String, Object>) attributes.get("response");
+            userNameAttributeName = "id"; // For Naver, the unique key is 'id' inside the 'response' map
+        }
 
-        // Use CustomOAuth2User to hold our custom user details
-        return new CustomOAuth2User(
-                user.getId(),
-                user.getEmail(),
-                user.getName(),
-                user.getProvider(),
-                Collections.singleton(new SimpleGrantedAuthority(user.getRole()))
-        );
-    }
-
-    private User saveOrUpdate(OAuthAttributes attributes) {
-        User user = userRepository.findByProviderAndProviderId(attributes.getProvider(), attributes.getProviderId())
-                .map(entity -> entity.update(attributes.getName(), attributes.getEmail()))
-                .orElse(attributes.toEntity());
-
-        return userRepository.save(user);
+        return new DefaultOAuth2User(
+                Collections.singleton(new SimpleGrantedAuthority("ROLE_USER")),
+                attributes,
+                userNameAttributeName);
     }
 }

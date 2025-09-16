@@ -10,7 +10,9 @@ import java.time.LocalDateTime;
 @Getter
 @NoArgsConstructor
 @Entity
-@Table(name = "users")
+@Table(name = "users", uniqueConstraints = {
+    @UniqueConstraint(columnNames = {"provider", "provider_id"})
+})
 public class User {
 
     @Id
@@ -63,4 +65,6 @@ public class User {
     public void setName(String name) { this.name = name; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public void setProvider(String provider) { this.provider = provider; }
+    public void setProviderId(String providerId) { this.providerId = providerId; } // New setter
+    public void setRole(String role) { this.role = role; } // New setter
 }

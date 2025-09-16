@@ -1,8 +1,6 @@
 package com.fairylearn.backend.filter;
 
-import com.fairylearn.backend.auth.CustomOAuth2User;
 import com.fairylearn.backend.exception.JwtAuthenticationException; // Import custom exception
-import com.fairylearn.backend.repository.UserRepository;
 import com.fairylearn.backend.util.JwtProvider;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -21,7 +19,11 @@ import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.SecurityException;
 
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.ArrayList; // Keep if still needed, otherwise remove
+import com.fairylearn.backend.auth.AuthPrincipal; // New import
+import org.springframework.security.core.authority.SimpleGrantedAuthority; // New import
+import java.util.List; // New import
+import io.jsonwebtoken.Claims; // New import
 
 @Component
 @RequiredArgsConstructor
@@ -29,63 +31,40 @@ import java.util.ArrayList;
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtProvider jwtProvider;
-    private final UserRepository userRepository; // Inject UserRepository
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String authHeader = request.getHeader("Authorization");
         String token = null;
-        String subject = null;
-
-        log.debug("Processing request for URI: {}", request.getRequestURI());
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.debug("No Bearer token found in Authorization header for URI: {}", request.getRequestURI());
             filterChain.doFilter(request, response);
             return;
         }
 
         token = authHeader.substring(7);
-        log.debug("Bearer token found for URI: {}. Token: {}...", request.getRequestURI(), token.substring(0, Math.min(token.length(), 10)));
 
         try {
-            subject = jwtProvider.extractSubject(token);
-            log.debug("Subject extracted: {}", subject);
+            Claims claims = jwtProvider.parse(token);
+            Long userId = Long.valueOf(claims.getSubject());
+            String email = claims.get("email", String.class);
+            String role = claims.get("roles", String.class);
 
-            if (!jwtProvider.validateToken(token)) {
-                log.warn("JWT token validation failed for subject: {}", subject);
+            if (userId != null && email != null && role != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                var authorities = List.of(new SimpleGrantedAuthority(role));
+
+                var principal = new AuthPrincipal(userId, email, authorities);
+                var auth = new UsernamePasswordAuthenticationToken(principal, null, authorities);
+
+                SecurityContextHolder.getContext().setAuthentication(auth);
             }
         } catch (ExpiredJwtException e) {
             log.warn("Invalid JWT token for URI: {}. Error: JWT expired", request.getRequestURI());
-            subject = null; // Ensure subject is null so that authentication is not processed
         } catch (MalformedJwtException | UnsupportedJwtException | IllegalArgumentException | SecurityException e) {
             log.warn("Invalid JWT token for URI: {}. Error: {}", request.getRequestURI(), e.getMessage());
-            subject = null; // Ensure subject is null so that authentication is not processed
         }
 
-        if (subject != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            log.debug("JWT token is valid for subject: {}", subject);
-            // Load UserEntity and create CustomOAuth2User
-            String finalSubject = subject; // Make a final copy
-            userRepository.findByEmail(finalSubject).ifPresent(user -> {
-                CustomOAuth2User customOAuth2User = new CustomOAuth2User(
-                        user.getId(),
-                        user.getEmail(),
-                        user.getName(), // getNickname() -> getName()
-                        user.getProvider(),
-                        new ArrayList<>() // Authorities
-                );
-                UsernamePasswordAuthenticationToken authenticationToken =
-                        new UsernamePasswordAuthenticationToken(customOAuth2User, null, customOAuth2User.getAuthorities());
-                SecurityContextHolder.getContext().setAuthentication(authenticationToken);
-                log.debug("Authentication set for subject: {}", finalSubject); // Use finalSubject
-            });
-        } else if (subject == null) {
-            log.debug("Subject is null after extraction or token is invalid.");
-        } else {
-            log.debug("SecurityContext already has authentication for subject: {}", SecurityContextHolder.getContext().getAuthentication().getName());
-        }
         filterChain.doFilter(request, response);
     }
 }

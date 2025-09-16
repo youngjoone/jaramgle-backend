@@ -12,6 +12,20 @@ spring:
     redis:
       host: localhost
       port: 6379
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: 1093953420579-hvtg3btvbdp6en06g56j9akpk76rjsia.apps.googleusercontent.com
+            client-secret: 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
+            scope:
+              - openid
+              - profile
+              - email
+app:
+  frontend:
+    base-url: http://localhost:5173
 ai:
   python:
     base-url: http://localhost:8000
