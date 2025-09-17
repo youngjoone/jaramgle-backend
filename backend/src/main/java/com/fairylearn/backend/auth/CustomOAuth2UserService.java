@@ -11,6 +11,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 @RequiredArgsConstructor
@@ -26,13 +27,23 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
         String userNameAttributeName = userRequest.getClientRegistration()
                 .getProviderDetails().getUserInfoEndpoint().getUserNameAttributeName();
 
-        Map<String, Object> attributes = oAuth2User.getAttributes();
+        // Create a mutable copy of the attributes map
+        Map<String, Object> attributes = new HashMap<>(oAuth2User.getAttributes());
 
-        // For Naver, attributes are nested in a 'response' map, so we extract it.
-        // For other providers (like Google), attributes are at the top level.
         if ("naver".equals(registrationId)) {
             attributes = (Map<String, Object>) attributes.get("response");
-            userNameAttributeName = "id"; // For Naver, the unique key is 'id' inside the 'response' map
+            userNameAttributeName = "id";
+        } else if ("kakao".equals(registrationId)) {
+            Map<String, Object> kakaoAccount = (Map<String, Object>) attributes.get("kakao_account");
+            Map<String, Object> properties = (Map<String, Object>) attributes.get("properties");
+
+            if (kakaoAccount != null) {
+                attributes.putAll(kakaoAccount);
+            }
+            if (properties != null) {
+                attributes.putAll(properties);
+            }
+            userNameAttributeName = "id";
         }
 
         return new DefaultOAuth2User(
