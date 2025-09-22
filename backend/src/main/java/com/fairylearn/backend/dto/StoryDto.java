@@ -22,6 +22,10 @@ public class StoryDto {
     private String status;
     private LocalDateTime createdAt;
     private List<StoryPageDto> pages; // For detail view
+    private String shareSlug;
+    private LocalDateTime sharedAt;
+    private boolean manageable;
+    private String fullAudioUrl;
 
     public static StoryDto fromEntity(Story story) {
         StoryDto dto = new StoryDto();
@@ -35,6 +39,8 @@ public class StoryDto {
         dto.setLengthLevel(story.getLengthLevel());
         dto.setStatus(story.getStatus());
         dto.setCreatedAt(story.getCreatedAt());
+        dto.setManageable(false);
+        dto.setFullAudioUrl(story.getFullAudioUrl());
         // Pages will be set separately for detail view
         return dto;
     }
