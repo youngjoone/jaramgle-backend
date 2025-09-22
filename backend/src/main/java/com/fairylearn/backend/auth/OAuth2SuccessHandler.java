@@ -1,6 +1,8 @@
 package com.fairylearn.backend.auth;
 
+import com.fairylearn.backend.entity.RefreshTokenEntity;
 import com.fairylearn.backend.entity.User;
+import com.fairylearn.backend.repository.RefreshTokenRepository;
 import com.fairylearn.backend.service.AuthService;
 import com.fairylearn.backend.util.JwtProvider;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,10 +14,11 @@ import org.springframework.security.oauth2.client.authentication.OAuth2Authentic
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Component
 @RequiredArgsConstructor
@@ -23,6 +26,7 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
 
     private final JwtProvider jwtProvider;
     private final AuthService authService;
+    private final RefreshTokenRepository refreshTokenRepository; // Inject repository
 
     @Value("${app.frontend.base-url}")
     private String frontendBaseUrl;
@@ -46,9 +50,24 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
                 attributes.getEmail()
         );
 
-        String jwt = jwtProvider.generateToken(user);
+        // Generate both access and refresh tokens
+        String accessToken = jwtProvider.generateToken(user);
+        String refreshToken = jwtProvider.generateRefreshToken(String.valueOf(user.getId()));
+        LocalDateTime refreshTokenExpiresAt = jwtProvider.extractExpiration(refreshToken).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
 
-        String redirect = frontendBaseUrl + "/auth/callback#token=" + URLEncoder.encode(jwt, StandardCharsets.UTF_8);
-        res.sendRedirect(redirect);
+        // Save the new refresh token to the database
+        RefreshTokenEntity refreshTokenEntity = new RefreshTokenEntity();
+        refreshTokenEntity.setUserId(String.valueOf(user.getId()));
+        refreshTokenEntity.setToken(refreshToken);
+        refreshTokenEntity.setExpiresAt(refreshTokenExpiresAt);
+        refreshTokenRepository.save(refreshTokenEntity);
+
+        // Build the redirect URL with tokens as query parameters
+        String redirectUrl = UriComponentsBuilder.fromUriString(frontendBaseUrl + "/auth/callback")
+                .queryParam("accessToken", accessToken)
+                .queryParam("refreshToken", refreshToken)
+                .build().toUriString();
+
+        res.sendRedirect(redirectUrl);
     }
 }
