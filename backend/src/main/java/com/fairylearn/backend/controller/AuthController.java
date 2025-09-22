@@ -1,5 +1,6 @@
 package com.fairylearn.backend.controller;
 
+import com.fairylearn.backend.repository.UserRepository;
 import com.fairylearn.backend.service.AuthService;
 import com.fairylearn.backend.dto.LoginRequest;
 import com.fairylearn.backend.dto.SignupRequest;
@@ -10,6 +11,7 @@ import com.fairylearn.backend.repository.RefreshTokenRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,8 +30,9 @@ import java.util.Optional;
 public class AuthController {
 
     private final JwtProvider jwtProvider;
-    private final RefreshTokenRepository refreshTokenRepository; // Inject RefreshTokenRepository
+    private final RefreshTokenRepository refreshTokenRepository;
     private final AuthService authService;
+    private final UserRepository userRepository; // Inject UserRepository
 
     @PostMapping("/signup")
     public ResponseEntity<Map<String, String>> signup(@Valid @RequestBody SignupRequest signupRequest) {
@@ -43,16 +46,16 @@ public class AuthController {
     public ResponseEntity<Map<String, String>> login(@Valid @RequestBody LoginRequest loginRequest) {
         User user = authService.login(loginRequest);
 
-        // Generate access token
-        String accessToken = jwtProvider.generateToken(user.getEmail()); // Use user's email as subject
+        // Generate access token using the User object (which uses ID as subject)
+        String accessToken = jwtProvider.generateToken(user);
 
-        // Generate refresh token
-        String refreshToken = jwtProvider.generateRefreshToken(user.getEmail());
+        // Generate refresh token using user ID as subject
+        String refreshToken = jwtProvider.generateRefreshToken(String.valueOf(user.getId()));
         LocalDateTime refreshTokenExpiresAt = jwtProvider.extractExpiration(refreshToken).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
 
-        // Save refresh token to DB
+        // Save refresh token to DB using user ID
         RefreshTokenEntity refreshTokenEntity = new RefreshTokenEntity();
-        refreshTokenEntity.setUserId(user.getEmail()); // Use user's email as userId
+        refreshTokenEntity.setUserId(String.valueOf(user.getId())); // Use user's ID as userId
         refreshTokenEntity.setToken(refreshToken);
         refreshTokenEntity.setExpiresAt(refreshTokenExpiresAt);
         refreshTokenRepository.save(refreshTokenEntity);
@@ -87,9 +90,9 @@ public class AuthController {
         }
 
         // b) JWT 검증(서명/만료) + sub 일치 확인
-        String userId;
+        String userIdStr;
         try {
-            userId = jwtProvider.extractSubject(oldRefreshToken);
+            userIdStr = jwtProvider.extractSubject(oldRefreshToken);
             if (!jwtProvider.validateToken(oldRefreshToken)) {
                 return ResponseEntity.status(401).body(Collections.singletonMap("message", "Invalid refresh token (JWT validation failed)"));
             }
@@ -97,24 +100,28 @@ public class AuthController {
             return ResponseEntity.status(401).body(Collections.singletonMap("message", "Invalid refresh token (JWT parsing error)"));
         }
 
-        // c) 새 access 발급
-        String newAccessToken = jwtProvider.generateToken(userId);
+        // c) Find user in DB to create a full-featured token
+        User user = userRepository.findById(Long.valueOf(userIdStr))
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + userIdStr));
 
-        // d) (회전) 새 refresh 발급 + DB 저장
-        String newRefreshToken = jwtProvider.generateRefreshToken(userId);
+        // d) Generate new access token with all claims
+        String newAccessToken = jwtProvider.generateToken(user);
+
+        // e) (Rotation) Generate new refresh token and save to DB
+        String newRefreshToken = jwtProvider.generateRefreshToken(userIdStr);
         LocalDateTime newRefreshTokenExpiresAt = jwtProvider.extractExpiration(newRefreshToken).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
 
         RefreshTokenEntity newRefreshTokenEntity = new RefreshTokenEntity();
-        newRefreshTokenEntity.setUserId(userId);
+        newRefreshTokenEntity.setUserId(userIdStr);
         newRefreshTokenEntity.setToken(newRefreshToken);
         newRefreshTokenEntity.setExpiresAt(newRefreshTokenExpiresAt);
         refreshTokenRepository.save(newRefreshTokenEntity);
 
-        // e) 기존 refresh 레코드 revoked_at=now 로 업데이트
+        // f) Revoke old refresh token
         storedRefreshToken.setRevokedAt(LocalDateTime.now());
         refreshTokenRepository.save(storedRefreshToken);
 
-        // f) 응답: { access, refresh }
+        // g) Respond with new tokens
         Map<String, String> responseBody = new HashMap<>();
         responseBody.put("accessToken", newAccessToken);
         responseBody.put("refreshToken", newRefreshToken);
