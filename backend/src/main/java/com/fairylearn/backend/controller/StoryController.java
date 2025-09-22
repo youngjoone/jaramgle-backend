@@ -7,7 +7,9 @@ import com.fairylearn.backend.dto.StorySaveRequest;
 import com.fairylearn.backend.dto.StoryGenerateRequest;
 import com.fairylearn.backend.dto.StorageQuotaDto;
 import com.fairylearn.backend.entity.Story;
+import com.fairylearn.backend.dto.ShareStoryResponse;
 import com.fairylearn.backend.service.StoryService;
+import com.fairylearn.backend.service.StoryShareService;
 import com.fairylearn.backend.service.StorageQuotaService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ public class StoryController {
 
     private final StoryService storyService;
     private final StorageQuotaService storageQuotaService;
+    private final StoryShareService storyShareService;
 
     @GetMapping("/storage/me")
     public ResponseEntity<StorageQuotaDto> getMyStorageQuota(@AuthenticationPrincipal AuthPrincipal principal) {
@@ -37,7 +40,12 @@ public class StoryController {
     public ResponseEntity<List<StoryDto>> getMyStories(@AuthenticationPrincipal AuthPrincipal principal) {
         List<Story> stories = storyService.getStoriesByUserId(String.valueOf(principal.id()));
         List<StoryDto> storyDtos = stories.stream()
-                .map(StoryDto::fromEntity)
+                .map(story -> {
+                    StoryDto dto = StoryDto.fromEntity(story);
+                    storyShareService.findShareSlugForStory(story.getId()).ifPresent(dto::setShareSlug);
+                    dto.setManageable(true);
+                    return dto;
+                })
                 .collect(Collectors.toList());
         return ResponseEntity.ok(storyDtos);
     }
@@ -49,7 +57,10 @@ public class StoryController {
                     List<StoryPageDto> pages = storyService.getStoryPagesByStoryId(story.getId()).stream()
                             .map(StoryPageDto::fromEntity)
                             .collect(Collectors.toList());
-                    return ResponseEntity.ok(StoryDto.fromEntityWithPages(story, pages));
+                    StoryDto dto = StoryDto.fromEntityWithPages(story, pages);
+                    storyShareService.findShareSlugForStory(story.getId()).ifPresent(dto::setShareSlug);
+                    dto.setManageable(true);
+                    return ResponseEntity.ok(dto);
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -57,7 +68,9 @@ public class StoryController {
     @PostMapping("/stories")
     public ResponseEntity<StoryDto> generateStory(@Valid @RequestBody StoryGenerateRequest request, @AuthenticationPrincipal AuthPrincipal principal) {
         Story newStory = storyService.generateAndSaveStory(String.valueOf(principal.id()), request);
-        return new ResponseEntity<>(StoryDto.fromEntity(newStory), HttpStatus.CREATED);
+        StoryDto dto = StoryDto.fromEntity(newStory);
+        dto.setManageable(true);
+        return new ResponseEntity<>(dto, HttpStatus.CREATED);
     }
 
     @PostMapping("/stories/save")
@@ -71,7 +84,9 @@ public class StoryController {
                 request.getLengthLevel(),
                 request.getPageTexts()
         );
-        return new ResponseEntity<>(StoryDto.fromEntity(newStory), HttpStatus.CREATED);
+        StoryDto dto = StoryDto.fromEntity(newStory);
+        dto.setManageable(true);
+        return new ResponseEntity<>(dto, HttpStatus.CREATED);
     }
 
     @DeleteMapping("/stories/{id}")
@@ -84,5 +99,11 @@ public class StoryController {
     public ResponseEntity<String> generateAudio(@PathVariable Long id, @AuthenticationPrincipal AuthPrincipal principal) {
         String audioUrl = storyService.generateAudio(id, String.valueOf(principal.id()));
         return ResponseEntity.ok(audioUrl);
+    }
+
+    @PostMapping("/stories/{id}/share")
+    public ResponseEntity<ShareStoryResponse> shareStory(@PathVariable Long id, @AuthenticationPrincipal AuthPrincipal principal) {
+        ShareStoryResponse response = storyShareService.shareStory(id, String.valueOf(principal.id()));
+        return ResponseEntity.ok(response);
     }
 }

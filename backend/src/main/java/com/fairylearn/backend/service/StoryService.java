@@ -178,11 +178,16 @@ public class StoryService {
         Story story = storyRepository.findByIdAndUserId(storyId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Story not found or not owned by user."));
 
+        return generateAudioForStory(story);
+    }
+
+    @Transactional
+    public String generateAudioForStory(Story story) {
         if (story.getFullAudioUrl() != null && !story.getFullAudioUrl().isEmpty()) {
             return story.getFullAudioUrl();
         }
 
-        List<StoryPage> pages = storyPageRepository.findByStoryIdOrderByPageNoAsc(storyId);
+        List<StoryPage> pages = storyPageRepository.findByStoryIdOrderByPageNoAsc(story.getId());
         String fullText = pages.stream()
                 .map(StoryPage::getText)
                 .collect(Collectors.joining("\n\n"));
