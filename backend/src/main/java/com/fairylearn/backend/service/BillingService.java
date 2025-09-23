@@ -1,7 +1,6 @@
 package com.fairylearn.backend.service;
 
 import com.fairylearn.backend.auth.CustomOAuth2User;
-import com.fairylearn.backend.dto.EntitlementDto;
 import com.fairylearn.backend.dto.MockPaymentRequest;
 import com.fairylearn.backend.dto.MockPaymentResponse;
 import com.fairylearn.backend.entity.Entitlement;
@@ -18,9 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -68,16 +65,6 @@ public class BillingService {
         entitlementRepository.save(entitlement);
 
         return new MockPaymentResponse(purchase.getId(), "PAID");
-    }
-
-    public List<EntitlementDto> getUserEntitlements() {
-        Long userId = getCurrentUserId();
-        if (userId == null) {
-            throw new IllegalArgumentException("User must be logged in to view entitlements.");
-        }
-        return entitlementRepository.findByUserId(userId).stream()
-                .map(e -> new EntitlementDto(e.getItemCode()))
-                .collect(Collectors.toList());
     }
 
     private Long getCurrentUserId() {
