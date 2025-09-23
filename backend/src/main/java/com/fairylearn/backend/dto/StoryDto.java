@@ -26,6 +26,8 @@ public class StoryDto {
     private LocalDateTime sharedAt;
     private boolean manageable;
     private String fullAudioUrl;
+    private Long authorId;
+    private String authorNickname;
 
     public static StoryDto fromEntity(Story story) {
         StoryDto dto = new StoryDto();
@@ -41,6 +43,8 @@ public class StoryDto {
         dto.setCreatedAt(story.getCreatedAt());
         dto.setManageable(false);
         dto.setFullAudioUrl(story.getFullAudioUrl());
+        dto.setAuthorId(null);
+        dto.setAuthorNickname(null);
         // Pages will be set separately for detail view
         return dto;
     }

@@ -12,5 +12,8 @@ public class SharedStoryDetailDto {
     private String title;
     private LocalDateTime sharedAt;
     private boolean manageable;
+    private long likeCount;
+    private boolean likedByCurrentUser;
+    private long commentCount;
     private StoryDto story;
 }

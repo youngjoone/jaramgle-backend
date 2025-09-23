@@ -10,17 +10,21 @@ import com.fairylearn.backend.entity.SharedStory;
 import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.entity.StoryPage;
 import com.fairylearn.backend.entity.StorybookPage;
+import com.fairylearn.backend.repository.SharedStoryCommentRepository;
+import com.fairylearn.backend.repository.SharedStoryLikeRepository;
 import com.fairylearn.backend.repository.SharedStoryRepository;
 import com.fairylearn.backend.repository.StoryPageRepository;
 import com.fairylearn.backend.repository.StoryRepository;
-import com.fairylearn.backend.service.StorybookService;
+import com.fairylearn.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -32,8 +36,11 @@ public class StoryShareService {
     private final StoryRepository storyRepository;
     private final StoryPageRepository storyPageRepository;
     private final SharedStoryRepository sharedStoryRepository;
+    private final SharedStoryLikeRepository sharedStoryLikeRepository;
+    private final SharedStoryCommentRepository sharedStoryCommentRepository;
     private final StoryService storyService;
     private final StorybookService storybookService;
+    private final UserRepository userRepository;
 
     @Value("${app.frontend.base-url}")
     private String frontendBaseUrl;
@@ -58,12 +65,26 @@ public class StoryShareService {
 
     @Transactional(readOnly = true)
     public List<SharedStorySummaryDto> getSharedStories() {
-        return sharedStoryRepository.findAllByOrderByCreatedAtDesc().stream()
+        List<SharedStory> sharedStories = sharedStoryRepository.findAllByOrderByCreatedAtDesc();
+        if (sharedStories.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> sharedStoryIds = sharedStories.stream()
+                .map(SharedStory::getId)
+                .collect(Collectors.toList());
+
+        Map<Long, Long> likeCounts = toCountMap(sharedStoryLikeRepository.countBySharedStoryIds(sharedStoryIds));
+        Map<Long, Long> commentCounts = toCountMap(sharedStoryCommentRepository.countActiveCommentsBySharedStoryIds(sharedStoryIds));
+
+        return sharedStories.stream()
                 .map(shared -> new SharedStorySummaryDto(
                         shared.getShareSlug(),
                         shared.getSharedTitle(),
                         shared.getCreatedAt(),
-                        buildPreview(shared.getStory())
+                        buildPreview(shared.getStory()),
+                        likeCounts.getOrDefault(shared.getId(), 0L),
+                        commentCounts.getOrDefault(shared.getId(), 0L)
                 ))
                 .collect(Collectors.toList());
     }
@@ -84,12 +105,21 @@ public class StoryShareService {
         boolean manageable = viewerUserId != null && viewerUserId.equals(story.getUserId());
         storyDto.setManageable(manageable);
         storyDto.setFullAudioUrl(story.getFullAudioUrl());
+        enrichStoryAuthorInfo(story, storyDto);
+
+        Long viewerNumericId = parseUserId(viewerUserId);
+        long likeCount = sharedStoryLikeRepository.countBySharedStory_Id(sharedStory.getId());
+        long commentCount = sharedStoryCommentRepository.countBySharedStory_IdAndDeletedFalse(sharedStory.getId());
+        boolean likedByViewer = viewerNumericId != null && sharedStoryLikeRepository.existsBySharedStory_IdAndUser_Id(sharedStory.getId(), viewerNumericId);
 
         return new SharedStoryDetailDto(
                 sharedStory.getShareSlug(),
                 sharedStory.getSharedTitle(),
                 sharedStory.getCreatedAt(),
                 manageable,
+                likeCount,
+                likedByViewer,
+                commentCount,
                 storyDto
         );
     }
@@ -125,6 +155,38 @@ public class StoryShareService {
         }
         String text = pages.get(0).getText();
         return text.length() > 120 ? text.substring(0, 117) + "..." : text;
+    }
+
+    private void enrichStoryAuthorInfo(Story story, StoryDto storyDto) {
+        Long ownerId = parseUserId(story.getUserId());
+        if (ownerId == null) {
+            return;
+        }
+        userRepository.findById(ownerId).ifPresent(user -> {
+            storyDto.setAuthorId(user.getId());
+            storyDto.setAuthorNickname(user.getName());
+        });
+    }
+
+    private Long parseUserId(String userId) {
+        if (userId == null) {
+            return null;
+        }
+        try {
+            return Long.valueOf(userId);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private Map<Long, Long> toCountMap(List<Object[]> rows) {
+        Map<Long, Long> counts = new HashMap<>();
+        for (Object[] row : rows) {
+            Long key = (Long) row[0];
+            Long value = (Long) row[1];
+            counts.put(key, value);
+        }
+        return counts;
     }
 
     @Transactional
