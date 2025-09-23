@@ -118,8 +118,6 @@ public class SharedStoryPublicController {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
         try {
-            log.info("[Comment] create request slug={}, user={} contentLength={}", slug, principal.id(), request.content() != null ? request.content().length() : 0);
-            System.out.println("[Comment] controller create invoked");
             SharedStoryCommentDto dto = sharedStoryInteractionService.createComment(slug, principal.id(), request);
             return ResponseEntity.ok(dto);
         } catch (IllegalArgumentException ex) {
@@ -142,7 +140,6 @@ public class SharedStoryPublicController {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
         try {
-            log.info("[Comment] update request id={}, user={}", commentId, principal.id());
             SharedStoryCommentDto dto = sharedStoryInteractionService.updateComment(commentId, principal.id(), request);
             return ResponseEntity.ok(dto);
         } catch (IllegalArgumentException | IllegalStateException ex) {
@@ -161,7 +158,6 @@ public class SharedStoryPublicController {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
         try {
-            log.info("[Comment] delete request id={}, user={}", commentId, principal.id());
             sharedStoryInteractionService.deleteComment(commentId, principal.id());
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException ex) {
@@ -180,7 +176,6 @@ public class SharedStoryPublicController {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
         try {
-            log.info("[Comment] like toggle id={}, user={}", commentId, principal.id());
             CommentLikeStatusDto dto = sharedStoryInteractionService.toggleCommentLike(commentId, principal.id());
             return ResponseEntity.ok(dto);
         } catch (IllegalArgumentException ex) {

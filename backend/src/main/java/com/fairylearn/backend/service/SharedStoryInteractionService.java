@@ -72,8 +72,6 @@ public class SharedStoryInteractionService {
 
     @Transactional
     public SharedStoryCommentDto createComment(String shareSlug, Long userId, CreateSharedStoryCommentRequest request) {
-        log.info("[CommentService] create slug={}, user={}", shareSlug, userId);
-        System.out.println("[CommentService] create called slug=" + shareSlug + " user=" + userId);
         SharedStory sharedStory = getSharedStoryBySlug(shareSlug);
         User user = getUserById(userId);
 
