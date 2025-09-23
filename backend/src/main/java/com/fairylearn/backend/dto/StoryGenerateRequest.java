@@ -36,8 +36,8 @@ public class StoryGenerateRequest {
     private List<String> objectives;
 
     @NotNull
-    @Min(4)
-    @Max(8)
+    @Min(10)
+    @Max(20)
     @JsonProperty("min_pages")
     @JsonAlias({"minPages","min_pages"})
     private Integer minPages;
