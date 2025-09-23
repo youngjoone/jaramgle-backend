@@ -39,8 +39,9 @@ public class OAuthAttributes {
     }
 
     private static OAuthAttributes ofNaver(String userNameAttributeName, Map<String, Object> attributes) {
+        String displayName = pickFirstNonBlank(attributes, "nickname", "name");
         return OAuthAttributes.builder()
-                .name((String) attributes.get("name"))
+                .name(displayName)
                 .email((String) attributes.get("email"))
                 .provider("naver")
                 .providerId((String) attributes.get("id"))
@@ -50,8 +51,9 @@ public class OAuthAttributes {
     }
 
     private static OAuthAttributes ofGoogle(String userNameAttributeName, Map<String, Object> attributes) {
+        String displayName = pickFirstNonBlank(attributes, "name", "given_name");
         return OAuthAttributes.builder()
-                .name((String) attributes.get("name"))
+                .name(displayName)
                 .email((String) attributes.get("email"))
                 .provider("google")
                 .providerId((String) attributes.get("sub")) // Google's unique ID for the user
@@ -61,14 +63,34 @@ public class OAuthAttributes {
     }
 
     private static OAuthAttributes ofKakao(String userNameAttributeName, Map<String, Object> attributes) {
+        String displayName = pickFirstNonBlank(attributes, "nickname");
+        if (displayName == null) {
+            Object profile = attributes.get("profile");
+            if (profile instanceof Map<?, ?> profileMap) {
+                Object nestedNickname = profileMap.get("nickname");
+                if (nestedNickname instanceof String str && !str.isBlank()) {
+                    displayName = str;
+                }
+            }
+        }
         return OAuthAttributes.builder()
-                .name((String) attributes.get("nickname"))
+                .name(displayName)
                 .email((String) attributes.get("email"))
                 .provider("kakao")
                 .providerId(String.valueOf(attributes.get("id")))
                 .attributes(attributes)
                 .nameAttributeKey(userNameAttributeName)
                 .build();
+    }
+
+    private static String pickFirstNonBlank(Map<String, Object> attributes, String... keys) {
+        for (String key : keys) {
+            Object value = attributes.get(key);
+            if (value instanceof String str && !str.isBlank()) {
+                return str;
+            }
+        }
+        return null;
     }
 
     public User toEntity() {

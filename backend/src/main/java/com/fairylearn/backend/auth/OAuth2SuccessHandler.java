@@ -47,7 +47,8 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         User user = authService.upsertFromOAuth(
                 attributes.getProvider(),
                 attributes.getProviderId(),
-                attributes.getEmail()
+                attributes.getEmail(),
+                attributes.getName()
         );
 
         // Generate both access and refresh tokens

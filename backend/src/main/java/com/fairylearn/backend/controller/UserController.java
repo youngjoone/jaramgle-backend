@@ -1,33 +1,42 @@
 package com.fairylearn.backend.controller;
 
-import org.springframework.security.core.Authentication;
+import com.fairylearn.backend.auth.AuthPrincipal;
+import com.fairylearn.backend.dto.UserProfileDto;
+import com.fairylearn.backend.entity.User;
+import com.fairylearn.backend.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.http.ResponseEntity;
-import lombok.RequiredArgsConstructor;
-
-import java.util.Map;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
 public class UserController {
 
-    @GetMapping("/me")
-    public ResponseEntity<Map<String, String>> getMyInfo(Authentication authentication) {
-        if (authentication == null || !authentication.isAuthenticated()) {
-            return ResponseEntity.status(401).body(Map.of("message", "Unauthorized"));
-        }
-        String userId = authentication.getName(); // Subject of the JWT
+    private final UserRepository userRepository;
 
-        // For now, just return the userId.
-        // If full user details (email, nickname) are needed,
-        // we would inject UserRepository and fetch UserEntity here.
-        return ResponseEntity.ok(Map.of(
-                "id", userId,
-                "email", userId + "@example.com", // Placeholder
-                "nickname", "User " + userId // Placeholder
-        ));
+    @GetMapping("/me")
+    public ResponseEntity<UserProfileDto> getMyInfo(@AuthenticationPrincipal AuthPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        User user = userRepository.findById(principal.id())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        UserProfileDto dto = new UserProfileDto(
+                user.getId(),
+                user.getEmail(),
+                user.getName(),
+                user.getProvider(),
+                user.getRoleKey()
+        );
+
+        return ResponseEntity.ok(dto);
     }
 }
