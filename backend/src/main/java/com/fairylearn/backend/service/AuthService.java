@@ -79,7 +79,7 @@ public class AuthService {
             updated = true;
         }
 
-        if (resolvedNickname != null && !resolvedNickname.equals(user.getName())) {
+        if (resolvedNickname != null && (user.getName() == null || user.getName().isBlank())) {
             user.setName(resolvedNickname);
             updated = true;
         }
@@ -95,7 +95,7 @@ public class AuthService {
         existingUser.setProvider(provider);
         existingUser.setProviderId(providerId);
 
-        if (resolvedNickname != null && !resolvedNickname.equals(existingUser.getName())) {
+        if (resolvedNickname != null && (existingUser.getName() == null || existingUser.getName().isBlank())) {
             existingUser.setName(resolvedNickname);
         }
 

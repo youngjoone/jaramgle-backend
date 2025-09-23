@@ -12,4 +12,6 @@ public class SharedStorySummaryDto {
     private String title;
     private LocalDateTime sharedAt;
     private String preview;
+    private long likeCount;
+    private long commentCount;
 }

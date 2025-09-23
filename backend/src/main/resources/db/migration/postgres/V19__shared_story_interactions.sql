@@ -1,0 +1,47 @@
+-- Likes on shared stories
+CREATE TABLE shared_story_likes (
+    id BIGSERIAL PRIMARY KEY,
+    shared_story_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT fk_shared_story_likes_story FOREIGN KEY (shared_story_id) REFERENCES shared_stories(id) ON DELETE CASCADE,
+    CONSTRAINT fk_shared_story_likes_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT uq_shared_story_likes UNIQUE (shared_story_id, user_id)
+);
+
+CREATE INDEX idx_shared_story_likes_story ON shared_story_likes(shared_story_id);
+CREATE INDEX idx_shared_story_likes_user ON shared_story_likes(user_id);
+
+-- Comments on shared stories
+CREATE TABLE shared_story_comments (
+    id BIGSERIAL PRIMARY KEY,
+    shared_story_id BIGINT NOT NULL,
+    parent_comment_id BIGINT,
+    user_id BIGINT NOT NULL,
+    content TEXT NOT NULL,
+    is_deleted BOOLEAN DEFAULT FALSE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT fk_shared_story_comments_story FOREIGN KEY (shared_story_id) REFERENCES shared_stories(id) ON DELETE CASCADE,
+    CONSTRAINT fk_shared_story_comments_parent FOREIGN KEY (parent_comment_id) REFERENCES shared_story_comments(id) ON DELETE SET NULL,
+    CONSTRAINT fk_shared_story_comments_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_shared_story_comments_story ON shared_story_comments(shared_story_id);
+CREATE INDEX idx_shared_story_comments_parent ON shared_story_comments(parent_comment_id);
+CREATE INDEX idx_shared_story_comments_user ON shared_story_comments(user_id);
+CREATE INDEX idx_shared_story_comments_created ON shared_story_comments(shared_story_id, created_at);
+
+-- Likes on comments
+CREATE TABLE shared_story_comment_likes (
+    id BIGSERIAL PRIMARY KEY,
+    comment_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT fk_shared_story_comment_likes_comment FOREIGN KEY (comment_id) REFERENCES shared_story_comments(id) ON DELETE CASCADE,
+    CONSTRAINT fk_shared_story_comment_likes_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT uq_shared_story_comment_likes UNIQUE (comment_id, user_id)
+);
+
+CREATE INDEX idx_shared_story_comment_likes_comment ON shared_story_comment_likes(comment_id);
+CREATE INDEX idx_shared_story_comment_likes_user ON shared_story_comment_likes(user_id);
