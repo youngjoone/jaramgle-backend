@@ -36,6 +36,7 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(req.getPassword()));
         user.setName(req.getNickname()); // nickname -> name
         user.setProvider("local"); // Mark as local user
+        user.setRole("ROLE_USER"); // Assign default role
         user.setCreatedAt(LocalDateTime.now());
 
         return userRepository.save(user);
@@ -48,41 +49,76 @@ public class AuthService {
         if (!passwordEncoder.matches(req.getPassword(), user.getPasswordHash())) {
             throw new BizException("INVALID_CREDENTIALS", "Invalid email or password");
         }
+
+        if (user.getRoleKey() == null || user.getRoleKey().isBlank()) {
+            user.setRole("ROLE_USER");
+            userRepository.save(user);
+        }
         return user;
     }
 
     @Transactional // Ensure transactional behavior for DB operations
-    public User upsertFromOAuth(String provider, String providerId, String email) {
+    public User upsertFromOAuth(String provider, String providerId, String email, String nickname) {
         // Normalize email to lowercase for consistent lookup
         String normalizedEmail = email.trim().toLowerCase();
+        String resolvedNickname = resolveNickname(nickname, normalizedEmail);
 
         return userRepository.findByProviderAndProviderId(provider, providerId)
+                .map(existingUser -> updateExistingOAuthUser(existingUser, normalizedEmail, resolvedNickname))
                 .orElseGet(() -> userRepository.findByEmail(normalizedEmail)
-                        .map(existingUser -> {
-                            // If user exists with email but not with provider/providerId, link them
-                            if (existingUser.getProvider() == null || "local".equals(existingUser.getProvider())) {
-                                existingUser.setProvider(provider);
-                                existingUser.setProviderId(providerId);
-                                // Update name if it's null or generic, using email as a fallback
-                                if (existingUser.getName() == null || existingUser.getName().isEmpty()) {
-                                    existingUser.setName(email.split("@")[0]);
-                                }
-                                return userRepository.saveAndFlush(existingUser); // saveAndFlush for immediate commit
-                            }
-                            // If email exists and is already linked to another provider, throw error
-                            throw new BizException("EMAIL_ALREADY_LINKED", "Email already linked to another provider.");
-                        })
-                        .orElseGet(() -> {
-                            // New user, create a new entry
-                            User newUser = new User();
-                            newUser.setEmail(normalizedEmail);
-                            newUser.setProvider(provider);
-                            newUser.setProviderId(providerId);
-                            newUser.setName(email.split("@")[0]); // Default name from email
-                            newUser.setRole("ROLE_USER"); // Default role
-                            newUser.setCreatedAt(LocalDateTime.now());
-                            return userRepository.saveAndFlush(newUser); // saveAndFlush for immediate commit
-                        })
+                        .map(existingUser -> linkExistingLocalUser(existingUser, provider, providerId, resolvedNickname))
+                        .orElseGet(() -> createNewOAuthUser(provider, providerId, normalizedEmail, resolvedNickname))
                 );
+    }
+
+    private User updateExistingOAuthUser(User user, String normalizedEmail, String resolvedNickname) {
+        boolean updated = false;
+
+        if (!normalizedEmail.equals(user.getEmail())) {
+            user.setEmail(normalizedEmail);
+            updated = true;
+        }
+
+        if (resolvedNickname != null && !resolvedNickname.equals(user.getName())) {
+            user.setName(resolvedNickname);
+            updated = true;
+        }
+
+        return updated ? userRepository.saveAndFlush(user) : user;
+    }
+
+    private User linkExistingLocalUser(User existingUser, String provider, String providerId, String resolvedNickname) {
+        if (existingUser.getProvider() != null && !"local".equals(existingUser.getProvider())) {
+            throw new BizException("EMAIL_ALREADY_LINKED", "Email already linked to another provider.");
+        }
+
+        existingUser.setProvider(provider);
+        existingUser.setProviderId(providerId);
+
+        if (resolvedNickname != null && !resolvedNickname.equals(existingUser.getName())) {
+            existingUser.setName(resolvedNickname);
+        }
+
+        return userRepository.saveAndFlush(existingUser);
+    }
+
+    private User createNewOAuthUser(String provider, String providerId, String normalizedEmail, String resolvedNickname) {
+        User newUser = new User();
+        newUser.setEmail(normalizedEmail);
+        newUser.setProvider(provider);
+        newUser.setProviderId(providerId);
+        newUser.setName(resolvedNickname);
+        newUser.setRole("ROLE_USER"); // Default role
+        newUser.setCreatedAt(LocalDateTime.now());
+        return userRepository.saveAndFlush(newUser);
+    }
+
+    private String resolveNickname(String nickname, String email) {
+        if (nickname != null && !nickname.isBlank()) {
+            return nickname.trim();
+        }
+
+        int atIndex = email.indexOf('@');
+        return atIndex > 0 ? email.substring(0, atIndex) : email;
     }
 }
