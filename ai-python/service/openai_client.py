@@ -4,13 +4,25 @@ from openai import OpenAI
 from schemas import GenerateRequest, GenerateResponse, Moderation, StoryOutput
 import json
 import logging
+import base64
+from io import BytesIO
 from textwrap import dedent
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
 class OpenAIClient:
     def __init__(self, api_key: str):
         self.client = OpenAI(api_key=api_key)
+        self._base_image_style = dedent(
+            """
+            Illustration style guide: minimalistic watercolor with soft pastel palette,
+            simple shapes, gentle lighting, subtle textures, and limited background detail.
+            Maintain consistent character proportions (round face, expressive large eyes, short limbs)
+            and identical costume colors across every scene in the same story. Avoid clutter and stick to two
+            or three key props.
+            """
+        ).strip()
 
     def build_prompt(self, req: GenerateRequest, retry_reason: Optional[str] = None) -> list:
         is_ko = (str(req.language).upper() == "KO")
@@ -139,12 +151,20 @@ class OpenAIClient:
             moderation=moderation,
         )
 
-    def generate_image(self, text: str, request_id: str) -> str:
-        prompt = f"A children's storybook illustration for the following scene: {text}"
+    def generate_image(self, text: str, request_id: str, style_hint: Optional[str] = None) -> str:
+        prompt = dedent(
+            f"""
+            {self._base_image_style}
+            If previous pages exist, reuse the same character design and color palette.
+            Scene description: {text}
+            {style_hint or ''}
+            """
+        ).strip()
+
         logger.info(f"Generating image for request_id {request_id} with prompt: {prompt}")
 
         response = self.client.images.generate(
-            model="dall-e-3",
+            model="gpt-image-1",
             prompt=prompt,
             size="1024x1024",
             quality="standard",
@@ -152,7 +172,16 @@ class OpenAIClient:
             response_format="b64_json"
         )
 
-        return response.data[0].b64_json
+        raw_b64 = response.data[0].b64_json
+        image_bytes = base64.b64decode(raw_b64)
+
+        img = Image.open(BytesIO(image_bytes)).convert("RGB")
+        img = img.resize((512, 512), Image.LANCZOS)
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=70, optimize=True)
+        compressed_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+        return compressed_b64
 
     def create_tts(self, text: str, voice: str = "alloy") -> bytes:
         logger.info(f"Generating TTS for text: {text[:30]}...")
