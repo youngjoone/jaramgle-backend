@@ -1,7 +1,8 @@
 # service/openai_client.py
-from typing import Optional
-from openai import OpenAI
-from schemas import GenerateRequest, GenerateResponse, Moderation, StoryOutput
+from typing import Optional, List
+from openai import OpenAI, BadRequestError
+from schemas import GenerateRequest, GenerateResponse, Moderation, StoryOutput, CharacterProfile
+from config import Config
 import json
 import logging
 import base64
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 class OpenAIClient:
     def __init__(self, api_key: str):
         self.client = OpenAI(api_key=api_key)
+        self.image_model = Config.OPENAI_IMAGE_MODEL
+        self.image_size = Config.OPENAI_IMAGE_SIZE
+        self.image_quality = Config.OPENAI_IMAGE_QUALITY
         self._base_image_style = dedent(
             """
             Illustration style guide: minimalistic watercolor with soft pastel palette,
@@ -31,6 +35,28 @@ class OpenAIClient:
         lang_label = "한국어" if is_ko else "영어"
         title_line = f'[제목] "{req.title}" (고정)' if req.title else "[제목] 미정(직접 생성)"
 
+        character_prompt_section = ""
+        if getattr(req, "characters", None):
+            character_details = []
+            for idx, character in enumerate(req.characters, start=1):
+                persona = character.persona or "성격 미지정"
+                catchphrase = character.catchphrase or ""
+                prompt_keywords = character.prompt_keywords or ""
+                detail_lines = [f"{idx}. 이름: {character.name}"]
+                detail_lines.append(f"   - 성격/역할: {persona}")
+                if catchphrase:
+                    detail_lines.append(f"   - 말버릇: {catchphrase}")
+                if prompt_keywords:
+                    detail_lines.append(f"   - 이미지 키워드: {prompt_keywords}")
+                character_details.append("\n".join(detail_lines))
+            character_prompt_section = (
+                "\n[등장인물 가이드]\n"
+                + "\n".join(character_details)
+                + "\n- 선택된 캐릭터의 말투, 행동, 감정 표현을 이야기 전반에 자연스럽게 반영할 것."
+                + "\n- 각 캐릭터의 말버릇이나 반복 구절을 최소 1회 이상 등장시켜 리듬감을 유지할 것."
+                + "\n- 페이지마다 캐릭터가 교대로 활약하거나 협력하여 사건을 해결하는 장면을 포함할 것."
+            )
+
         # === 강화된 시스템 프롬프트 ===
         system_prompt = (
             "너는 4~8세 아동용 그림책 작가이자 예비교사다.\n"
@@ -47,7 +73,7 @@ class OpenAIClient:
 [학습목표] {objectives_str}
 [언어] {lang_label}
 {title_line}
-
+{character_prompt_section}
 # 출력 스키마(키 고정, 추가 키 금지)
 {{
   "story": {{
@@ -151,7 +177,7 @@ class OpenAIClient:
             moderation=moderation,
         )
 
-    def generate_image(self, text: str, request_id: str, style_hint: Optional[str] = None) -> str:
+    def generate_image(self, text: str, request_id: str, style_hint: Optional[str] = None, character_images: Optional[List[CharacterProfile]] = None) -> str:
         prompt = dedent(
             f"""
             {self._base_image_style}
@@ -161,27 +187,63 @@ class OpenAIClient:
             """
         ).strip()
 
+        if character_images:
+            descriptions = []
+            for profile in character_images:
+                name = getattr(profile, 'name', '')
+                persona = getattr(profile, 'persona', '')
+                catchphrase = getattr(profile, 'catchphrase', '')
+                keywords = getattr(profile, 'prompt_keywords', None) or getattr(profile, 'promptKeywords', None)
+                parts = [name]
+                if persona:
+                    parts.append(persona)
+                if catchphrase:
+                    parts.append(f"Known quote: {catchphrase}")
+                if keywords:
+                    parts.append(f"Visual cues: {keywords}")
+                descriptions.append(' | '.join(filter(None, parts)))
+            if descriptions:
+                prompt += "\nCharacters to include:\n" + "\n".join(f"- {desc}" for desc in descriptions)
+
         logger.info(f"Generating image for request_id {request_id} with prompt: {prompt}")
 
-        response = self.client.images.generate(
-            model="gpt-image-1",
-            prompt=prompt,
-            size="1024x1024",
-            quality="standard",
-            n=1,
-            response_format="b64_json"
-        )
+        try:
+            response = self.client.images.generate(
+                model=self.image_model,
+                prompt=prompt,
+                size=self.image_size,
+                quality=self.image_quality,
+                n=1
+            )
+        except BadRequestError as exc:
+            logger.error(f"Image generation failed for {request_id}: {exc}")
+            raise
 
-        raw_b64 = response.data[0].b64_json
-        image_bytes = base64.b64decode(raw_b64)
+        logger.info(f"Image API raw response: {response}")
 
-        img = Image.open(BytesIO(image_bytes)).convert("RGB")
-        img = img.resize((512, 512), Image.LANCZOS)
+        raw_data = response.data[0]
+        image_base64 = getattr(raw_data, 'b64_json', None)
+        if image_base64 is None:
+            image_url = getattr(raw_data, 'url', None)
+            if not image_url:
+                raise ValueError('Image generation response missing both b64_json and url fields')
+            import requests
+            download = requests.get(image_url, timeout=30)
+            download.raise_for_status()
+            image_bytes = download.content
+        else:
+            image_bytes = base64.b64decode(image_base64)
+
+        image = Image.open(BytesIO(image_bytes)).convert('RGB')
+        image = image.resize((512, 512), Image.LANCZOS)
         buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=70, optimize=True)
-        compressed_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        image.save(buffer, format='PNG')
+        encoded = base64.b64encode(buffer.getvalue()).decode('utf-8')
 
-        return compressed_b64
+        return encoded
+
+
+
 
     def create_tts(self, text: str, voice: str = "alloy") -> bytes:
         logger.info(f"Generating TTS for text: {text[:30]}...")

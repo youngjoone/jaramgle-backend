@@ -3,6 +3,18 @@ from typing import List, Optional, Union, Literal
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 # -------- GenerateRequest --------
+class CharacterProfile(BaseModel):
+    id: int
+    slug: str
+    name: str
+    persona: Optional[str] = None
+    catchphrase: Optional[str] = None
+    prompt_keywords: Optional[str] = Field(default=None, alias="promptKeywords")
+    image_path: Optional[str] = Field(default=None, alias="imagePath")
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+
 class GenerateRequest(BaseModel):
     # 백엔드가 int로 줄 수도, "5" 문자열로 줄 수도 있으니 둘 다 허용
     age_range: Union[int, str]
@@ -13,6 +25,7 @@ class GenerateRequest(BaseModel):
     # 대소문자/표기 다양성을 흡수해서 내부적으로 'KO' / 'EN'으로 정규화
     language: Union[Literal["KO", "EN"], str]
     title: Optional[str] = None
+    characters: List[CharacterProfile] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -75,6 +88,7 @@ class GenerateResponse(BaseModel):
 # -------- Image Generation --------
 class GenerateImageRequest(BaseModel):
     text: str
+    characters: List[CharacterProfile] = Field(default_factory=list)
 
 class GenerateImageResponse(BaseModel):
     file_path: str

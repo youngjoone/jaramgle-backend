@@ -178,7 +178,7 @@ def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(..
 def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Body(...)):
     IMAGE_DIR = "/Users/kyj/testimagedir"
     try:
-        b64_json = openai_client.generate_image(img_req.text, request.state.request_id)
+        b64_json = openai_client.generate_image(img_req.text, request.state.request_id, character_images=img_req.characters)
         
         image_data = base64.b64decode(b64_json)
         

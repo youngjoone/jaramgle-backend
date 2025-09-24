@@ -1,0 +1,12 @@
+package com.fairylearn.backend.dto;
+
+public record CharacterDto(
+        Long id,
+        String slug,
+        String name,
+        String persona,
+        String catchphrase,
+        String promptKeywords,
+        String imagePath
+) {
+}

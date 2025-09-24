@@ -82,7 +82,8 @@ public class StoryController {
                 String.join(",", request.getTopics()),
                 request.getLanguage(),
                 request.getLengthLevel(),
-                request.getPageTexts()
+                request.getPageTexts(),
+                request.getCharacterIds()
         );
         StoryDto dto = StoryDto.fromEntity(newStory);
         dto.setManageable(true);

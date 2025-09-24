@@ -45,4 +45,9 @@ public class StoryGenerateRequest {
     @NotBlank
     @Size(max = 10)
     private String language;
+
+    @JsonProperty("character_ids")
+    @JsonAlias({"characterIds","character_ids"})
+    @Size(max = 2)
+    private List<Long> characterIds;
 }
