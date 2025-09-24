@@ -22,6 +22,7 @@ public class StoryDto {
     private String status;
     private LocalDateTime createdAt;
     private List<StoryPageDto> pages; // For detail view
+    private List<CharacterDto> characters;
     private String shareSlug;
     private LocalDateTime sharedAt;
     private boolean manageable;
@@ -45,6 +46,20 @@ public class StoryDto {
         dto.setFullAudioUrl(story.getFullAudioUrl());
         dto.setAuthorId(null);
         dto.setAuthorNickname(null);
+        dto.setPages(List.of());
+        dto.setCharacters(story.getCharacters() != null
+                ? story.getCharacters().stream()
+                    .map(character -> new CharacterDto(
+                            character.getId(),
+                            character.getSlug(),
+                            character.getName(),
+                            character.getPersona(),
+                            character.getCatchphrase(),
+                            character.getPromptKeywords(),
+                            character.getImagePath()
+                    ))
+                    .collect(Collectors.toList())
+                : List.of());
         // Pages will be set separately for detail view
         return dto;
     }

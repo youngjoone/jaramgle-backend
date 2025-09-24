@@ -2,6 +2,7 @@ package com.fairylearn.backend.service;
 
 import com.fairylearn.backend.dto.GenerateImageRequestDto;
 import com.fairylearn.backend.dto.GenerateImageResponseDto;
+import com.fairylearn.backend.dto.CharacterImageRequestDto;
 import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.entity.StoryPage;
 import com.fairylearn.backend.entity.StorybookPage;
@@ -38,6 +39,7 @@ public class StorybookService {
 
         Story story = storyRepository.findById(storyId)
                 .orElseThrow(() -> new IllegalArgumentException("Story not found"));
+        story.getCharacters().size();
 
         List<StoryPage> originalPages = storyService.getStoryPagesByStoryId(storyId);
         if (originalPages.isEmpty()) {
@@ -51,8 +53,10 @@ public class StorybookService {
 
         // Asynchronously generate the rest
         if (originalPages.size() > 1) {
-            List<StoryPage> remainingPages = originalPages.subList(1, originalPages.size());
-            generateRemainingImages(story, remainingPages);
+            List<String> remainingTexts = originalPages.subList(1, originalPages.size()).stream()
+                    .map(StoryPage::getText)
+                    .collect(Collectors.toList());
+            generateRemainingImages(story.getId(), remainingTexts);
         }
 
         return firstStorybookPage;
@@ -68,26 +72,42 @@ public class StorybookService {
 
     @Async
     @Transactional
-    public void generateRemainingImages(Story story, List<StoryPage> remainingPages) {
-        log.info("Starting async generation for {} remaining pages for storyId: {}", remainingPages.size(), story.getId());
-        for (int i = 0; i < remainingPages.size(); i++) {
-            StoryPage originalPage = remainingPages.get(i);
+    public void generateRemainingImages(Long storyId, List<String> remainingPageTexts) {
+        log.info("Starting async generation for {} remaining pages for storyId: {}", remainingPageTexts.size(), storyId);
+        Story story = storyRepository.findById(storyId)
+                .orElseThrow(() -> new IllegalArgumentException("Story not found"));
+        story.getCharacters().size();
+        for (int i = 0; i < remainingPageTexts.size(); i++) {
             int pageNumber = i + 2; // Starts from page 2
             try {
-                StorybookPage generatedPage = generateAndSaveStorybookPage(story, pageNumber, originalPage.getText());
+                StorybookPage generatedPage = generateAndSaveStorybookPage(story, pageNumber, remainingPageTexts.get(i));
                 log.info("Async: Generated and saved page {} for storyId: {}. ID: {}", pageNumber, story.getId(), generatedPage.getId());
             } catch (Exception e) {
                 log.error("Async: Failed to generate image for storyId: {}, pageNumber: {}. Error: {}", 
-                        story.getId(), pageNumber, e.getMessage());
+                        storyId, pageNumber, e.getMessage());
                 // In a real application, you might want to set an error state for this page
             }
         }
-        log.info("Finished async generation for storyId: {}", story.getId());
+        log.info("Finished async generation for storyId: {}", storyId);
+    }
+
+    private List<CharacterImageRequestDto> buildCharacterImageRequests(Story story) {
+        return story.getCharacters().stream()
+                .map(character -> new CharacterImageRequestDto(
+                        character.getId(),
+                        character.getSlug(),
+                        character.getName(),
+                        character.getPersona(),
+                        character.getCatchphrase(),
+                        character.getPromptKeywords(),
+                        character.getImagePath()
+                ))
+                .collect(Collectors.toList());
     }
 
     private StorybookPage generateAndSaveStorybookPage(Story story, int pageNumber, String text) {
         log.info("Generating image for storyId: {}, pageNumber: {}", story.getId(), pageNumber);
-        GenerateImageRequestDto requestDto = new GenerateImageRequestDto(text);
+        GenerateImageRequestDto requestDto = new GenerateImageRequestDto(text, buildCharacterImageRequests(story));
         
         GenerateImageResponseDto responseDto = webClient.post()
                 .uri("/ai/generate-image")

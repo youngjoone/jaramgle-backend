@@ -6,11 +6,14 @@ import com.fairylearn.backend.dto.StableStoryDto;
 import com.fairylearn.backend.dto.StoryGenerateRequest;
 import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.entity.StoryPage;
+import com.fairylearn.backend.entity.Character;
+import com.fairylearn.backend.repository.CharacterRepository;
 import com.fairylearn.backend.repository.StoryPageRepository;
 import com.fairylearn.backend.repository.StoryRepository;
 import com.fairylearn.backend.service.stabilization.StoryAssembler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +26,9 @@ import reactor.util.retry.Retry;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -34,6 +39,7 @@ public class StoryService {
 
     private final StoryRepository storyRepository;
     private final StoryPageRepository storyPageRepository;
+    private final CharacterRepository characterRepository;
     private final StorageQuotaService storageQuotaService;
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
@@ -55,14 +61,17 @@ public class StoryService {
     }
 
     @Transactional
-    public Story saveNewStory(String userId, String title, String ageRange, String topicsJson, String language, String lengthLevel, List<String> pageTexts) {
+    public Story saveNewStory(String userId, String title, String ageRange, String topicsJson, String language, String lengthLevel, List<String> pageTexts, List<Long> characterIds) {
         storageQuotaService.ensureSlotAvailable(userId);
-        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, new ArrayList<>());
+        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, new ArrayList<>(), new LinkedHashSet<>());
         story = storyRepository.save(story);
         for (int i = 0; i < pageTexts.size(); i++) {
             StoryPage page = new StoryPage(null, story, i + 1, pageTexts.get(i));
             storyPageRepository.save(page);
         }
+        assignCharacters(story, characterIds);
+        storyRepository.save(story);
+        story.getCharacters().size();
         storageQuotaService.increaseUsedCount(userId);
         return story;
     }
@@ -106,7 +115,8 @@ public class StoryService {
                 LocalDateTime.now(),
                 quizJson,
                 null, // fullAudioUrl
-                new ArrayList<>()
+                new ArrayList<>(),
+                new LinkedHashSet<>()
         );
         story = storyRepository.save(story);
 
@@ -119,7 +129,33 @@ public class StoryService {
         }
 
         storageQuotaService.increaseUsedCount(userId);
+        assignCharacters(story, request.getCharacterIds());
+        storyRepository.save(story);
+        story.getCharacters().size();
         return story;
+    }
+
+    private void assignCharacters(Story story, List<Long> characterIds) {
+        if (characterIds == null || characterIds.isEmpty()) {
+            story.getCharacters().clear();
+            return;
+        }
+        if (characterIds.size() > 2) {
+            throw new IllegalArgumentException("At most two characters can be selected");
+        }
+        List<Character> characters = characterRepository.findByIdIn(characterIds);
+        if (characters.size() != characterIds.size()) {
+            throw new IllegalArgumentException("One or more characters not found");
+        }
+        Map<Long, Character> characterMap = characters.stream()
+                .collect(Collectors.toMap(Character::getId, character -> character));
+        story.getCharacters().clear();
+        for (Long characterId : characterIds) {
+            Character character = characterMap.get(characterId);
+            if (character != null) {
+                story.getCharacters().add(character);
+            }
+        }
     }
 
 
@@ -134,6 +170,29 @@ public class StoryService {
         promptPayload.put("language", request.getLanguage());
         if (request.getTitle() != null) {
             promptPayload.put("title", request.getTitle());
+        }
+
+        if (request.getCharacterIds() != null && !request.getCharacterIds().isEmpty()) {
+            List<Character> characters = characterRepository.findByIdIn(request.getCharacterIds());
+            if (characters.size() != request.getCharacterIds().size()) {
+                throw new IllegalArgumentException("One or more characters not found");
+            }
+            Map<Long, Character> characterMap = characters.stream()
+                    .collect(Collectors.toMap(Character::getId, character -> character));
+            ArrayNode characterArray = promptPayload.putArray("characters");
+            for (Long characterId : request.getCharacterIds()) {
+                Character character = characterMap.get(characterId);
+                if (character != null) {
+                    ObjectNode characterNode = characterArray.addObject();
+                    characterNode.put("id", character.getId());
+                    characterNode.put("slug", character.getSlug());
+                    characterNode.put("name", character.getName());
+                    characterNode.put("persona", character.getPersona());
+                    characterNode.put("catchphrase", character.getCatchphrase());
+                    characterNode.put("prompt_keywords", character.getPromptKeywords());
+                    characterNode.put("image_path", character.getImagePath());
+                }
+            }
         }
 
         try {

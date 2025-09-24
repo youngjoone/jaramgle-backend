@@ -95,6 +95,7 @@ public class StoryShareService {
                 .orElseThrow(() -> new IllegalArgumentException("Shared story not found"));
 
         Story story = sharedStory.getStory();
+        story.getCharacters().size();
         List<StoryPageDto> pages = storyPageRepository.findByStoryIdOrderByPageNoAsc(story.getId()).stream()
                 .map(StoryPageDto::fromEntity)
                 .collect(Collectors.toList());

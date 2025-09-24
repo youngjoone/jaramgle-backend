@@ -10,6 +10,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.LinkedHashSet;
+import java.util.Set;
+
 @Entity
 @Table(name = "stories")
 @Getter
@@ -51,4 +54,12 @@ public class Story {
 
     @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<StorybookPage> storybookPages = new ArrayList<>();
+
+    @ManyToMany
+    @JoinTable(
+            name = "story_characters",
+            joinColumns = @JoinColumn(name = "story_id"),
+            inverseJoinColumns = @JoinColumn(name = "character_id")
+    )
+    private Set<Character> characters = new LinkedHashSet<>();
 }

@@ -31,4 +31,7 @@ public class StorySaveRequest {
     @NotNull
     @Size(min = 1)
     private List<String> pageTexts;
+
+    @Size(max = 2)
+    private List<Long> characterIds;
 }
