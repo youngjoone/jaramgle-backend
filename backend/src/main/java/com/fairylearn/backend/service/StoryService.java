@@ -2,6 +2,7 @@ package com.fairylearn.backend.service;
 
 import com.fairylearn.backend.dto.AiQuiz;
 import com.fairylearn.backend.dto.AiStory;
+import com.fairylearn.backend.dto.GenerateAudioRequestDto;
 import com.fairylearn.backend.dto.StableStoryDto;
 import com.fairylearn.backend.dto.StoryGenerateRequest;
 import com.fairylearn.backend.entity.Story;
@@ -26,6 +27,7 @@ import reactor.util.retry.Retry;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -247,14 +249,37 @@ public class StoryService {
         }
 
         List<StoryPage> pages = storyPageRepository.findByStoryIdOrderByPageNoAsc(story.getId());
-        String fullText = pages.stream()
-                .map(StoryPage::getText)
-                .collect(Collectors.joining("\n\n"));
+        story.getCharacters().size(); // initialize lazy collection
 
-        // Call Python AI service to generate audio
+        List<GenerateAudioRequestDto.AudioPageDto> pageDtos = pages.stream()
+                .map(page -> new GenerateAudioRequestDto.AudioPageDto(page.getPageNo(), page.getText()))
+                .collect(Collectors.toList());
+
+        List<GenerateAudioRequestDto.CharacterProfileDto> characterDtos = story.getCharacters().stream()
+                .sorted(Comparator.comparing(Character::getId))
+                .map(character -> new GenerateAudioRequestDto.CharacterProfileDto(
+                        character.getId(),
+                        character.getSlug(),
+                        character.getName(),
+                        character.getPersona(),
+                        character.getCatchphrase(),
+                        character.getPromptKeywords(),
+                        character.getImagePath()
+                ))
+                .collect(Collectors.toList());
+
+        String language = Optional.ofNullable(story.getLanguage()).orElse("KO");
+
+        GenerateAudioRequestDto audioRequest = new GenerateAudioRequestDto(
+                story.getTitle(),
+                language,
+                pageDtos,
+                characterDtos
+        );
+
         String audioFileName = webClient.post()
-                .uri("/ai/generate-tts") // Assuming this is the endpoint in the Python service
-                .bodyValue(fullText)
+                .uri("/ai/generate-audio")
+                .bodyValue(audioRequest)
                 .retrieve()
                 .bodyToMono(String.class)
                 .block();
