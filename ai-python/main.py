@@ -2,7 +2,6 @@ from fastapi import FastAPI, Body, HTTPException, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 import uuid
 import time
 import logging
@@ -11,7 +10,13 @@ import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from schemas import GenerateRequest, GenerateResponse, GenerateImageRequest, GenerateImageResponse
+from schemas import (
+    GenerateAudioRequest,
+    GenerateImageRequest,
+    GenerateImageResponse,
+    GenerateRequest,
+    GenerateResponse,
+)
 from service.openai_client import OpenAIClient
 from config import Config
 
@@ -192,33 +197,61 @@ def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Bo
         logger.info(f"Image saved to {file_path}")
         return GenerateImageResponse(file_path=filename) # Return only filename
 
-    except Exception as e:
+    except Exception as e:  # pragma: no cover - defensive logging
         logger.error(f"Image generation failed for Request ID: {request.state.request_id}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "IMAGE_GENERATION_ERROR", "message": str(e)}
         )
 
+@app.post("/ai/generate-audio")
+def generate_audio_endpoint(request: Request, audio_req: GenerateAudioRequest = Body(...)):
+    audio_dir = "/Users/kyj/testaudiodir"
+    try:
+        os.makedirs(audio_dir, exist_ok=True)
+
+        audio_bytes = openai_client.synthesize_story_audio(audio_req, request.state.request_id)
+
+        filename = f"{uuid.uuid4()}.wav"
+        file_path = os.path.join(audio_dir, filename)
+
+        with open(file_path, "wb") as f:
+            f.write(audio_bytes)
+
+        logger.info("Audio file saved to %s", file_path)
+        return Response(content=filename, media_type="text/plain")
+
+    except Exception as e:  # pragma: no cover - defensive logging for runtime failures
+        logger.error(
+            "Audio generation failed for Request ID: %s", request.state.request_id, exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "AUDIO_GENERATION_ERROR", "message": str(e)},
+        )
+
+
 @app.post("/ai/generate-tts")
 def generate_tts_endpoint(request: Request, text: str = Body(..., media_type="text/plain")):
-    AUDIO_DIR = "/Users/kyj/testaudiodir"
+    audio_dir = "/Users/kyj/testaudiodir"
     try:
-        # Ensure the directory exists
-        os.makedirs(AUDIO_DIR, exist_ok=True)
+        os.makedirs(audio_dir, exist_ok=True)
 
         audio_data = openai_client.create_tts(text)
         
-        filename = f"{uuid.uuid4()}.mp3"
-        file_path = os.path.join(AUDIO_DIR, filename)
+        filename = f"{uuid.uuid4()}.wav"
+        file_path = os.path.join(audio_dir, filename)
         
         with open(file_path, "wb") as f:
             f.write(audio_data)
             
-        logger.info(f"Audio file saved to {file_path}")
+        logger.info("TTS audio file saved to %s", file_path)
         return Response(content=filename, media_type="text/plain")
 
-    except Exception as e:
-        logger.error(f"TTS generation failed for Request ID: {request.state.request_id}", exc_info=True)
+    except Exception as e:  # pragma: no cover - defensive logging
+        logger.error(
+            "TTS generation failed for Request ID: %s", request.state.request_id, exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "TTS_GENERATION_ERROR", "message": str(e)}

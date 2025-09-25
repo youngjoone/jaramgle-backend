@@ -1,16 +1,135 @@
 # service/openai_client.py
-from typing import Optional, List
-from openai import OpenAI, BadRequestError
-from schemas import GenerateRequest, GenerateResponse, Moderation, StoryOutput, CharacterProfile
+from html import escape
+from typing import Dict, List, Optional
+
+from openai import BadRequestError, OpenAI
+
 from config import Config
+from schemas import (
+    CharacterProfile,
+    GenerateAudioRequest,
+    GenerateRequest,
+    GenerateResponse,
+    Moderation,
+    StoryOutput,
+)
+
+import base64
 import json
 import logging
-import base64
+import wave
 from io import BytesIO
 from textwrap import dedent
+
 from PIL import Image
 
+from service.azure_tts_client import AzureTTSClient, AzureTTSConfigurationError
+
 logger = logging.getLogger(__name__)
+
+SUPPORTED_OPENAI_VOICES = {"alloy", "ash", "coral", "fable", "onyx", "sage", "echo", "nova", "shimmer"}
+
+VOICE_PRESETS: Dict[str, dict] = {
+    "narration": {
+        "voice": "alloy",
+        "style": "따뜻하고 차분한 엄마 목소리로",
+        "azure_voice": "ko-KR-SunHiNeural",
+        "azure_style": "friendly",
+        "azure_styledegree": "1.0",
+        "azure_rate": "0%",
+    },
+    "default": {
+        "voice": "alloy",
+        "style": "자연스럽고 편안하게",
+        "azure_voice": "ko-KR-SunHiNeural",
+        "azure_style": "calm",
+        "azure_styledegree": "1.0",
+        "azure_rate": "0%",
+    },
+    "characters": {
+        "lulu-rabbit": {
+            "voice": "coral",
+            "style": "발랄하고 귀엽게",
+            "azure_voice": "ko-KR-SunHiNeural",
+            "azure_style": "cheerful",
+            "azure_styledegree": "1.2",
+            "azure_rate": "+10%",
+        },
+        "mungchi-puppy": {
+            "voice": "nova",
+            "style": "친근하고 즐겁게",
+            "azure_voice": "ko-KR-SoonBokNeural",
+            "azure_style": "friendly",
+            "azure_styledegree": "1.1",
+            "azure_rate": "+6%",
+        },
+        "coco-squirrel": {
+            "voice": "echo",
+            "style": "빠르고 신나게",
+            "azure_voice": "ko-KR-SeoHyeonNeural",
+            "azure_style": "excited",
+            "azure_styledegree": "1.2",
+            "azure_rate": "+12%",
+        },
+        "ria-princess": {
+            "voice": "shimmer",
+            "style": "우아하고 상냥하게",
+            "azure_voice": "ko-KR-SeoHyeonNeural",
+            "azure_style": "gentle",
+            "azure_styledegree": "1.1",
+            "azure_rate": "0%",
+        },
+        "lucas-prince": {
+            "voice": "fable",
+            "style": "장난기 넘치고 씩씩하게",
+            "azure_voice": "ko-KR-SunHiNeural",
+            "azure_style": "cheerful",
+            "azure_styledegree": "1.1",
+            "azure_rate": "+8%",
+        },
+        "geo-explorer": {
+            "voice": "ash",
+            "style": "차분하지만 용감하게",
+            "azure_voice": "ko-KR-SoonBokNeural",
+            "azure_style": "calm",
+            "azure_styledegree": "1.0",
+            "azure_rate": "0%",
+        },
+        "robo-roro": {
+            "voice": "onyx",
+            "style": "기계적이면서 따뜻하게",
+            "azure_voice": "ko-KR-SoonBokNeural",
+            "azure_style": "calm",
+            "azure_styledegree": "1.0",
+            "azure_rate": "-4%",
+        },
+        "mimi-fairy": {
+            "voice": "sage",
+            "style": "속삭이듯 다정하게",
+            "azure_voice": "ko-KR-SeoHyeonNeural",
+            "azure_style": "whispering",
+            "azure_styledegree": "1.0",
+            "azure_rate": "-6%",
+        },
+        "pipi-math-monster": {
+            "voice": "coral",
+            "style": "경쾌하고 생동감 있게",
+            "azure_voice": "ko-KR-SunHiNeural",
+            "azure_style": "cheerful",
+            "azure_styledegree": "1.1",
+            "azure_rate": "+10%",
+        },
+        "nova-space": {
+            "voice": "nova",
+            "style": "꿈꾸듯 신비롭게",
+            "azure_voice": "ko-KR-SunHiNeural",
+            "azure_style": "hopeful",
+            "azure_styledegree": "1.1",
+            "azure_rate": "+4%",
+        },
+    },
+}
+
 
 class OpenAIClient:
     def __init__(self, api_key: str):
@@ -18,6 +137,7 @@ class OpenAIClient:
         self.image_model = Config.OPENAI_IMAGE_MODEL
         self.image_size = Config.OPENAI_IMAGE_SIZE
         self.image_quality = Config.OPENAI_IMAGE_QUALITY
+        self.reading_plan_model = Config.READING_PLAN_MODEL
         self._base_image_style = dedent(
             """
             Illustration style guide: minimalistic watercolor with soft pastel palette,
@@ -28,8 +148,29 @@ class OpenAIClient:
             """
         ).strip()
 
+        self.azure_client: Optional[AzureTTSClient] = None
+        logger.info("USE_AZURE_TTS=%s, region=%s", Config.USE_AZURE_TTS, Config.AZURE_SPEECH_REGION or "(unset)")
+        if Config.USE_AZURE_TTS:
+            try:
+                self.azure_client = AzureTTSClient(
+                    key=Config.AZURE_SPEECH_KEY,
+                    region=Config.AZURE_SPEECH_REGION,
+                    output_format=Config.AZURE_TTS_OUTPUT_FORMAT,
+                )
+                logger.info(
+                    "Azure TTS client initialised for region %s",
+                    Config.AZURE_SPEECH_REGION,
+                )
+            except AzureTTSConfigurationError as exc:
+                logger.warning("Azure TTS disabled: %s", exc)
+            except Exception:  # pragma: no cover - defensive safety log
+                logger.exception("Failed to initialise Azure TTS client; falling back to OpenAI")
+
+    # --------------------------------------------------------------------------------------
+    # Story generation
+    # --------------------------------------------------------------------------------------
     def build_prompt(self, req: GenerateRequest, retry_reason: Optional[str] = None) -> list:
-        is_ko = (str(req.language).upper() == "KO")
+        is_ko = str(req.language).upper() == "KO"
         topics_str = ", ".join(req.topics)
         objectives_str = ", ".join(req.objectives)
         lang_label = "한국어" if is_ko else "영어"
@@ -57,7 +198,6 @@ class OpenAIClient:
                 + "\n- 페이지마다 캐릭터가 교대로 활약하거나 협력하여 사건을 해결하는 장면을 포함할 것."
             )
 
-        # === 강화된 시스템 프롬프트 ===
         system_prompt = (
             "너는 4~8세 아동용 그림책 작가이자 예비교사다.\n"
             "- 폭력/공포/편견/노골적 표현 금지. 따뜻하고 쉬운 어휘 사용.\n"
@@ -66,7 +206,6 @@ class OpenAIClient:
             "- 출력은 반드시 JSON 하나만. 추가 텍스트/설명/코드블록 금지."
         )
 
-        # === 사용자 프롬프트 ===
         user_prompt = f"""
 [연령대] {req.age_range}세
 [주제] {topics_str}
@@ -82,37 +221,6 @@ class OpenAIClient:
     "quiz": [{{"q": "string", "options": ["string","string","string"], "a": 0}}]
   }}
 }}
-
-# 스토리텔링 요구사항
-- 이야기 구조를 반드시 반영: [발단]→[전개]→[위기]→[절정]→[결말] 순서를 내부적으로 준수하되, 텍스트에는 라벨을 절대 표기하지 말 것.
-- 분량은 시중 아동용 그림책처럼 **10~20페이지**를 권장한다. {req.min_pages}는 최소 기준이며, 가능한 한 풍부하게 확장할 것.
-- 각 페이지는 2~3문장 분량으로 짧고 리듬감 있게 작성할 것.
-- 주인공은 반드시 뚜렷한 성격(예: 호기심 많음, 용감함, 장난꾸러기 등)을 가져야 하며, 사건 전개와 해결 과정에서 성격이 드러나야 한다.
-- 조력자/반대자/환경도 각각 개성이 드러나야 하며, 주인공과의 상호작용 속에서 성격이 자연스럽게 표현되어야 한다.
-- 스토리텔링은 설명 중심이 아닌 **대화·행동·감정**을 통해 전개될 것.
-- 최소 3회 이상 반복 구절(리프레인)을 사용하여 아이가 따라 말하거나 기억할 수 있게 한다. (예: "천천히 하면 돼. 하나, 둘, 셋!")
-- 의성어·의태어(예: "사박사박", "쿵!")와 짧은 대화를 적절히 배치해 생동감을 줄 것.
-- 동물·자연·사물이 말을 하거나 행동하는 **의인화·환상적 요소**를 적극 활용하되, 과도한 공포·폭력 묘사는 금지한다.
-- 각 페이지 끝은 가벼운 궁금증이나 여운을 남겨 페이지 터닝을 유도한다.
-- 마지막은 '교훈:' 같은 라벨 대신, 따뜻한 정서 문장으로 자연스럽게 교훈을 전달한다.
-  (예: "토토는 오늘도 천천히, 씩씩하게 걸어갔어요. 작은 용기도 큰 힘이 된다는 걸 알았지요.")
-
-# 형식/분량 규칙
-- pages는 최소 {req.min_pages}개 이상, 권장 10~20개. page는 1부터 1씩 증가.
-- quiz는 0~3개, options는 3개, a는 0부터 시작하는 정답 인덱스.
-- 키/구조를 절대 바꾸지 말 것. JSON 외 다른 텍스트 금지.
-
-# 형식 예시(참고용, 실제 내용은 달라야 함)
-{{"story":{{"title":"숲 속 친구들",
-  "pages":[
-    {{"page":1,"text":"토토는 숫자가 어렵다고 느꼈어요. 미미가 손을 잡고 말했죠, \\"천천히 하면 돼.\\""}},
-    {{"page":2,"text":"바람이 살랑—, 나뭇잎이 사박사박. \\"하나, 둘, 셋!\\" 토토는 따라 속삭였어요."}},
-    {{"page":3,"text":"토토가 서두르다 틀렸어요. 콩— 마음이 철렁! 미미가 웃었죠, \\"다시 해 보자.\\""}},
-    {{"page":4,"text":"깊게 숨 쉬고, 천천히. \\"천천히 하면 돼. 하나, 둘, 셋!\\" 토토의 눈이 반짝였어요."}},
-    {{"page":5,"text":"이젠 스스로 셀 수 있어요. 토토는 미미와 손을 흔들었죠. 오늘도 천천히, 씩씩하게."}}
-  ],
-  "quiz":[{{"q":"토토가 다시 해볼 수 있었던 이유는?","options":["빨리 해서","친구가 도와줘서","운이 좋아서"],"a":1}}]
-}}}}
 """.strip()
 
         if retry_reason:
@@ -129,15 +237,12 @@ class OpenAIClient:
         ]
 
     def _normalize(self, data: dict) -> dict:
-        """모델이 흔들린 키를 스키마 키(page/q/a)로 통일"""
         story = data.get("story", data)
 
-        # pages: page_no -> page
         for p in story.get("pages", []):
             if "page" not in p and "page_no" in p:
                 p["page"] = p.pop("page_no")
 
-        # quiz: question/answer -> q/a
         for q in story.get("quiz", []):
             if "q" not in q and "question" in q:
                 q["q"] = q.pop("question")
@@ -163,12 +268,11 @@ class OpenAIClient:
         )
 
         raw = resp.choices[0].message.content.strip()
-        logger.info(f"LLM raw output: {raw}")
+        logger.info("LLM raw output: %s", raw)
 
         story_data = json.loads(raw)
         story_data = self._normalize(story_data)
 
-        # Pydantic 검증(스키마 준수 확인)
         story = StoryOutput(**story_data["story"])
 
         return GenerateResponse(
@@ -177,7 +281,16 @@ class OpenAIClient:
             moderation=moderation,
         )
 
-    def generate_image(self, text: str, request_id: str, style_hint: Optional[str] = None, character_images: Optional[List[CharacterProfile]] = None) -> str:
+    # --------------------------------------------------------------------------------------
+    # Image generation
+    # --------------------------------------------------------------------------------------
+    def generate_image(
+        self,
+        text: str,
+        request_id: str,
+        style_hint: Optional[str] = None,
+        character_images: Optional[List[CharacterProfile]] = None,
+    ) -> str:
         prompt = dedent(
             f"""
             {self._base_image_style}
@@ -190,10 +303,10 @@ class OpenAIClient:
         if character_images:
             descriptions = []
             for profile in character_images:
-                name = getattr(profile, 'name', '')
-                persona = getattr(profile, 'persona', '')
-                catchphrase = getattr(profile, 'catchphrase', '')
-                keywords = getattr(profile, 'prompt_keywords', None) or getattr(profile, 'promptKeywords', None)
+                name = getattr(profile, "name", "")
+                persona = getattr(profile, "persona", "")
+                catchphrase = getattr(profile, "catchphrase", "")
+                keywords = getattr(profile, "prompt_keywords", None) or getattr(profile, "promptKeywords", None)
                 parts = [name]
                 if persona:
                     parts.append(persona)
@@ -201,11 +314,11 @@ class OpenAIClient:
                     parts.append(f"Known quote: {catchphrase}")
                 if keywords:
                     parts.append(f"Visual cues: {keywords}")
-                descriptions.append(' | '.join(filter(None, parts)))
+                descriptions.append(" | ".join(filter(None, parts)))
             if descriptions:
                 prompt += "\nCharacters to include:\n" + "\n".join(f"- {desc}" for desc in descriptions)
 
-        logger.info(f"Generating image for request_id {request_id} with prompt: {prompt}")
+        logger.info("Generating image for request_id %s with prompt: %s", request_id, prompt)
 
         try:
             response = self.client.images.generate(
@@ -213,44 +326,325 @@ class OpenAIClient:
                 prompt=prompt,
                 size=self.image_size,
                 quality=self.image_quality,
-                n=1
+                n=1,
             )
         except BadRequestError as exc:
-            logger.error(f"Image generation failed for {request_id}: {exc}")
+            logger.error("Image generation failed for %s: %s", request_id, exc)
             raise
 
-        logger.info(f"Image API raw response: {response}")
-
         raw_data = response.data[0]
-        image_base64 = getattr(raw_data, 'b64_json', None)
+        image_base64 = getattr(raw_data, "b64_json", None)
         if image_base64 is None:
-            image_url = getattr(raw_data, 'url', None)
+            image_url = getattr(raw_data, "url", None)
             if not image_url:
-                raise ValueError('Image generation response missing both b64_json and url fields')
+                raise ValueError("Image generation response missing both b64_json and url fields")
             import requests
+
             download = requests.get(image_url, timeout=30)
             download.raise_for_status()
             image_bytes = download.content
         else:
             image_bytes = base64.b64decode(image_base64)
 
-        image = Image.open(BytesIO(image_bytes)).convert('RGB')
+        image = Image.open(BytesIO(image_bytes)).convert("RGB")
         image = image.resize((512, 512), Image.LANCZOS)
         buffer = BytesIO()
-        image.save(buffer, format='PNG')
-        encoded = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        image.save(buffer, format="PNG")
+        encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
         return encoded
 
-
-
-
+    # --------------------------------------------------------------------------------------
+    # Audio generation
+    # --------------------------------------------------------------------------------------
     def create_tts(self, text: str, voice: str = "alloy") -> bytes:
-        logger.info(f"Generating TTS for text: {text[:30]}...")
+        cleaned = self._clean_text_for_tts(text)
+        snippet = cleaned[:40].replace("\n", " ")
+        logger.info("Generating TTS chunk (%s): %s...", voice, snippet)
         response = self.client.audio.speech.create(
             model="tts-1",
             voice=voice,
-            input=text,
-            response_format="mp3"
+            input=cleaned,
+            response_format="wav",
         )
         return response.read()
+
+    def plan_reading_segments(
+        self, audio_request: GenerateAudioRequest, request_id: str
+    ) -> List[dict]:
+        character_lines = []
+        for character in audio_request.characters:
+            persona = getattr(character, "persona", "") or ""
+            catchphrase = getattr(character, "catchphrase", "") or ""
+            keywords = getattr(character, "prompt_keywords", None) or getattr(character, "promptKeywords", None) or ""
+            character_lines.append(
+                {
+                    "slug": character.slug or character.name,
+                    "name": character.name,
+                    "persona": persona,
+                    "catchphrase": catchphrase,
+                    "keywords": keywords,
+                }
+            )
+
+        pages_text = "\n".join(
+            f"Page {page.page_no}: {page.text}" for page in audio_request.pages
+        )
+        character_prompt = "\n".join(
+            f"- slug: {c['slug']} | name: {c['name']} | persona: {c['persona']} | catchphrase: {c['catchphrase']} | keywords: {c['keywords']}"
+            for c in character_lines
+        ) or "- (none)"
+
+        system_prompt = "너는 오디오북 연출가다. 주어진 동화를 자연스럽게 낭독하기 위한 세그먼트 계획을 JSON 포맷으로 작성해라."
+        user_prompt = dedent(
+            f"""
+### Story Meta
+Title: {audio_request.title or '제목 미정'}
+Language: {audio_request.language or 'KO'}
+
+### Characters
+{character_prompt}
+
+### Story Pages
+{pages_text}
+
+### Requirements
+- JSON 객체 형태로만 응답할 것. 키는 `segments` 하나만 둔다.
+- segments는 배열이며, 각 요소는 아래 필드를 가진다:
+  * segment_type: "narration" 또는 "dialogue"
+  * speaker: 내레이션이면 "narrator", 대사면 캐릭터 slug를 사용
+  * emotion: 감정 표현이나 말투 (예: "따뜻하고 차분하게")
+  * text: 실제 읽을 문장. 대사는 따옴표 없이 발화를 남기고, 서술은 원문을 그대로 유지하되 불필요한 공백을 제거
+- 같은 화자/감정이 연속되면 세그먼트를 하나로 묶어도 된다.
+- 문장 안에 따옴표("")로 감싼 대사와 서술이 섞여 있으면, 서술 부분은 `narration`, 따옴표 안 문장은 `dialogue`로 순서를 유지하며 각각 별도 세그먼트로 나눌 것.
+- `dialogue` 세그먼트의 text에서는 따옴표를 제거하고 발화만 남길 것. 서술 세그먼트는 전체 문장을 그대로 유지한다.
+- 화자는 문맥상 가장 최근에 이름이 언급된 캐릭터 slug를 사용하고, 특정할 수 없으면 narrator로 둔다.
+- 의성어와 배경 설명이 자연스럽게 이어지도록 구성하라.
+- JSON 이외의 설명은 포함하지 말 것.
+"""
+        )
+
+        response = self.client.chat.completions.create(
+            model=self.reading_plan_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.4,
+            max_tokens=900,
+            user=request_id or "anon",
+            response_format={"type": "json_object"},
+        )
+
+        raw = response.choices[0].message.content.strip()
+        logger.info("Reading plan raw output: %s", raw)
+        data = json.loads(raw)
+        segments = data.get("segments")
+        if not isinstance(segments, list):
+            raise ValueError("Reading plan response missing segments array.")
+        return segments
+
+    def synthesize_story_audio(
+        self, audio_request: GenerateAudioRequest, request_id: str
+    ) -> bytes:
+        segments = self.plan_reading_segments(audio_request, request_id)
+        if not segments:
+            raise ValueError("Reading plan returned no segments.")
+
+        if self.azure_client is not None:
+            try:
+                ssml = self._build_azure_ssml(audio_request, segments)
+                return self.azure_client.synthesize_ssml(ssml)
+            except Exception:
+                logger.exception("Azure TTS synthesis failed; falling back to OpenAI per-segment TTS")
+
+        char_by_slug = {
+            getattr(character, "slug", None) or character.name: character
+            for character in audio_request.characters
+        }
+        char_by_name = {
+            character.name.lower(): getattr(character, "slug", None) or character.name
+            for character in audio_request.characters
+        }
+
+        audio_chunks: List[bytes] = []
+        for segment in segments:
+            raw_text = (segment.get("text") or "").strip()
+            if not raw_text:
+                continue
+
+            cleaned_text = self._clean_text_for_tts(raw_text)
+            if not cleaned_text:
+                continue
+
+            segment_type = (segment.get("segment_type") or "narration").lower()
+            speaker = (segment.get("speaker") or "narrator").strip()
+
+            slug = speaker
+            if segment_type != "narration" and slug not in char_by_slug:
+                lookup = char_by_name.get(speaker.lower())
+                if lookup:
+                    slug = lookup
+
+            preset = self._resolve_voice(segment_type, slug)
+            voice = preset.get("voice", "alloy")
+            if voice not in SUPPORTED_OPENAI_VOICES:
+                voice = VOICE_PRESETS["default"]["voice"]
+
+            audio_bytes = self.create_tts(cleaned_text, voice=voice)
+            audio_chunks.append(audio_bytes)
+
+        if not audio_chunks:
+            raise ValueError("No audio data generated from segments.")
+
+        return self._merge_wav_segments(audio_chunks)
+
+    # --------------------------------------------------------------------------------------
+    # Helpers
+    # --------------------------------------------------------------------------------------
+    def _resolve_voice(self, segment_type: str, speaker_slug: str) -> Dict[str, str]:
+        if segment_type == "narration":
+            return VOICE_PRESETS["narration"]
+
+        preset = VOICE_PRESETS["characters"].get(speaker_slug)
+        if preset is None:
+            return VOICE_PRESETS["default"]
+        return preset
+
+    def _clean_text_for_tts(self, text: str) -> str:
+        return text.replace('"', '').replace('“', '').replace('”', '').strip()
+
+    def _merge_wav_segments(self, wav_segments: List[bytes]) -> bytes:
+        if not wav_segments:
+            raise ValueError("No audio segments provided for merge.")
+        params = None
+        frames = []
+        for segment in wav_segments:
+            with wave.open(BytesIO(segment), "rb") as wf:
+                frame_params = wf.getparams()
+                if params is None:
+                    params = frame_params
+                else:
+                    if (
+                        frame_params.nchannels != params.nchannels
+                        or frame_params.sampwidth != params.sampwidth
+                        or frame_params.framerate != params.framerate
+                    ):
+                        raise ValueError("Inconsistent audio parameters between segments.")
+                frames.append(wf.readframes(wf.getnframes()))
+        total_size = sum(len(f) for f in frames)
+        max_wav_size = (1 << 32) - 1
+        output = BytesIO()
+        if total_size >= max_wav_size:
+            logger.warning("Merged audio would exceed WAV size limit; falling back to raw concatenation.")
+            output.write(b"".join(frames))
+            return output.getvalue()
+
+        sampwidth = params.sampwidth
+        nchannels = params.nchannels
+        framerate = params.framerate
+        frame_size = sampwidth * nchannels
+        with wave.open(output, "wb") as wf:
+            wf.setnchannels(nchannels)
+            wf.setsampwidth(sampwidth)
+            wf.setframerate(framerate)
+            total_frames = sum(len(frame) // frame_size for frame in frames) if frame_size else 0
+            wf.setnframes(total_frames)
+            for frame in frames:
+                wf.writeframes(frame)
+        return output.getvalue()
+
+    def _determine_locale(self, language: Optional[str]) -> str:
+        if not language:
+            return "ko-KR"
+        normalized = str(language).strip().lower()
+        if normalized in {"ko", "ko-kr", "korean"}:
+            return "ko-KR"
+        if normalized in {"en", "en-us", "english"}:
+            return "en-US"
+        return "ko-KR"
+
+    def _map_emotion_to_style(self, emotion: str) -> Optional[str]:
+        lowered = emotion.lower()
+        if any(keyword in lowered for keyword in ["기쁘", "신나", "즐겁", "흥분"]):
+            return "cheerful"
+        if any(keyword in lowered for keyword in ["차분", "잔잔", "평온", "따뜻"]):
+            return "calm"
+        if any(keyword in lowered for keyword in ["속삭", "조용", "은은"]):
+            return "whispering"
+        if any(keyword in lowered for keyword in ["용감", "힘차", "모험"]):
+            return "energetic"
+        if any(keyword in lowered for keyword in ["상냥", "부드럽", "다정"]):
+            return "friendly"
+        if any(keyword in lowered for keyword in ["신비", "꿈", "별"]):
+            return "hopeful"
+        return None
+
+    def _build_azure_ssml(self, audio_request: GenerateAudioRequest, segments: List[dict]) -> str:
+        locale = self._determine_locale(audio_request.language)
+        parts = [
+            '<?xml version="1.0" encoding="utf-8"?>',
+            (
+                f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
+                f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{locale}">'
+            ),
+        ]
+
+        char_by_slug = {
+            getattr(character, "slug", None) or character.name: character
+            for character in audio_request.characters
+        }
+        char_by_name = {
+            character.name.lower(): getattr(character, "slug", None) or character.name
+            for character in audio_request.characters
+        }
+
+        for segment in segments:
+            raw_text = (segment.get("text") or "").strip()
+            if not raw_text:
+                continue
+            slug = (segment.get("speaker") or "narrator").strip()
+            segment_type = (segment.get("segment_type") or "narration").lower()
+            if segment_type != "narration" and slug not in char_by_slug:
+                lookup = char_by_name.get(slug.lower())
+                if lookup:
+                    slug = lookup
+
+            preset = self._resolve_voice(segment_type, slug)
+            voice_name = (
+                preset.get("azure_voice")
+                or VOICE_PRESETS["default"].get("azure_voice")
+                or "ko-KR-SunHiNeural"
+            )
+            style = preset.get("azure_style")
+            styledegree = preset.get("azure_styledegree")
+            rate = preset.get("azure_rate")
+
+            emotion = segment.get("emotion") or ""
+            inferred_style = self._map_emotion_to_style(emotion)
+            if inferred_style:
+                style = inferred_style
+
+            express_open = ""
+            express_close = ""
+            if style:
+                attrs = [f'style="{style}"']
+                if styledegree:
+                    attrs.append(f'styledegree="{styledegree}"')
+                express_open = f"<mstts:express-as {' '.join(attrs)}>"
+                express_close = "</mstts:express-as>"
+            prosody_open = ""
+            prosody_close = ""
+            if rate:
+                prosody_open = f'<prosody rate="{rate}">'
+                prosody_close = "</prosody>"
+
+            text_content = escape(self._clean_text_for_tts(raw_text))
+
+            parts.append(
+                f'<voice name="{voice_name}">{express_open}{prosody_open}'
+                f'{text_content}{prosody_close}{express_close}</voice>'
+            )
+
+        parts.append("</speak>")
+        return "".join(parts)

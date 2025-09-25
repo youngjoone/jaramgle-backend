@@ -92,3 +92,30 @@ class GenerateImageRequest(BaseModel):
 
 class GenerateImageResponse(BaseModel):
     file_path: str
+
+# -------- Audio Generation --------
+class AudioPageInput(BaseModel):
+    page_no: int = Field(..., alias="pageNo")
+    text: str
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+
+class GenerateAudioRequest(BaseModel):
+    title: Optional[str] = None
+    language: Optional[str] = None
+    pages: List[AudioPageInput]
+    characters: List[CharacterProfile] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    @field_validator("language", mode="before")
+    def _normalize_language(cls, value: Optional[str]):
+        if value is None:
+            return value
+        normalized = str(value).strip().upper()
+        if normalized in {"KO", "KOREAN", "KO-KR", "KO_KR"}:
+            return "KO"
+        if normalized in {"EN", "ENGLISH", "EN-US", "EN_US", "EN-GB", "EN_GB"}:
+            return "EN"
+        return normalized

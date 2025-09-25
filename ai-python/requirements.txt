@@ -5,3 +5,4 @@ tenacity
 pillow
 
 requests
+azure-cognitiveservices-speech
