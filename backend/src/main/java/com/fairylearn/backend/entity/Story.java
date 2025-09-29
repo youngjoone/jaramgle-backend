@@ -52,6 +52,9 @@ public class Story {
     @Column(name = "full_audio_url")
     private String fullAudioUrl;
 
+    @Column(name = "creative_concept", columnDefinition = "TEXT")
+    private String creativeConcept;
+
     @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<StorybookPage> storybookPages = new ArrayList<>();
 

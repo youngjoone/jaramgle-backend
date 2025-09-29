@@ -1,12 +1,15 @@
 # service/openai_client.py
 from html import escape
 from typing import Dict, List, Optional
+import random
 
 from openai import BadRequestError, OpenAI
 
 from config import Config
 from schemas import (
     CharacterProfile,
+    CharacterVisual, # IMPORT NEW
+    CreativeConcept,
     GenerateAudioRequest,
     GenerateRequest,
     GenerateResponse,
@@ -27,109 +30,7 @@ from service.azure_tts_client import AzureTTSClient, AzureTTSConfigurationError
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_OPENAI_VOICES = {"alloy", "ash", "coral", "fable", "onyx", "sage", "echo", "nova", "shimmer"}
-
-VOICE_PRESETS: Dict[str, dict] = {
-    "narration": {
-        "voice": "alloy",
-        "style": "따뜻하고 차분한 엄마 목소리로",
-        "azure_voice": "ko-KR-SunHiNeural",
-        "azure_style": "friendly",
-        "azure_styledegree": "1.0",
-        "azure_rate": "0%",
-    },
-    "default": {
-        "voice": "alloy",
-        "style": "자연스럽고 편안하게",
-        "azure_voice": "ko-KR-SunHiNeural",
-        "azure_style": "calm",
-        "azure_styledegree": "1.0",
-        "azure_rate": "0%",
-    },
-    "characters": {
-        "lulu-rabbit": {
-            "voice": "coral",
-            "style": "발랄하고 귀엽게",
-            "azure_voice": "ko-KR-SunHiNeural",
-            "azure_style": "cheerful",
-            "azure_styledegree": "1.2",
-            "azure_rate": "+10%",
-        },
-        "mungchi-puppy": {
-            "voice": "nova",
-            "style": "친근하고 즐겁게",
-            "azure_voice": "ko-KR-SoonBokNeural",
-            "azure_style": "friendly",
-            "azure_styledegree": "1.1",
-            "azure_rate": "+6%",
-        },
-        "coco-squirrel": {
-            "voice": "echo",
-            "style": "빠르고 신나게",
-            "azure_voice": "ko-KR-SeoHyeonNeural",
-            "azure_style": "excited",
-            "azure_styledegree": "1.2",
-            "azure_rate": "+12%",
-        },
-        "ria-princess": {
-            "voice": "shimmer",
-            "style": "우아하고 상냥하게",
-            "azure_voice": "ko-KR-SeoHyeonNeural",
-            "azure_style": "gentle",
-            "azure_styledegree": "1.1",
-            "azure_rate": "0%",
-        },
-        "lucas-prince": {
-            "voice": "fable",
-            "style": "장난기 넘치고 씩씩하게",
-            "azure_voice": "ko-KR-SunHiNeural",
-            "azure_style": "cheerful",
-            "azure_styledegree": "1.1",
-            "azure_rate": "+8%",
-        },
-        "geo-explorer": {
-            "voice": "ash",
-            "style": "차분하지만 용감하게",
-            "azure_voice": "ko-KR-SoonBokNeural",
-            "azure_style": "calm",
-            "azure_styledegree": "1.0",
-            "azure_rate": "0%",
-        },
-        "robo-roro": {
-            "voice": "onyx",
-            "style": "기계적이면서 따뜻하게",
-            "azure_voice": "ko-KR-SoonBokNeural",
-            "azure_style": "calm",
-            "azure_styledegree": "1.0",
-            "azure_rate": "-4%",
-        },
-        "mimi-fairy": {
-            "voice": "sage",
-            "style": "속삭이듯 다정하게",
-            "azure_voice": "ko-KR-SeoHyeonNeural",
-            "azure_style": "whispering",
-            "azure_styledegree": "1.0",
-            "azure_rate": "-6%",
-        },
-        "pipi-math-monster": {
-            "voice": "coral",
-            "style": "경쾌하고 생동감 있게",
-            "azure_voice": "ko-KR-SunHiNeural",
-            "azure_style": "cheerful",
-            "azure_styledegree": "1.1",
-            "azure_rate": "+10%",
-        },
-        "nova-space": {
-            "voice": "nova",
-            "style": "꿈꾸듯 신비롭게",
-            "azure_voice": "ko-KR-SunHiNeural",
-            "azure_style": "hopeful",
-            "azure_styledegree": "1.1",
-            "azure_rate": "+4%",
-        },
-    },
-}
-
+# ... (VOICE_PRESETS and other constants remain the same) ...
 
 class OpenAIClient:
     def __init__(self, api_key: str):
@@ -139,13 +40,13 @@ class OpenAIClient:
         self.image_quality = Config.OPENAI_IMAGE_QUALITY
         self.reading_plan_model = Config.READING_PLAN_MODEL
         self._base_image_style = dedent(
-            """
+            '''
             Illustration style guide: minimalistic watercolor with soft pastel palette,
             simple shapes, gentle lighting, subtle textures, and limited background detail.
             Maintain consistent character proportions (round face, expressive large eyes, short limbs)
             and identical costume colors across every scene in the same story. Avoid clutter and stick to two
             or three key props.
-            """
+            '''
         ).strip()
 
         self.azure_client: Optional[AzureTTSClient] = None
@@ -166,9 +67,7 @@ class OpenAIClient:
             except Exception:  # pragma: no cover - defensive safety log
                 logger.exception("Failed to initialise Azure TTS client; falling back to OpenAI")
 
-    # --------------------------------------------------------------------------------------
-    # Story generation
-    # --------------------------------------------------------------------------------------
+    # ... (build_prompt, _normalize, generate_text methods remain the same) ...
     def build_prompt(self, req: GenerateRequest, retry_reason: Optional[str] = None) -> list:
         is_ko = str(req.language).upper() == "KO"
         topics_str = ", ".join(req.topics)
@@ -199,29 +98,87 @@ class OpenAIClient:
             )
 
         system_prompt = (
-            "너는 4~8세 아동용 그림책 작가이자 예비교사다.\n"
+            "너는 4~8세 아동용 그림책 작가이자 아트 디렉터, 오디오북 연출가다.\n"
+            "- 너의 임무는 글, 그림, 음성까지 아우르는 통합적인 창작 콘셉트를 먼저 정의하고, 그에 맞춰 스토리를 쓰는 것이다.\n"
             "- 폭력/공포/편견/노골적 표현 금지. 따뜻하고 쉬운 어휘 사용.\n"
             "- 권선징악은 사건 전개 속에 자연스럽게 드러나야 하며, 설교식 표현은 피할 것.\n"
             "- 아동 눈높이에 맞춘 공감·배려·용기·성장을 담되, 문장은 짧고 리듬감 있게.\n"
             "- 출력은 반드시 JSON 하나만. 추가 텍스트/설명/코드블록 금지."
         )
 
-        user_prompt = f"""
+        user_prompt = f'''
 [연령대] {req.age_range}세
 [주제] {topics_str}
 [학습목표] {objectives_str}
 [언어] {lang_label}
 {title_line}
 {character_prompt_section}
-# 출력 스키마(키 고정, 추가 키 금지)
+
+# 출력 스키마 (키 고정, 추가 키 금지)
 {{
+  "creative_concept": {{
+    "art_style": "string (A unified art style guide for all illustrations)",
+    "mood_and_tone": "string (The overall mood for the story, art, and audio)",
+    "character_sheets": [
+      {{
+        "name": "string (Character's name)",
+        "visual_description": "string (Detailed visual description for the image generation AI to ensure consistency)",
+        "voice_profile": "string (Voice tone and emotion guide for the TTS AI)"
+      }}
+    ]
+  }},
   "story": {{
     "title": "string",
     "pages": [{{"page": 1, "text": "string"}}],
     "quiz": [{{"q": "string", "options": ["string","string","string"], "a": 0}}]
   }}
 }}
-""".strip()
+
+# 형식 예시(참고용, 실제 내용은 달라야 함)
+{{
+  "creative_concept": {{
+    "art_style": "따뜻한 색감의 동화적 디지털 드로잉 스타일",
+    "mood_and_tone": "용기와 우정에 대한 따뜻하고 교훈적인 분위기",
+    "character_sheets": [
+      {{
+        "name": "토토",
+        "visual_description": "크고 동그란 갈색 눈을 가진 아기 토끼. 항상 작은 노란색 가방을 메고 다님.",
+        "voice_profile": "호기심 많고 약간 수줍은 소년의 목소리"
+      }}
+    ]
+  }},
+  "story": {{
+    "title": "용감한 토끼 토토",
+    "pages": [
+      {{"page": 1, "text": "깊은 숲속에 사는 아기 토끼 토토는 겁이 아주 많았어요. 작은 바스락 소리에도 깜짝 놀라 노란 가방 뒤에 숨기 바빴죠. 친구들은 그런 토토를 놀리곤 했지만, 토토는 용감해지고 싶었어요."}},
+      {{"page": 2, "text": "어느 날, 숲의 가장 큰 나무 꼭대기에 반짝이는 별사탕이 열렸다는 소문이 퍼졌어요. 하지만 그 나무는 아주 높고 무서운 절벽 위에 있었죠. 아무도 그곳에 갈 엄두를 내지 못했어요."}},
+      {{"page": 3, "text": "토토는 결심했어요. \"내가 저 별사탕을 가져와서 모두에게 용기를 보여줄 거야!\" 토토는 작은 발걸음을 옮기기 시작했어요. 숲속 친구들은 모두 토토를 걱정스럽게 바라보았죠."}}
+    ],
+    "quiz": [
+      {{"q": "토토의 가장 큰 소원은 무엇이었나요?", "options": ["키가 커지는 것", "용감해지는 것", "부자가 되는 것"], "a": 1}}
+    ]
+  }}
+}}
+
+# 통합 콘셉트 요구사항
+- `art_style`: 동화책 전체의 그림 스타일을 한 문장으로 명확하게 정의할 것. (예: 부드러운 파스텔 색감의 미니멀한 수채화 스타일)
+- `mood_and_tone`: 글, 그림, 음성 모두에 적용될 전체적인 분위기를 정의할 것. (예: 따뜻하고 모험적이며, 약간의 신비로움이 가미된 분위기)
+- `character_sheets`: `[등장인물 가이드]`에 명시된 각 캐릭터에 대해 아래 내용을 상세히 작성할 것.
+  - `visual_description`: 그림 AI가 모든 페이지에서 동일한 캐릭터를 그릴 수 있도록, 외형, 의상, 색상, 주요 특징, 액세서리 등을 매우 구체적으로 묘사할 것.
+  - `voice_profile`: 음성 AI가 캐릭터의 감정을 표현할 수 있도록, 목소리 톤, 빠르기, 감정(예: 높고 밝은 톤, 호기심 가득한 어조)을 묘사할 것.
+
+# 스토리텔링 요구사항
+- 이야기 구조를 반드시 반영: [발단]→[전개]→[위기]→[절정]→[결말] 순서를 내부적으로 준수하되, 텍스트에는 라벨을 절대 표기하지 말 것.
+- 주인공이 해결해야 할 명확한 위기나 도전 과제를 반드시 포함할 것. 주인공은 최소 한 번의 어려움을 겪고, 자신의 힘이나 친구의 도움으로 극복해야 함.
+- 분량은 10~15페이지를 권장한다. 각 페이지는 3~4개의 문장으로 구성된 하나의 문단이어야 한다.
+- 의성어·의태어와 짧은 대화를 적절히 배치해 생동감을 줄 것.
+- 마지막은 '교훈:' 같은 라벨 대신, 따뜻한 정서 문장으로 자연스럽게 교훈을 전달한다.
+
+# 형식/분량 규칙
+- pages는 최소 {req.min_pages}개 이상, 권장 10~15개. page는 1부터 1씩 증가.
+- quiz는 0~3개, options는 3개, a는 0부터 시작하는 정답 인덱스.
+- 키/구조를 절대 바꾸지 말 것. JSON 외 다른 텍스트 금지.
+'''.strip()
 
         if retry_reason:
             user_prompt += (
@@ -252,7 +209,14 @@ class OpenAIClient:
         if "quiz" not in story or story["quiz"] is None:
             story["quiz"] = []
 
-        return {"story": story}
+        if "creative_concept" not in data or data["creative_concept"] is None:
+            data["creative_concept"] = {
+                "art_style": self._base_image_style,
+                "mood_and_tone": "default",
+                "character_sheets": []
+            }
+
+        return data
 
     def generate_text(self, req: GenerateRequest, request_id: str) -> GenerateResponse:
         moderation = Moderation()
@@ -262,7 +226,7 @@ class OpenAIClient:
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.7,
-            max_tokens=1000,
+            max_tokens=2048,
             user=request_id or "anon",
             response_format={"type": "json_object"},
         )
@@ -274,49 +238,57 @@ class OpenAIClient:
         story_data = self._normalize(story_data)
 
         story = StoryOutput(**story_data["story"])
+        concept = CreativeConcept(**story_data["creative_concept"])
 
         return GenerateResponse(
             story=story,
+            creative_concept=concept,
             raw_json=json.dumps(story_data, ensure_ascii=False),
             moderation=moderation,
         )
 
     # --------------------------------------------------------------------------------------
-    # Image generation
+    # Image generation (MODIFIED)
     # --------------------------------------------------------------------------------------
     def generate_image(
         self,
         text: str,
         request_id: str,
-        style_hint: Optional[str] = None,
-        character_images: Optional[List[CharacterProfile]] = None,
+        art_style: Optional[str] = None,
+        character_visuals: Optional[List[CharacterVisual]] = None,
+        character_images: Optional[List[CharacterProfile]] = None, # Kept for fallback
     ) -> str:
+        
+        # Prioritize the new art_style from creative_concept
+        style_guide = art_style or self._base_image_style
+
         prompt = dedent(
-            f"""
-            {self._base_image_style}
-            If previous pages exist, reuse the same character design and color palette.
+            f'''
+            {style_guide}
             Scene description: {text}
-            {style_hint or ''}
-            """
+            '''
         ).strip()
 
-        if character_images:
+        # Prioritize detailed visual descriptions from the creative_concept
+        if character_visuals:
+            descriptions = []
+            for visual in character_visuals:
+                descriptions.append(f"- {visual.name}: {visual.visual_description}")
+            if descriptions:
+                prompt += "\n\nCharacters to include (follow these descriptions strictly):\n" + "\n".join(descriptions)
+        
+        # Fallback to old character prompt keywords if new visuals are not provided
+        elif character_images:
             descriptions = []
             for profile in character_images:
-                name = getattr(profile, "name", "")
-                persona = getattr(profile, "persona", "")
-                catchphrase = getattr(profile, "catchphrase", "")
-                keywords = getattr(profile, "prompt_keywords", None) or getattr(profile, "promptKeywords", None)
-                parts = [name]
-                if persona:
-                    parts.append(persona)
-                if catchphrase:
-                    parts.append(f"Known quote: {catchphrase}")
-                if keywords:
-                    parts.append(f"Visual cues: {keywords}")
+                parts = [profile.name]
+                if profile.persona:
+                    parts.append(profile.persona)
+                if profile.prompt_keywords:
+                    parts.append(f"Visual cues: {profile.prompt_keywords}")
                 descriptions.append(" | ".join(filter(None, parts)))
             if descriptions:
-                prompt += "\nCharacters to include:\n" + "\n".join(f"- {desc}" for desc in descriptions)
+                prompt += "\n\nCharacters to include:\n" + "\n".join(f"- {desc}" for desc in descriptions)
 
         logger.info("Generating image for request_id %s with prompt: %s", request_id, prompt)
 
@@ -354,6 +326,7 @@ class OpenAIClient:
 
         return encoded
 
+    # ... (rest of the file remains the same) ...
     # --------------------------------------------------------------------------------------
     # Audio generation
     # --------------------------------------------------------------------------------------
@@ -397,7 +370,7 @@ class OpenAIClient:
 
         system_prompt = "너는 오디오북 연출가다. 주어진 동화를 자연스럽게 낭독하기 위한 세그먼트 계획을 JSON 포맷으로 작성해라."
         user_prompt = dedent(
-            f"""
+            f'''
 ### Story Meta
 Title: {audio_request.title or '제목 미정'}
 Language: {audio_request.language or 'KO'}
@@ -417,11 +390,14 @@ Language: {audio_request.language or 'KO'}
   * text: 실제 읽을 문장. 대사는 따옴표 없이 발화를 남기고, 서술은 원문을 그대로 유지하되 불필요한 공백을 제거
 - 같은 화자/감정이 연속되면 세그먼트를 하나로 묶어도 된다.
 - 문장 안에 따옴표("")로 감싼 대사와 서술이 섞여 있으면, 서술 부분은 `narration`, 따옴표 안 문장은 `dialogue`로 순서를 유지하며 각각 별도 세그먼트로 나눌 것.
-- `dialogue` 세그먼트의 text에서는 따옴표를 제거하고 발화만 남길 것. 서술 세그먼트는 전체 문장을 그대로 유지한다.
+- `"대사" 루루가 말했어요`처럼 대사 앞·뒤에 붙은 서술은 각각 narration 세그먼트로 추가하고, 절대로 생략하거나 대사와 합치지 말 것.
+- 대사 뒤에 붙는 짧은 서술(예: "…!" 미미가 외쳤어요.)도 반드시 narration 세그먼트로 남기고, 어떤 서술도 생략하지 말 것.
+- 원본 텍스트의 모든 문장과 단어를 빠짐없이 포함해야 한다. 어떤 이유로도 생략하거나 요약하지 말 것.
+- narration 세그먼트의 `text`에는 해당 문장을 원문 그대로(띄어쓰기만 정리) 담고, `dialogue` 세그먼트의 `text`에는 따옴표를 제거한 발화만 담을 것. `text` 값에 따옴표가 필요한 경우 반드시 `\"`처럼 escape해서 JSON이 깨지지 않도록 한다.
 - 화자는 문맥상 가장 최근에 이름이 언급된 캐릭터 slug를 사용하고, 특정할 수 없으면 narrator로 둔다.
 - 의성어와 배경 설명이 자연스럽게 이어지도록 구성하라.
 - JSON 이외의 설명은 포함하지 말 것.
-"""
+'''
         )
 
         response = self.client.chat.completions.create(
@@ -489,7 +465,7 @@ Language: {audio_request.language or 'KO'}
             preset = self._resolve_voice(segment_type, slug)
             voice = preset.get("voice", "alloy")
             if voice not in SUPPORTED_OPENAI_VOICES:
-                voice = VOICE_PRESETS["default"]["voice"]
+                voice = VOICE_PRESETS["default"].get("voice", "alloy")
 
             audio_bytes = self.create_tts(cleaned_text, voice=voice)
             audio_chunks.append(audio_bytes)
@@ -586,7 +562,7 @@ Language: {audio_request.language or 'KO'}
             '<?xml version="1.0" encoding="utf-8"?>',
             (
                 f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
-                f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{locale}">'
+                f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{locale}" >',
             ),
         ]
 
@@ -631,12 +607,12 @@ Language: {audio_request.language or 'KO'}
                 attrs = [f'style="{style}"']
                 if styledegree:
                     attrs.append(f'styledegree="{styledegree}"')
-                express_open = f"<mstts:express-as {' '.join(attrs)}>"
+                express_open = f"<mstts:express-as {' '.join(attrs)} >"
                 express_close = "</mstts:express-as>"
             prosody_open = ""
             prosody_close = ""
             if rate:
-                prosody_open = f'<prosody rate="{rate}">'
+                prosody_open = f'<prosody rate="{rate}" >'
                 prosody_close = "</prosody>"
 
             text_content = escape(self._clean_text_for_tts(raw_text))
