@@ -254,8 +254,8 @@ public class StoryService {
                 "토토는 친구들을 지키기 위해 용기를 내기로 결심했어요. 토토는 함정을 만들어 심술궂은 여우를 골탕 먹이기로 했죠. 친구들과 함께 열심히 함정을 준비했습니다.",
                 "결국 토토와 친구들은 힘을 합쳐 여우를 잡았고, 여우는 다시는 친구들을 괴롭히지 않겠다고 약속했어요. 숲에는 다시 평화가 찾아왔고 모두가 토토를 칭찬했답니다."
         );
-        AiQuiz quiz = new AiQuiz("토토의 이름은 무엇이었나요?", List.of("토토", "코코", "모모"), 0);
-        return new StableStoryDto(title, pages, quiz);
+        AiQuiz quiz = new AiQuiz("토끼의 이름은 무엇이었나요?", List.of("토토", "코코", "모모"), 0);
+        return new StableStoryDto(title, pages, List.of(quiz));
     }
 
     @Transactional
