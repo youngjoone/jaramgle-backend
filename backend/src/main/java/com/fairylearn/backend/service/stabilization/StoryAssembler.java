@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
@@ -27,12 +28,20 @@ public class StoryAssembler {
         // 3. 페이지 빌드
         List<String> pages = pageBuilder.build(sentences, minPages);
 
-        // 4. 퀴즈 검수 및 보정
-        AiQuiz quiz = quizFixer.ensureValid(aiStory.quiz(), pages);
+        // 4. 퀴즈 검수 및 보정 (이제 리스트를 처리)
+        List<AiQuiz> finalQuizzes = new ArrayList<>();
+        if (aiStory.quiz() != null && !aiStory.quiz().isEmpty()) {
+            // 리스트의 첫 번째 퀴즈만 검증하고 사용
+            AiQuiz firstQuiz = aiStory.quiz().get(0);
+            AiQuiz validatedQuiz = quizFixer.ensureValid(firstQuiz, pages);
+            if (validatedQuiz != null) {
+                finalQuizzes.add(validatedQuiz);
+            }
+        }
         
         // 5. 최종 결과 조합
         String title = (aiStory.title() != null && !aiStory.title().isBlank()) ? aiStory.title() : "새로운 동화";
 
-        return new StableStoryDto(title, pages, quiz);
+        return new StableStoryDto(title, pages, finalQuizzes);
     }
 }
