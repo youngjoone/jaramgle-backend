@@ -16,13 +16,10 @@ class CharacterProfile(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    # 백엔드가 int로 줄 수도, "5" 문자열로 줄 수도 있으니 둘 다 허용
     age_range: Union[int, str]
-    # 클라이언트가 "a, b, c" 같은 문자열로 줄 때도 리스트로 변환되게 처리
     topics: List[str]
     objectives: List[str]
     min_pages: int = Field(ge=1, le=20)
-    # 대소문자/표기 다양성을 흡수해서 내부적으로 'KO' / 'EN'으로 정규화
     language: Union[Literal["KO", "EN"], str]
     title: Optional[str] = None
     characters: List[CharacterProfile] = Field(default_factory=list)
@@ -31,7 +28,6 @@ class GenerateRequest(BaseModel):
 
     @field_validator("age_range", mode="before")
     def _age_to_str(cls, v):
-        # 내부적으로 프롬프트 조립 시 문자열로 쓰기 쉬우려면 문자열화
         return str(v)
 
     @field_validator("topics", "objectives", mode="before")
@@ -48,12 +44,10 @@ class GenerateRequest(BaseModel):
                 return "KO"
             if u in {"EN", "ENG", "EN-US", "EN_GB", "EN-GB"}:
                 return "EN"
-        # Literal에 걸리면 그대로 통과
         return v
 
-# -------- Story / Quiz --------
+# -------- Story / Quiz / Concept (NEW) --------
 class StoryPage(BaseModel):
-    # 외부에서 'page'로 들어와도 받고, 우리 내부 필드명은 page_no로 사용
     page_no: int = Field(..., alias="page")
     text: str
     id: Optional[int] = None
@@ -61,12 +55,21 @@ class StoryPage(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
 class QA(BaseModel):
-    # 'q' / 'a'로 들어와도 받고 내부는 question / answer 사용
     question: str = Field(..., alias="q")
     options: List[str]
     answer: int = Field(..., alias="a")
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+class CharacterSheet(BaseModel):
+    name: str
+    visual_description: str = Field(..., description="Detailed visual description for the image generation AI.")
+    voice_profile: str = Field(..., description="Voice tone and emotion guide for the TTS AI.")
+
+class CreativeConcept(BaseModel):
+    art_style: str = Field(..., description="A unified art style guide for all illustrations.")
+    mood_and_tone: str = Field(..., description="The overall mood and tone for the story, art, and audio.")
+    character_sheets: List[CharacterSheet] = Field(default_factory=list)
 
 class StoryOutput(BaseModel):
     title: str
@@ -82,13 +85,20 @@ class Moderation(BaseModel):
 
 class GenerateResponse(BaseModel):
     story: StoryOutput
+    creative_concept: Optional[CreativeConcept] = None # ADDED
     raw_json: str
     moderation: Moderation = Field(default_factory=Moderation)
 
 # -------- Image Generation --------
+class CharacterVisual(BaseModel):
+    name: str
+    visual_description: str
+
 class GenerateImageRequest(BaseModel):
     text: str
     characters: List[CharacterProfile] = Field(default_factory=list)
+    art_style: Optional[str] = None
+    character_visuals: List[CharacterVisual] = Field(default_factory=list)
 
 class GenerateImageResponse(BaseModel):
     file_path: str

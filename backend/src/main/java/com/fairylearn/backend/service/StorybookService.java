@@ -2,12 +2,13 @@ package com.fairylearn.backend.service;
 
 import com.fairylearn.backend.dto.GenerateImageRequestDto;
 import com.fairylearn.backend.dto.GenerateImageResponseDto;
-import com.fairylearn.backend.dto.CharacterImageRequestDto;
 import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.entity.StoryPage;
 import com.fairylearn.backend.entity.StorybookPage;
 import com.fairylearn.backend.repository.StoryRepository;
 import com.fairylearn.backend.repository.StorybookPageRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -15,8 +16,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 @Service
 @RequiredArgsConstructor
@@ -27,10 +31,10 @@ public class StorybookService {
     private final StorybookPageRepository storybookPageRepository;
     private final StoryService storyService;
     private final WebClient webClient;
+    private final ObjectMapper objectMapper; // ADDED
 
     @Transactional
     public StorybookPage createStorybook(Long storyId) {
-        // Check if storybook pages already exist for this story
         List<StorybookPage> existingPages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
         if (!existingPages.isEmpty()) {
             log.info("Storybook pages already exist for storyId: {}. Returning first page.", storyId);
@@ -46,12 +50,10 @@ public class StorybookService {
             throw new IllegalStateException("Story has no pages to create a storybook from.");
         }
 
-        // Synchronously generate the first page
         StoryPage firstOriginalPage = originalPages.get(0);
         StorybookPage firstStorybookPage = generateAndSaveStorybookPage(story, 1, firstOriginalPage.getText());
         log.info("createStorybook: First page generated and saved. ID: {}", firstStorybookPage.getId());
 
-        // Asynchronously generate the rest
         if (originalPages.size() > 1) {
             List<String> remainingTexts = originalPages.subList(1, originalPages.size()).stream()
                     .map(StoryPage::getText)
@@ -78,49 +80,56 @@ public class StorybookService {
                 .orElseThrow(() -> new IllegalArgumentException("Story not found"));
         story.getCharacters().size();
         for (int i = 0; i < remainingPageTexts.size(); i++) {
-            int pageNumber = i + 2; // Starts from page 2
+            int pageNumber = i + 2;
             try {
                 StorybookPage generatedPage = generateAndSaveStorybookPage(story, pageNumber, remainingPageTexts.get(i));
                 log.info("Async: Generated and saved page {} for storyId: {}. ID: {}", pageNumber, story.getId(), generatedPage.getId());
             } catch (Exception e) {
-                log.error("Async: Failed to generate image for storyId: {}, pageNumber: {}. Error: {}", 
+                log.error("Async: Failed to generate image for storyId: {}, pageNumber: {}. Error: {}",
                         storyId, pageNumber, e.getMessage());
-                // In a real application, you might want to set an error state for this page
             }
         }
         log.info("Finished async generation for storyId: {}", storyId);
     }
 
-    private List<CharacterImageRequestDto> buildCharacterImageRequests(Story story) {
-        return story.getCharacters().stream()
-                .map(character -> new CharacterImageRequestDto(
-                        character.getId(),
-                        character.getSlug(),
-                        character.getName(),
-                        character.getPersona(),
-                        character.getCatchphrase(),
-                        character.getPromptKeywords(),
-                        character.getImagePath()
-                ))
-                .collect(Collectors.toList());
-    }
-
     private StorybookPage generateAndSaveStorybookPage(Story story, int pageNumber, String text) {
         log.info("Generating image for storyId: {}, pageNumber: {}", story.getId(), pageNumber);
-        GenerateImageRequestDto requestDto = new GenerateImageRequestDto(text, buildCharacterImageRequests(story));
-        
+
+        String artStyle = "A minimalistic watercolor style with a soft pastel palette."; // Default
+        List<GenerateImageRequestDto.CharacterVisualDto> characterVisuals = new ArrayList<>();
+
+        String conceptJson = story.getCreativeConcept();
+        if (conceptJson != null && !conceptJson.isEmpty()) {
+            try {
+                JsonNode conceptNode = objectMapper.readTree(conceptJson);
+                artStyle = conceptNode.path("art_style").asText(artStyle);
+                JsonNode sheetsNode = conceptNode.path("character_sheets");
+                if (sheetsNode.isArray()) {
+                    characterVisuals = StreamSupport.stream(sheetsNode.spliterator(), false)
+                            .map(node -> new GenerateImageRequestDto.CharacterVisualDto(
+                                    node.path("name").asText(),
+                                    node.path("visual_description").asText()
+                            ))
+                            .collect(Collectors.toList());
+                }
+            } catch (IOException e) {
+                log.error("Failed to parse creative_concept JSON for storyId: {}. Using defaults.", story.getId(), e);
+            }
+        }
+
+        GenerateImageRequestDto requestDto = new GenerateImageRequestDto(text, null, artStyle, characterVisuals);
+
         GenerateImageResponseDto responseDto = webClient.post()
                 .uri("/ai/generate-image")
                 .bodyValue(requestDto)
                 .retrieve()
                 .bodyToMono(GenerateImageResponseDto.class)
-                .block(); // Making a blocking call
+                .block();
 
         if (responseDto == null || responseDto.getFilePath() == null) {
             throw new RuntimeException("Failed to get image path from AI service.");
         }
 
-        // Construct the web-accessible URL
         String webAccessibleUrl = String.format("http://localhost:8080/images/%s", responseDto.getFilePath());
 
         StorybookPage storybookPage = new StorybookPage();

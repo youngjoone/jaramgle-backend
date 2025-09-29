@@ -7,12 +7,14 @@ import com.fairylearn.backend.dto.StableStoryDto;
 import com.fairylearn.backend.dto.StoryGenerateRequest;
 import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.entity.StoryPage;
+import com.fairylearn.backend.entity.StorybookPage; // Import StorybookPage
 import com.fairylearn.backend.entity.Character;
 import com.fairylearn.backend.repository.CharacterRepository;
 import com.fairylearn.backend.repository.StoryPageRepository;
 import com.fairylearn.backend.repository.StoryRepository;
 import com.fairylearn.backend.service.stabilization.StoryAssembler;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -47,6 +49,9 @@ public class StoryService {
     private final ObjectMapper objectMapper;
     private final StoryAssembler storyAssembler;
 
+    // Helper record to return multiple values from generation
+    public record GenerationResult(StableStoryDto story, JsonNode concept) {}
+
     @Transactional(readOnly = true)
     public List<Story> getStoriesByUserId(String userId) {
         return storyRepository.findByUserIdOrderByCreatedAtDesc(userId);
@@ -65,7 +70,7 @@ public class StoryService {
     @Transactional
     public Story saveNewStory(String userId, String title, String ageRange, String topicsJson, String language, String lengthLevel, List<String> pageTexts, List<Long> characterIds) {
         storageQuotaService.ensureSlotAvailable(userId);
-        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, new ArrayList<>(), new LinkedHashSet<>());
+        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, null, new ArrayList<StorybookPage>(), new LinkedHashSet<Character>());
         story = storyRepository.save(story);
         for (int i = 0; i < pageTexts.size(); i++) {
             StoryPage page = new StoryPage(null, story, i + 1, pageTexts.get(i));
@@ -92,17 +97,27 @@ public class StoryService {
     @Transactional
     public Story generateAndSaveStory(String userId, StoryGenerateRequest request) {
         storageQuotaService.ensureSlotAvailable(userId);
-        StableStoryDto stableStoryDto = generateStableStoryDto(request);
-        return saveGeneratedStory(userId, request, stableStoryDto);
+        GenerationResult generationResult = generateAiStory(request);
+        return saveGeneratedStory(userId, request, generationResult.story(), generationResult.concept());
+    }
+
+    // Overloaded method for backward compatibility with StoryStreamService
+    @Transactional
+    public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto) {
+        return saveGeneratedStory(userId, request, stableStoryDto, null);
     }
 
     @Transactional
-    public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto) {
+    public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept) {
         String quizJson;
+        String creativeConceptJson = null;
         try {
             quizJson = objectMapper.writeValueAsString(stableStoryDto.quiz());
+            if (creativeConcept != null) {
+                creativeConceptJson = objectMapper.writeValueAsString(creativeConcept);
+            }
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize quiz data.", e);
+            throw new RuntimeException("Failed to serialize quiz or concept data.", e);
         }
 
         Story story = new Story(
@@ -117,12 +132,13 @@ public class StoryService {
                 LocalDateTime.now(),
                 quizJson,
                 null, // fullAudioUrl
-                new ArrayList<>(),
-                new LinkedHashSet<>()
+                creativeConceptJson, // creativeConcept
+                new ArrayList<StorybookPage>(),
+                new LinkedHashSet<Character>()
         );
         story = storyRepository.save(story);
 
-        log.info("Saving {} pages for story {}: {}", stableStoryDto.pages().size(), story.getId(), stableStoryDto.pages()); // Add this log
+        log.info("Saving {} pages for story {}: {}", stableStoryDto.pages().size(), story.getId(), stableStoryDto.pages());
 
         int pageNo = 1;
         for (String pageText : stableStoryDto.pages()) {
@@ -159,10 +175,14 @@ public class StoryService {
             }
         }
     }
-
+    
+    // Kept for backward compatibility with StoryStreamService
+    public StableStoryDto generateStableStoryDto(StoryGenerateRequest request) {
+        return generateAiStory(request).story();
+    }
 
     @Cacheable(value = "story-generation", key = "#request.toString()")
-    public StableStoryDto generateStableStoryDto(StoryGenerateRequest request) {
+    public GenerationResult generateAiStory(StoryGenerateRequest request) {
         log.info("Cache miss. Generating new story for request: {}", request);
         ObjectNode promptPayload = objectMapper.createObjectNode();
         promptPayload.put("age_range", request.getAgeRange());
@@ -198,27 +218,31 @@ public class StoryService {
         }
 
         try {
-            AiStory aiStory = webClient.post()
+            JsonNode aiResponse = webClient.post()
                     .uri("/ai/generate")
                     .bodyValue(promptPayload)
                     .retrieve()
-                    .bodyToMono(AiStory.class)
+                    .bodyToMono(JsonNode.class)
                     .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
                             .filter(throwable -> throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable)
                             .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
                                     new RuntimeException("LLM service unavailable after retries.", retrySignal.failure())))
                     .block();
 
-            if (aiStory == null) {
+            if (aiResponse == null) {
                 log.warn("Received null response from LLM service, returning failsafe story.");
-                return createFailsafeStory();
+                return new GenerationResult(createFailsafeStory(), objectMapper.createObjectNode());
             }
 
-            return storyAssembler.assemble(aiStory, request.getMinPages());
+            AiStory aiStory = objectMapper.treeToValue(aiResponse.get("story"), AiStory.class);
+            JsonNode creativeConcept = aiResponse.get("creative_concept");
+
+            StableStoryDto stableStory = storyAssembler.assemble(aiStory, request.getMinPages());
+            return new GenerationResult(stableStory, creativeConcept);
 
         } catch (Exception e) {
             log.error("Failed to generate story from LLM service after retries. Returning failsafe story.", e);
-            return createFailsafeStory();
+            return new GenerationResult(createFailsafeStory(), objectMapper.createObjectNode());
         }
     }
 
@@ -230,7 +254,7 @@ public class StoryService {
                 "토토는 친구들을 지키기 위해 용기를 내기로 결심했어요. 토토는 함정을 만들어 심술궂은 여우를 골탕 먹이기로 했죠. 친구들과 함께 열심히 함정을 준비했습니다.",
                 "결국 토토와 친구들은 힘을 합쳐 여우를 잡았고, 여우는 다시는 친구들을 괴롭히지 않겠다고 약속했어요. 숲에는 다시 평화가 찾아왔고 모두가 토토를 칭찬했답니다."
         );
-        AiQuiz quiz = new AiQuiz("토끼의 이름은 무엇이었나요?", List.of("토토", "코코", "모모"), 0);
+        AiQuiz quiz = new AiQuiz("토토의 이름은 무엇이었나요?", List.of("토토", "코코", "모모"), 0);
         return new StableStoryDto(title, pages, quiz);
     }
 

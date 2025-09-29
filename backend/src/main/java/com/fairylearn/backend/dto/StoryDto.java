@@ -27,6 +27,7 @@ public class StoryDto {
     private LocalDateTime sharedAt;
     private boolean manageable;
     private String fullAudioUrl;
+    private String creativeConcept; // ADDED
     private Long authorId;
     private String authorNickname;
 
@@ -44,6 +45,7 @@ public class StoryDto {
         dto.setCreatedAt(story.getCreatedAt());
         dto.setManageable(false);
         dto.setFullAudioUrl(story.getFullAudioUrl());
+        dto.setCreativeConcept(story.getCreativeConcept()); // ADDED
         dto.setAuthorId(null);
         dto.setAuthorNickname(null);
         dto.setPages(List.of());

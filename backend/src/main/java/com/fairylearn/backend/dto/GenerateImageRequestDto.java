@@ -11,5 +11,16 @@ import java.util.List;
 @AllArgsConstructor
 public class GenerateImageRequestDto {
     private String text;
-    private List<CharacterImageRequestDto> characters;
+    private List<CharacterImageRequestDto> characters; // Kept for now, but new fields are preferred
+    private String artStyle; // ADDED
+    private List<CharacterVisualDto> characterVisuals; // ADDED
+
+    // New inner DTO for detailed visual descriptions
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CharacterVisualDto {
+        private String name;
+        private String visualDescription;
+    }
 }

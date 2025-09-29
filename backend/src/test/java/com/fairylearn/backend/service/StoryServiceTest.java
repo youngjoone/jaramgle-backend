@@ -65,7 +65,7 @@ class StoryServiceTest {
         // Given: MockWebServer가 에러 응답을 반환하도록 설정
         mockBackEnd.enqueue(new MockResponse().setResponseCode(500));
 
-        StoryGenerateRequest request = new StoryGenerateRequest("용감한 토끼", "8-10", List.of("용기"), List.of("교훈"), 5, "KO");
+        StoryGenerateRequest request = new StoryGenerateRequest("용감한 토끼", "8-10", List.of("용기"), List.of("교훈"), 5, "KO", null);
 
         // When
         StableStoryDto result = storyService.generateStableStoryDto(request);
@@ -85,7 +85,7 @@ class StoryServiceTest {
                 .setBody(objectMapper.writeValueAsString(mockAiStory))
                 .addHeader("Content-Type", "application/json"));
 
-        StoryGenerateRequest request = new StoryGenerateRequest("친구들", "5-7", List.of("우정"), List.of("협동"), 4, "KO");
+        StoryGenerateRequest request = new StoryGenerateRequest("친구들", "5-7", List.of("우정"), List.of("협동"), 4, "KO", null);
 
         // When: 첫 번째 호출 (Cache Miss)
         storyService.generateStableStoryDto(request);
