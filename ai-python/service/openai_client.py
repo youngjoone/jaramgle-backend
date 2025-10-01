@@ -1,4 +1,3 @@
-# service/openai_client.py
 from html import escape
 from typing import Dict, List, Optional
 import random
@@ -8,7 +7,7 @@ from openai import BadRequestError, OpenAI
 from config import Config
 from schemas import (
     CharacterProfile,
-    CharacterVisual, # IMPORT NEW
+    CharacterVisual,
     CreativeConcept,
     GenerateAudioRequest,
     GenerateRequest,
@@ -30,7 +29,147 @@ from service.azure_tts_client import AzureTTSClient, AzureTTSConfigurationError
 
 logger = logging.getLogger(__name__)
 
-# ... (VOICE_PRESETS and other constants remain the same) ...
+SUPPORTED_OPENAI_VOICES = {"alloy", "ash", "coral", "fable", "onyx", "sage", "echo", "nova", "shimmer"}
+
+VOICE_PRESETS: Dict[str, dict] = {
+    "narration": {
+        "voice": "alloy",
+        "style": "따뜻하고 차분한 엄마 목소리로",
+        "azure_voice": "ko-KR-SunHiNeural",
+        "azure_style": "friendly",
+        "azure_styledegree": "1.0",
+        "azure_rate": "0%",
+    },
+    "default": {
+        "voice": "alloy",
+        "style": "자연스럽고 편안하게",
+        "azure_voice": "ko-KR-SunHiNeural",
+        "azure_style": "calm",
+        "azure_styledegree": "1.0",
+        "azure_rate": "0%",
+    },
+    "characters": {
+        "lulu-rabbit": {
+            "voice": "coral",
+            "style": "발랄하고 귀엽게",
+            "azure_voice": "ko-KR-SunHiNeural",
+            "azure_style": "cheerful",
+            "azure_styledegree": "1.2",
+            "azure_rate": "+10%",
+        },
+        "mungchi-puppy": {
+            "voice": "nova",
+            "style": "친근하고 즐겁게",
+            "azure_voice": "ko-KR-SoonBokNeural",
+            "azure_style": "friendly",
+            "azure_styledegree": "1.1",
+            "azure_rate": "+6%",
+        },
+        "coco-squirrel": {
+            "voice": "echo",
+            "style": "빠르고 신나게",
+            "azure_voice": "ko-KR-SeoHyeonNeural",
+            "azure_style": "excited",
+            "azure_styledegree": "1.2",
+            "azure_rate": "+12%",
+        },
+        "ria-princess": {
+            "voice": "shimmer",
+            "style": "우아하고 상냥하게",
+            "azure_voice": "ko-KR-SeoHyeonNeural",
+            "azure_style": "gentle",
+            "azure_styledegree": "1.1",
+            "azure_rate": "0%",
+        },
+        "lucas-prince": {
+            "voice": "fable",
+            "style": "장난기 넘치고 씩씩하게",
+            "azure_voice": "ko-KR-SunHiNeural",
+            "azure_style": "cheerful",
+            "azure_styledegree": "1.1",
+            "azure_rate": "+8%",
+        },
+        "geo-explorer": {
+            "voice": "ash",
+            "style": "차분하지만 용감하게",
+            "azure_voice": "ko-KR-SoonBokNeural",
+            "azure_style": "calm",
+            "azure_styledegree": "1.0",
+            "azure_rate": "0%",
+        },
+        "robo-roro": {
+            "voice": "onyx",
+            "style": "기계적이면서 따뜻하게",
+            "azure_voice": "ko-KR-SoonBokNeural",
+            "azure_style": "calm",
+            "azure_styledegree": "1.0",
+            "azure_rate": "-4%",
+        },
+        "mimi-fairy": {
+            "voice": "sage",
+            "style": "속삭이듯 다정하게",
+            "azure_voice": "ko-KR-SeoHyeonNeural",
+            "azure_style": "whispering",
+            "azure_styledegree": "1.0",
+            "azure_rate": "-6%",
+        },
+        "pipi-math-monster": {
+            "voice": "coral",
+            "style": "경쾌하고 생동감 있게",
+            "azure_voice": "ko-KR-SunHiNeural",
+            "azure_style": "cheerful",
+            "azure_styledegree": "1.1",
+            "azure_rate": "+10%",
+        },
+        "nova-space": {
+            "voice": "nova",
+            "style": "꿈꾸듯 신비롭게",
+            "azure_voice": "ko-KR-SunHiNeural",
+            "azure_style": "hopeful",
+            "azure_styledegree": "1.1",
+            "azure_rate": "+4%",
+        },
+    },
+}
+
+NARRATIVE_TONES = [
+    "따뜻하고 희망찬 모험",
+    "재치 있고 경쾌한 탐험",
+    "잔잔하고 감성적인 성장 이야기",
+    "신비롭고 몽환적인 판타지",
+    "활기차고 리듬감 있는 이야기",
+]
+
+SETTINGS = [
+    "초록빛 숲속 마을",
+    "반짝이는 바닷속 왕국",
+    "별빛이 가득한 우주 정거장",
+    "시간이 느리게 흐르는 마법 도서관",
+    "친구들이 함께 사는 구름 위 마을",
+]
+
+WRITING_STYLES = [
+    "리듬감을 살린 운율체",
+    "따뜻한 나레이션 중심",
+    "대사가 풍부한 연극체",
+    "감각 묘사가 풍부한 묘사체",
+    "아이와 대화하듯 다정한 구연체",
+]
+
+PACING_PATTERNS = [
+    "초반은 천천히, 중반 이후 점차 속도를 올려 절정에서 가장 빠르게",
+    "균등한 리듬 속에서 중요한 순간마다 살짝 호흡을 길게",
+    "발단은 빠르게, 위기에서 긴장감을 충분히, 결말은 여유 있게 정리",
+]
+
+MORAL_THEMES = [
+    "용기와 배려는 함께 자란다",
+    "친구와 힘을 합치면 어려움을 이겨낼 수 있다",
+    "작은 마음 씀씀이가 큰 기적을 만든다",
+    "실수해도 다시 시도하면 더 성장할 수 있다",
+    "서로를 존중하면 모두가 행복해진다",
+]
+
 
 class OpenAIClient:
     def __init__(self, api_key: str):
@@ -67,13 +206,17 @@ class OpenAIClient:
             except Exception:  # pragma: no cover - defensive safety log
                 logger.exception("Failed to initialise Azure TTS client; falling back to OpenAI")
 
-    # ... (build_prompt, _normalize, generate_text methods remain the same) ...
+    # --------------------------------------------------------------------------------------
+    # Story generation
+    # --------------------------------------------------------------------------------------
     def build_prompt(self, req: GenerateRequest, retry_reason: Optional[str] = None) -> list:
         is_ko = str(req.language).upper() == "KO"
         topics_str = ", ".join(req.topics)
         objectives_str = ", ".join(req.objectives)
         lang_label = "한국어" if is_ko else "영어"
         title_line = f'[제목] "{req.title}" (고정)' if req.title else "[제목] 미정(직접 생성)"
+        requested_min = getattr(req, 'min_pages', 10) or 10
+        min_pages = max(int(requested_min), 10)
 
         character_prompt_section = ""
         if getattr(req, "characters", None):
@@ -134,6 +277,25 @@ class OpenAIClient:
   }}
 }}
 
+# 통합 콘셉트 요구사항
+- `art_style`: 동화책 전체의 그림 스타일을 한 문장으로 명확하게 정의할 것. (예: 부드러운 파스텔 색감의 미니멀한 수채화 스타일)
+- `mood_and_tone`: 글, 그림, 음성 모두에 적용될 전체적인 분위기를 정의할 것. (예: 따뜻하고 모험적이며, 약간의 신비로움이 가미된 분위기)
+- `character_sheets`: `[등장인물 가이드]`에 명시된 각 캐릭터에 대해 아래 내용을 상세히 작성할 것.
+  - `visual_description`: 그림 AI가 모든 페이지에서 동일한 캐릭터를 그릴 수 있도록, 외형, 의상, 색상, 주요 특징, 액세서리 등을 매우 구체적으로 묘사할 것.
+  - `voice_profile`: 음성 AI가 캐릭터의 감정을 표현할 수 있도록, 목소리 톤, 빠르기, 감정(예: 높고 밝은 톤, 호기심 가득한 어조)을 묘사할 것.
+
+# 스토리텔링 요구사항
+- 이야기 구조를 반드시 반영: [발단]→[전개]→[위기]→[절정]→[결말] 순서를 내부적으로 준수하되, 텍스트에는 라벨을 절대 표기하지 말 것.
+- 주인공이 해결해야 할 명확한 위기나 도전 과제를 반드시 포함할 것. 주인공은 최소 한 번의 어려움을 겪고, 자신의 힘이나 친구의 도움으로 극복해야 함.
+- 분량은 최소 {min_pages}문단(=페이지) 이상 확보하고 가능하면 10~15문단 내에서 전개한다. 각 문단은 3~4개의 문장으로 구성된 하나의 단락이어야 한다.
+- 의성어·의태어와 짧은 대화를 적절히 배치해 생동감을 줄 것.
+- 마지막은 '교훈:' 같은 라벨 대신, 따뜻한 정서 문장으로 자연스럽게 교훈을 전달한다.
+
+# 형식/분량 규칙
+- pages는 최소 {min_pages}개 이상, 권장 10~15개. page는 1부터 1씩 증가.
+- quiz는 0~3개, options는 3개, a는 0부터 시작하는 정답 인덱스.
+- 키/구조를 절대 바꾸지 말 것. JSON 외 다른 텍스트 금지.
+
 # 형식 예시(참고용, 실제 내용은 달라야 함)
 {{
   "creative_concept": {{
@@ -159,25 +321,6 @@ class OpenAIClient:
     ]
   }}
 }}
-
-# 통합 콘셉트 요구사항
-- `art_style`: 동화책 전체의 그림 스타일을 한 문장으로 명확하게 정의할 것. (예: 부드러운 파스텔 색감의 미니멀한 수채화 스타일)
-- `mood_and_tone`: 글, 그림, 음성 모두에 적용될 전체적인 분위기를 정의할 것. (예: 따뜻하고 모험적이며, 약간의 신비로움이 가미된 분위기)
-- `character_sheets`: `[등장인물 가이드]`에 명시된 각 캐릭터에 대해 아래 내용을 상세히 작성할 것.
-  - `visual_description`: 그림 AI가 모든 페이지에서 동일한 캐릭터를 그릴 수 있도록, 외형, 의상, 색상, 주요 특징, 액세서리 등을 매우 구체적으로 묘사할 것.
-  - `voice_profile`: 음성 AI가 캐릭터의 감정을 표현할 수 있도록, 목소리 톤, 빠르기, 감정(예: 높고 밝은 톤, 호기심 가득한 어조)을 묘사할 것.
-
-# 스토리텔링 요구사항
-- 이야기 구조를 반드시 반영: [발단]→[전개]→[위기]→[절정]→[결말] 순서를 내부적으로 준수하되, 텍스트에는 라벨을 절대 표기하지 말 것.
-- 주인공이 해결해야 할 명확한 위기나 도전 과제를 반드시 포함할 것. 주인공은 최소 한 번의 어려움을 겪고, 자신의 힘이나 친구의 도움으로 극복해야 함.
-- 분량은 10~15페이지를 권장한다. 각 페이지는 3~4개의 문장으로 구성된 하나의 문단이어야 한다.
-- 의성어·의태어와 짧은 대화를 적절히 배치해 생동감을 줄 것.
-- 마지막은 '교훈:' 같은 라벨 대신, 따뜻한 정서 문장으로 자연스럽게 교훈을 전달한다.
-
-# 형식/분량 규칙
-- pages는 최소 {req.min_pages}개 이상, 권장 10~15개. page는 1부터 1씩 증가.
-- quiz는 0~3개, options는 3개, a는 0부터 시작하는 정답 인덱스.
-- 키/구조를 절대 바꾸지 말 것. JSON 외 다른 텍스트 금지.
 '''.strip()
 
         if retry_reason:
@@ -343,7 +486,9 @@ class OpenAIClient:
         return response.read()
 
     def plan_reading_segments(
-        self, audio_request: GenerateAudioRequest, request_id: str
+        self,
+        audio_request: GenerateAudioRequest,
+        request_id: str,
     ) -> List[dict]:
         character_lines = []
         for character in audio_request.characters:
@@ -390,7 +535,7 @@ Language: {audio_request.language or 'KO'}
   * text: 실제 읽을 문장. 대사는 따옴표 없이 발화를 남기고, 서술은 원문을 그대로 유지하되 불필요한 공백을 제거
 - 같은 화자/감정이 연속되면 세그먼트를 하나로 묶어도 된다.
 - 문장 안에 따옴표("")로 감싼 대사와 서술이 섞여 있으면, 서술 부분은 `narration`, 따옴표 안 문장은 `dialogue`로 순서를 유지하며 각각 별도 세그먼트로 나눌 것.
-- `"대사" 루루가 말했어요`처럼 대사 앞·뒤에 붙은 서술은 각각 narration 세그먼트로 추가하고, 절대로 생략하거나 대사와 합치지 말 것.
+- "대사" 루루가 말했어요`처럼 대사 앞·뒤에 붙은 서술은 각각 narration 세그먼트로 추가하고, 절대로 생략하거나 대사와 합치지 말 것.
 - 대사 뒤에 붙는 짧은 서술(예: "…!" 미미가 외쳤어요.)도 반드시 narration 세그먼트로 남기고, 어떤 서술도 생략하지 말 것.
 - 원본 텍스트의 모든 문장과 단어를 빠짐없이 포함해야 한다. 어떤 이유로도 생략하거나 요약하지 말 것.
 - narration 세그먼트의 `text`에는 해당 문장을 원문 그대로(띄어쓰기만 정리) 담고, `dialogue` 세그먼트의 `text`에는 따옴표를 제거한 발화만 담을 것. `text` 값에 따옴표가 필요한 경우 반드시 `\"`처럼 escape해서 JSON이 깨지지 않도록 한다.
@@ -407,7 +552,7 @@ Language: {audio_request.language or 'KO'}
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_tokens=900,
+            max_tokens=2048,
             user=request_id or "anon",
             response_format={"type": "json_object"},
         )
@@ -421,7 +566,9 @@ Language: {audio_request.language or 'KO'}
         return segments
 
     def synthesize_story_audio(
-        self, audio_request: GenerateAudioRequest, request_id: str
+        self,
+        audio_request: GenerateAudioRequest,
+        request_id: str,
     ) -> bytes:
         segments = self.plan_reading_segments(audio_request, request_id)
         if not segments:
@@ -465,7 +612,7 @@ Language: {audio_request.language or 'KO'}
             preset = self._resolve_voice(segment_type, slug)
             voice = preset.get("voice", "alloy")
             if voice not in SUPPORTED_OPENAI_VOICES:
-                voice = VOICE_PRESETS["default"].get("voice", "alloy")
+                voice = VOICE_PRESETS["default"]["voice"]
 
             audio_bytes = self.create_tts(cleaned_text, voice=voice)
             audio_chunks.append(audio_bytes)
@@ -562,7 +709,7 @@ Language: {audio_request.language or 'KO'}
             '<?xml version="1.0" encoding="utf-8"?>',
             (
                 f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
-                f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{locale}" >',
+                f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="{locale}" >'
             ),
         ]
 

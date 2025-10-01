@@ -2,6 +2,7 @@ from fastapi import FastAPI, Body, HTTPException, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+import traceback
 import uuid
 import time
 import logging
@@ -77,11 +78,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     for error in errors:
         loc = ".".join(map(str, error["loc"]))
         messages.append(f"{loc}: {error['msg']}")
-    return common_error_response(
+    return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        code="VALIDATION_ERROR",
-        message=f"Invalid input: {'; '.join(messages)}",
-        request=request
+        content={
+            "code": "VALIDATION_ERROR",
+            "detail": exc.errors(), # Return raw errors for debugging
+            "requestId": request.state.request_id,
+            "timestamp": datetime.now().isoformat()
+        }
     )
 
 @app.exception_handler(HTTPException)
@@ -96,11 +100,15 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception for Request ID: {request.state.request_id}", exc_info=True)
-    return common_error_response(
+    return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        code="INTERNAL_SERVER_ERROR",
-        message="An unexpected error occurred.",
-        request=request
+        content={
+            "code": "INTERNAL_SERVER_ERROR",
+            "message": f"An unexpected error occurred: {str(exc)}",
+            "traceback": traceback.format_exc(), # Include traceback for debugging
+            "requestId": request.state.request_id,
+            "timestamp": datetime.now().isoformat()
+        }
     )
 
 # --- Rate Limiting Middleware ---

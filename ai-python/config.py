@@ -13,6 +13,10 @@ class Config:
     OPENAI_IMAGE_SIZE: str = "1024x1024"
     OPENAI_IMAGE_QUALITY: str = os.getenv("OPENAI_IMAGE_QUALITY", "medium")
 
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "gemini-1.5-flash")
+    USE_GEMINI_IMAGE: bool = os.getenv("USE_GEMINI_IMAGE", "false").lower() in {"1", "true", "yes", "on"}
+
     # Azure Speech configuration (optional)
     AZURE_SPEECH_KEY: str = os.getenv("AZURE_SPEECH_KEY", "")
     AZURE_SPEECH_REGION: str = os.getenv("AZURE_SPEECH_REGION", "")

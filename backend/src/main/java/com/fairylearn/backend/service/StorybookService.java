@@ -18,6 +18,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -117,7 +118,12 @@ public class StorybookService {
             }
         }
 
-        GenerateImageRequestDto requestDto = new GenerateImageRequestDto(text, null, artStyle, characterVisuals);
+        GenerateImageRequestDto requestDto = new GenerateImageRequestDto(
+                text,
+                Collections.emptyList(),
+                artStyle,
+                characterVisuals
+        );
 
         GenerateImageResponseDto responseDto = webClient.post()
                 .uri("/ai/generate-image")
