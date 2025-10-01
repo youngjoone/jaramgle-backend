@@ -1,6 +1,12 @@
-# schemas.py
+import re
 from typing import List, Optional, Union, Literal
 from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+def to_camel(string: str) -> str:
+    components = string.split('_')
+    # We capitalize the first letter of each component except the first one
+    # with the 'title' method and join them together.
+    return components[0] + ''.join(x.title() for x in components[1:])
 
 # -------- GenerateRequest --------
 class CharacterProfile(BaseModel):
@@ -94,11 +100,15 @@ class CharacterVisual(BaseModel):
     name: str
     visual_description: str
 
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel) # ADDED
+
 class GenerateImageRequest(BaseModel):
     text: str
     characters: List[CharacterProfile] = Field(default_factory=list)
     art_style: Optional[str] = None
     character_visuals: List[CharacterVisual] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel) # ADDED
 
 class GenerateImageResponse(BaseModel):
     file_path: str
