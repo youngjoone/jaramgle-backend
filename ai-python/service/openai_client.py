@@ -1,8 +1,9 @@
 from html import escape
-from typing import Dict, List, Optional
+import re
+from typing import Dict, List, Optional, Tuple
 import random
 
-from openai import BadRequestError, OpenAI
+from openai import OpenAI
 
 from config import Config
 from schemas import (
@@ -26,6 +27,14 @@ from textwrap import dedent
 from PIL import Image
 
 from service.azure_tts_client import AzureTTSClient, AzureTTSConfigurationError
+from service.image_providers import (
+    GeminiImageProvider,
+    GeminiProviderConfig,
+    ImageProvider,
+    ImageProviderError,
+    OpenAIImageProvider,
+    OpenAIProviderConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +197,43 @@ class OpenAIClient:
             '''
         ).strip()
 
+        self._openai_image_provider = OpenAIImageProvider(
+            client=self.client,
+            config=OpenAIProviderConfig(
+                model=self.image_model,
+                size=self.image_size,
+                quality=self.image_quality,
+            ),
+        )
+        self._gemini_image_provider: Optional[ImageProvider] = None
+        self._prefer_gemini = Config.USE_GEMINI_IMAGE
+
+        if self._prefer_gemini:
+            dimensions = self._parse_image_dimensions(self.image_size)
+            try:
+                self._gemini_image_provider = GeminiImageProvider(
+                    api_key=Config.GEMINI_API_KEY,
+                    config=GeminiProviderConfig(
+                        model=Config.GEMINI_IMAGE_MODEL,
+                        image_dimensions=dimensions,
+                    ),
+                )
+                logger.info(
+                    "Gemini image provider initialised (model=%s)",
+                    Config.GEMINI_IMAGE_MODEL,
+                )
+            except ImageProviderError as exc:
+                self._prefer_gemini = False
+                logger.warning(
+                    "Gemini image provider disabled, falling back to OpenAI: %s",
+                    exc,
+                )
+
+        if not self._prefer_gemini:
+            logger.info(
+                "Using OpenAI image provider (model=%s)", self.image_model
+            )
+
         self.azure_client: Optional[AzureTTSClient] = None
         logger.info("USE_AZURE_TTS=%s, region=%s", Config.USE_AZURE_TTS, Config.AZURE_SPEECH_REGION or "(unset)")
         if Config.USE_AZURE_TTS:
@@ -209,14 +255,42 @@ class OpenAIClient:
     # --------------------------------------------------------------------------------------
     # Story generation
     # --------------------------------------------------------------------------------------
+    def _required_min_pages(self, req: GenerateRequest) -> int:
+        requested_min = getattr(req, "min_pages", 10) or 10
+        return max(int(requested_min), 10)
+
+    @staticmethod
+    def _count_sentences(text: str) -> int:
+        """Best-effort sentence counter tolerant of quotes and missing punctuation."""
+        pattern = re.compile(r"[^.!?]+[.!?]+[\"'”’]?", re.UNICODE)
+        normalized = (text or "").replace("…", ".")
+        matches = pattern.findall(normalized)
+        consumed = pattern.sub("", normalized)
+
+        count = len(matches)
+        if consumed.strip():
+            count += 1
+        return count
+
+    @staticmethod
+    def _outline_summary(text: str) -> str:
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return ""
+        sentences = re.split(r"(?<=[.!?…])\s+", cleaned)
+        first = sentences[0] if sentences else cleaned
+        first = first.strip()
+        if len(first) > 120:
+            return first[:117] + "…"
+        return first
+
     def build_prompt(self, req: GenerateRequest, retry_reason: Optional[str] = None) -> list:
         is_ko = str(req.language).upper() == "KO"
         topics_str = ", ".join(req.topics)
         objectives_str = ", ".join(req.objectives)
         lang_label = "한국어" if is_ko else "영어"
         title_line = f'[제목] "{req.title}" (고정)' if req.title else "[제목] 미정(직접 생성)"
-        requested_min = getattr(req, 'min_pages', 10) or 10
-        min_pages = max(int(requested_min), 10)
+        min_pages = self._required_min_pages(req)
 
         character_prompt_section = ""
         if getattr(req, "characters", None):
@@ -249,7 +323,7 @@ class OpenAIClient:
             "- 출력은 반드시 JSON 하나만. 추가 텍스트/설명/코드블록 금지."
         )
 
-        user_prompt = f'''
+        user_prompt = f"""
 [연령대] {req.age_range}세
 [주제] {topics_str}
 [학습목표] {objectives_str}
@@ -270,12 +344,18 @@ class OpenAIClient:
       }}
     ]
   }},
+  "story_outline": [{{"page": 1, "summary": "string"}}],
   "story": {{
     "title": "string",
     "pages": [{{"page": 1, "text": "string"}}],
     "quiz": [{{"q": "string", "options": ["string","string","string"], "a": 0}}]
   }}
 }}
+
+# 작성 순서 지침
+1. 먼저 주어진 정보를 기반으로 내부적으로 이야기 전체 줄거리와 페이지별 핵심 사건을 계획한다.
+2. 계획은 JSON 최상위 객체의 `story_outline` 필드에 배열 형태로 요약한다. 각 요소는 `{{"page": 번호, "summary": 한 문장 요약}}` 구조여야 하며, 페이지 번호는 1부터 순차적으로 증가해야 한다.
+3. 그 다음 `creative_concept`와 `story`를 동일 JSON 객체 내에서 출력한다.
 
 # 통합 콘셉트 요구사항
 - `art_style`: 동화책 전체의 그림 스타일을 한 문장으로 명확하게 정의할 것. (예: 부드러운 파스텔 색감의 미니멀한 수채화 스타일)
@@ -284,10 +364,11 @@ class OpenAIClient:
   - `visual_description`: 그림 AI가 모든 페이지에서 동일한 캐릭터를 그릴 수 있도록, 외형, 의상, 색상, 주요 특징, 액세서리 등을 매우 구체적으로 묘사할 것.
   - `voice_profile`: 음성 AI가 캐릭터의 감정을 표현할 수 있도록, 목소리 톤, 빠르기, 감정(예: 높고 밝은 톤, 호기심 가득한 어조)을 묘사할 것.
 
-# 스토리텔링 요구사항
 - 이야기 구조를 반드시 반영: [발단]→[전개]→[위기]→[절정]→[결말] 순서를 내부적으로 준수하되, 텍스트에는 라벨을 절대 표기하지 말 것.
 - 주인공이 해결해야 할 명확한 위기나 도전 과제를 반드시 포함할 것. 주인공은 최소 한 번의 어려움을 겪고, 자신의 힘이나 친구의 도움으로 극복해야 함.
-- 분량은 최소 {min_pages}문단(=페이지) 이상 확보하고 가능하면 10~15문단 내에서 전개한다. 각 문단은 3~4개의 문장으로 구성된 하나의 단락이어야 한다.
+- 글을 작성하기 전에, 제공된 주제/학습목표/등장인물 정보를 기반으로 이야기의 전체 줄거리와 페이지별 핵심 사건을 내부적으로 계획한 후 본문을 작성할 것.
+- 분량은 최소 {min_pages}문단(=페이지) 이상 확보하되, 각 문단은 최소 2문장 이상을 포함해야 한다. 마지막 페이지는 1문장 이상이면 충분하다.
+- 각 페이지는 서술과 대사가 섞인 최소 두 문장을 포함하도록 하고, 서술형 문장이 먼저 등장하도록 한다.
 - 의성어·의태어와 짧은 대화를 적절히 배치해 생동감을 줄 것.
 - 마지막은 '교훈:' 같은 라벨 대신, 따뜻한 정서 문장으로 자연스럽게 교훈을 전달한다.
 
@@ -295,33 +376,7 @@ class OpenAIClient:
 - pages는 최소 {min_pages}개 이상, 권장 10~15개. page는 1부터 1씩 증가.
 - quiz는 0~3개, options는 3개, a는 0부터 시작하는 정답 인덱스.
 - 키/구조를 절대 바꾸지 말 것. JSON 외 다른 텍스트 금지.
-
-# 형식 예시(참고용, 실제 내용은 달라야 함)
-{{
-  "creative_concept": {{
-    "art_style": "따뜻한 색감의 동화적 디지털 드로잉 스타일",
-    "mood_and_tone": "용기와 우정에 대한 따뜻하고 교훈적인 분위기",
-    "character_sheets": [
-      {{
-        "name": "토토",
-        "visual_description": "크고 동그란 갈색 눈을 가진 아기 토끼. 항상 작은 노란색 가방을 메고 다님.",
-        "voice_profile": "호기심 많고 약간 수줍은 소년의 목소리"
-      }}
-    ]
-  }},
-  "story": {{
-    "title": "용감한 토끼 토토",
-    "pages": [
-      {{"page": 1, "text": "깊은 숲속에 사는 아기 토끼 토토는 겁이 아주 많았어요. 작은 바스락 소리에도 깜짝 놀라 노란 가방 뒤에 숨기 바빴죠. 친구들은 그런 토토를 놀리곤 했지만, 토토는 용감해지고 싶었어요."}},
-      {{"page": 2, "text": "어느 날, 숲의 가장 큰 나무 꼭대기에 반짝이는 별사탕이 열렸다는 소문이 퍼졌어요. 하지만 그 나무는 아주 높고 무서운 절벽 위에 있었죠. 아무도 그곳에 갈 엄두를 내지 못했어요."}},
-      {{"page": 3, "text": "토토는 결심했어요. \"내가 저 별사탕을 가져와서 모두에게 용기를 보여줄 거야!\" 토토는 작은 발걸음을 옮기기 시작했어요. 숲속 친구들은 모두 토토를 걱정스럽게 바라보았죠."}}
-    ],
-    "quiz": [
-      {{"q": "토토의 가장 큰 소원은 무엇이었나요?", "options": ["키가 커지는 것", "용감해지는 것", "부자가 되는 것"], "a": 1}}
-    ]
-  }}
-}}
-'''.strip()
+""".strip()
 
         if retry_reason:
             user_prompt += (
@@ -359,36 +414,199 @@ class OpenAIClient:
                 "character_sheets": []
             }
 
+        outline = data.get("story_outline") or []
+        normalized_outline = []
+        for item in outline:
+            if not isinstance(item, dict):
+                continue
+            entry = dict(item)
+            if "page" not in entry and "page_no" in entry:
+                entry["page"] = entry.pop("page_no")
+            if "summary" in entry and entry["summary"] is not None:
+                entry["summary"] = str(entry["summary"]).strip()
+            if "page" in entry and entry.get("summary"):
+                try:
+                    entry["page"] = int(entry["page"])
+                except Exception:
+                    continue
+                normalized_outline.append(entry)
+
+        if not normalized_outline:
+            fallback_outline = []
+            pages = story.get("pages", []) if isinstance(story, dict) else []
+            for idx, page in enumerate(pages, start=1):
+                page_text = ""
+                if isinstance(page, dict):
+                    page_text = page.get("text", "")
+                summary = self._outline_summary(page_text)
+                if not summary:
+                    summary = "(요약 준비 중)"
+                fallback_outline.append({"page": idx, "summary": summary})
+            normalized_outline = fallback_outline
+
+        data["story_outline"] = normalized_outline
+
         return data
 
     def generate_text(self, req: GenerateRequest, request_id: str) -> GenerateResponse:
         moderation = Moderation()
-        messages = self.build_prompt(req)
+        min_pages = self._required_min_pages(req)
 
-        resp = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=2048,
-            user=request_id or "anon",
-            response_format={"type": "json_object"},
-        )
+        max_attempts = 3
+        retry_reason: Optional[str] = None
+        last_error: Optional[Exception] = None
+        failure_messages: List[str] = []
 
-        raw = resp.choices[0].message.content.strip()
-        logger.info("LLM raw output: %s", raw)
+        for attempt in range(1, max_attempts + 1):
+            messages = self.build_prompt(req, retry_reason)
 
-        story_data = json.loads(raw)
-        story_data = self._normalize(story_data)
+            try:
+                resp = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=2048,
+                    user=request_id or "anon",
+                    response_format={"type": "json_object"},
+                )
+            except Exception as exc:  # pragma: no cover - SDK failure surface
+                last_error = exc
+                logger.exception("Chat completion failed on attempt %s: %s", attempt, exc)
+                retry_reason = "OpenAI API 호출 오류가 발생했습니다. 같은 스키마로 다시 출력하세요."
+                continue
 
-        story = StoryOutput(**story_data["story"])
-        concept = CreativeConcept(**story_data["creative_concept"])
+            raw = resp.choices[0].message.content.strip()
+            logger.info("LLM raw output: %s", raw)
 
-        return GenerateResponse(
-            story=story,
-            creative_concept=concept,
-            raw_json=json.dumps(story_data, ensure_ascii=False),
-            moderation=moderation,
-        )
+            try:
+                story_data = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                logger.warning(
+                    "LLM JSON 파싱 실패 (attempt=%s): %s", attempt, exc
+                )
+                retry_reason = "JSON 구조가 손상되었습니다. 출력 스키마를 그대로 따라 다시 생성하세요."
+                continue
+
+            story_data = self._normalize(story_data)
+
+            try:
+                story = StoryOutput(**story_data["story"])
+                concept = CreativeConcept(**story_data["creative_concept"])
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "LLM 응답 검증 실패 (attempt=%s): %s", attempt, exc
+                )
+                retry_reason = "필드 형식이 잘못되었습니다. 스키마를 준수하여 다시 생성하세요."
+                continue
+
+            page_count = len(story.pages)
+            insufficient_pages = page_count < min_pages
+
+            outline_data = story_data.get("story_outline") or []
+                
+            outline_issue = False
+            outline_count = len(outline_data)
+
+            if outline_count < min_pages:
+                outline_issue = True
+                logger.warning(
+                    "Story outline has %s items; expected >=%s",
+                    outline_count,
+                    min_pages,
+                )
+
+            if outline_data and outline_count != page_count:
+                outline_issue = True
+                logger.warning(
+                    "Story outline count mismatch: outline=%s, pages=%s",
+                    outline_count,
+                    page_count,
+                )
+
+            if outline_data:
+                for idx, item in enumerate(outline_data, start=1):
+                    page_ref = item.get("page") if isinstance(item, dict) else None
+                    summary = item.get("summary") if isinstance(item, dict) else None
+                    if page_ref is None or summary is None:
+                        outline_issue = True
+                        logger.warning(
+                            "Story outline item %s missing page/summary", idx
+                        )
+                        continue
+                    try:
+                        page_ref = int(page_ref)
+                    except Exception:
+                        outline_issue = True
+                        logger.warning(
+                            "Story outline page value invalid: %s", page_ref
+                        )
+                        continue
+                    if page_ref != idx:
+                        outline_issue = True
+                        logger.warning(
+                            "Story outline page order mismatch at index %s: got %s",
+                            idx,
+                            page_ref,
+                        )
+                    if not summary.strip():
+                        outline_issue = True
+                        logger.warning(
+                            "Story outline summary empty at page %s",
+                            page_ref,
+                        )
+            else:
+                outline_issue = True
+                logger.warning("Story outline is missing")
+
+            sentence_issue = False
+            for idx, page in enumerate(story.pages, start=1):
+                is_last_page = idx == page_count
+                sentence_count = self._count_sentences(page.text)
+                min_sentences = 1 if is_last_page else 2
+                if sentence_count < min_sentences:
+                    sentence_issue = True
+                    logger.warning(
+                        'Page %s has %s sentences; expected >=%s',
+                        idx,
+                        sentence_count,
+                        min_sentences,
+                    )
+
+            if insufficient_pages or sentence_issue or outline_issue:
+                problems = []
+                if insufficient_pages:
+                    problems.append(
+                        f"pages 배열이 {page_count}개만 생성되었습니다. 최소 {min_pages}개의 페이지를 생성하세요."
+                    )
+                    last_error = ValueError(problems[-1])
+                if sentence_issue:
+                    problems.append(
+                        '각 page.text는 문장부호 기준 최소 2문장 이상이어야 합니다. (마지막 페이지는 1문장 이상)'
+                    )
+                    last_error = ValueError('Sentence count requirement not met')
+                if outline_issue:
+                    problems.append(
+                        'story_outline 배열에 모든 페이지(1부터 순서대로)의 한 문장 요약을 포함해야 합니다. outline 길이는 페이지 수와 최소 요구 분량을 충족해야 합니다.'
+                    )
+                    last_error = ValueError('Story outline requirement not met')
+
+                retry_reason = " ".join(problems)
+                failure_messages.append(f"attempt={attempt}: {retry_reason}")
+                continue
+
+            return GenerateResponse(
+                story=story,
+                creative_concept=concept,
+                raw_json=json.dumps(story_data, ensure_ascii=False),
+                moderation=moderation,
+            )
+
+        summary_reason = retry_reason or "LLM output did not meet minimum requirements"
+        if failure_messages:
+            summary_reason += " | " + " | ".join(failure_messages)
+        raise ValueError(summary_reason) from last_error
 
     # --------------------------------------------------------------------------------------
     # Image generation (MODIFIED)
@@ -406,10 +624,10 @@ class OpenAIClient:
         style_guide = art_style or self._base_image_style
 
         prompt = dedent(
-            f'''
+            f"""
             {style_guide}
             Scene description: {text}
-            '''
+            """
         ).strip()
 
         # Prioritize detailed visual descriptions from the creative_concept
@@ -433,33 +651,41 @@ class OpenAIClient:
             if descriptions:
                 prompt += "\n\nCharacters to include:\n" + "\n".join(f"- {desc}" for desc in descriptions)
 
-        logger.info("Generating image for request_id %s with prompt: %s", request_id, prompt)
+        provider_candidates: List[ImageProvider] = []
+        primary_provider = self._get_image_provider()
+        provider_candidates.append(primary_provider)
 
-        try:
-            response = self.client.images.generate(
-                model=self.image_model,
-                prompt=prompt,
-                size=self.image_size,
-                quality=self.image_quality,
-                n=1,
+        image_bytes = None
+        last_error: Optional[Exception] = None
+
+        for provider in provider_candidates:
+            provider_name = (
+                "Gemini"
+                if provider is self._gemini_image_provider
+                else "OpenAI"
             )
-        except BadRequestError as exc:
-            logger.error("Image generation failed for %s: %s", request_id, exc)
-            raise
+            logger.info(
+                "Generating image via %s for request_id %s", provider_name, request_id
+            )
+            try:
+                image_bytes = provider.generate(
+                    prompt=prompt,
+                    request_id=request_id,
+                )
+                break
+            except ImageProviderError as exc:
+                last_error = exc
+                logger.warning(
+                    "%s image provider failed for %s: %s",
+                    provider_name,
+                    request_id,
+                    exc,
+                )
 
-        raw_data = response.data[0]
-        image_base64 = getattr(raw_data, "b64_json", None)
-        if image_base64 is None:
-            image_url = getattr(raw_data, "url", None)
-            if not image_url:
-                raise ValueError("Image generation response missing both b64_json and url fields")
-            import requests
-
-            download = requests.get(image_url, timeout=30)
-            download.raise_for_status()
-            image_bytes = download.content
-        else:
-            image_bytes = base64.b64decode(image_base64)
+        if image_bytes is None:
+            raise last_error if last_error else ImageProviderError(
+                "Image generation failed for all providers"
+            )
 
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
         image = image.resize((512, 512), Image.LANCZOS)
@@ -468,6 +694,23 @@ class OpenAIClient:
         encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
         return encoded
+
+    def _get_image_provider(self) -> ImageProvider:
+        if self._prefer_gemini and self._gemini_image_provider is not None:
+            return self._gemini_image_provider
+        return self._openai_image_provider
+
+    @staticmethod
+    def _parse_image_dimensions(value: str) -> Optional[Tuple[int, int]]:
+        try:
+            width_str, height_str = value.lower().split("x", 1)
+            width = int(width_str.strip())
+            height = int(height_str.strip())
+            if width > 0 and height > 0:
+                return width, height
+        except Exception:
+            logger.warning("Invalid image size format for Gemini image_dimensions: %s", value)
+        return None
 
     # ... (rest of the file remains the same) ...
     # --------------------------------------------------------------------------------------
@@ -515,7 +758,7 @@ class OpenAIClient:
 
         system_prompt = "너는 오디오북 연출가다. 주어진 동화를 자연스럽게 낭독하기 위한 세그먼트 계획을 JSON 포맷으로 작성해라."
         user_prompt = dedent(
-            f'''
+            f"""
 ### Story Meta
 Title: {audio_request.title or '제목 미정'}
 Language: {audio_request.language or 'KO'}
@@ -542,8 +785,8 @@ Language: {audio_request.language or 'KO'}
 - 화자는 문맥상 가장 최근에 이름이 언급된 캐릭터 slug를 사용하고, 특정할 수 없으면 narrator로 둔다.
 - 의성어와 배경 설명이 자연스럽게 이어지도록 구성하라.
 - JSON 이외의 설명은 포함하지 말 것.
-'''
-        )
+"""
+        ).strip()
 
         response = self.client.chat.completions.create(
             model=self.reading_plan_model,

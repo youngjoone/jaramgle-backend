@@ -53,6 +53,7 @@ public class SecurityConfig {
                 .requestMatchers(mvcMatcherBuilder.pattern(org.springframework.http.HttpMethod.OPTIONS, "/**")).permitAll() // Permit all OPTIONS requests
                 .requestMatchers(mvcMatcherBuilder.pattern("/error")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/health")).permitAll()
+                .requestMatchers(mvcMatcherBuilder.pattern("/api/health/ai")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/public/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/auth/**")).permitAll() // Consolidated auth paths
                 .requestMatchers(mvcMatcherBuilder.pattern("/images/**")).permitAll() // Permit access to images

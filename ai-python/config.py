@@ -3,6 +3,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    """Return a boolean from environment variables, with an explicit default."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
 class Config:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-5-mini")  # Default to gpt-5-mini
@@ -14,8 +22,9 @@ class Config:
     OPENAI_IMAGE_QUALITY: str = os.getenv("OPENAI_IMAGE_QUALITY", "medium")
 
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "gemini-1.5-flash")
-    USE_GEMINI_IMAGE: bool = os.getenv("USE_GEMINI_IMAGE", "false").lower() in {"1", "true", "yes", "on"}
+    GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image-preview")
+    DEFAULT_USE_GEMINI_IMAGE: bool = True  # Toggle here when you do not want to use environment variables
+    USE_GEMINI_IMAGE: bool = _env_flag("USE_GEMINI_IMAGE", default=DEFAULT_USE_GEMINI_IMAGE)
 
     # Azure Speech configuration (optional)
     AZURE_SPEECH_KEY: str = os.getenv("AZURE_SPEECH_KEY", "")

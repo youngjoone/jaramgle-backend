@@ -42,21 +42,23 @@ Generates a poem based on user profile traits and mood.
 }
 ```
 
-## OpenAI API 연동
+## OpenAI / Gemini API 연동
 
-이 서비스는 OpenAI API를 사용하여 시를 생성합니다.
+이 서비스는 기본적으로 OpenAI API를 사용하지만, 이미지 생성은 옵션에 따라 Google Gemini 2.5 Flash Image 모델을 사용할 수 있습니다.
 
 ### API 키 설정
 
-`OPENAI_API_KEY` 환경 변수를 설정해야 합니다. `.env` 파일에 다음 형식으로 추가할 수 있습니다.
+`.env` 파일에 다음 형식으로 API 키를 추가합니다.
 
 ```
 OPENAI_API_KEY=sk-your_openai_api_key_here
+GEMINI_API_KEY=your_google_ai_studio_key
 ```
 
 ### 모델 설정
 
-기본적으로 `gpt-5-mini` 모델을 사용하며, `config.py`에서 `OPENAI_MODEL`, `OPENAI_MAX_OUTPUT_TOKENS`, `OPENAI_TEMPERATURE` 값을 조정할 수 있습니다.
+- 텍스트/오디오 생성은 기본적으로 `gpt-5-mini` 모델을 사용합니다. `config.py`에서 `OPENAI_MODEL`, `OPENAI_MAX_OUTPUT_TOKENS`, `OPENAI_TEMPERATURE` 값을 조정할 수 있습니다.
+- 이미지 생성은 기본적으로 OpenAI `gpt-image-1` 모델을 사용하지만, `.env`에 `USE_GEMINI_IMAGE=true`를 지정하거나 `config.py`의 `DEFAULT_USE_GEMINI_IMAGE` 값을 `True`로 변경하면 Google Gemini 이미지 모델(`GEMINI_IMAGE_MODEL`, 기본값 `gemini-2.5-flash-image`)이 사용됩니다. 환경에 `google-genai` 패키지가 설치되어 있으면 공식 클라이언트를 사용하고, 그렇지 않은 경우 Google REST API를 직접 호출합니다. 오류가 발생하면 OpenAI 경로가 자동으로 폴백됩니다.
 
 ### 샘플 요청/응답 (OpenAI 연동 후)
 
