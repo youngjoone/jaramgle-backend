@@ -17,9 +17,9 @@ def check_available_models():
         # 2. 모델 목록 조회 및 출력
         print("\n[지원되는 모델 목록]")
         for model in genai.list_models():
-            # 'generateContent' (채팅/텍스트 생성)을 지원하는 모델만 필터링
-            if 'generateContent' in model.supported_generation_methods:
-                print(f"- 모델명: {model.name}")
+            # 지원하는 모든 메소드를 함께 출력하여 이미지 생성용 모델을 식별
+            print(f"- 모델명: {model.name}")
+            print(f"  - 지원하는 메소드: {model.supported_generation_methods}")
                 # print(f"  - 설명: {model.description}")
                 # print(f"  - 지원하는 메소드: {model.supported_generation_methods}")
 
