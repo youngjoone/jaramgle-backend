@@ -179,6 +179,10 @@ MORAL_THEMES = [
     "서로를 존중하면 모두가 행복해진다",
 ]
 
+STORY_PHASES = ("발단", "전개", "위기", "절정", "결말")
+MIN_PAGE_WORDS = 120
+MIN_LAST_PAGE_WORDS = 100
+
 
 class OpenAIClient:
     def __init__(self, api_key: str):
@@ -273,6 +277,40 @@ class OpenAIClient:
         return count
 
     @staticmethod
+    def _count_words(text: str) -> int:
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return 0
+        tokens = re.findall(r"[\w\u3130-\u318F\uAC00-\uD7A3]+", cleaned)
+        if not tokens:
+            tokens = cleaned.split()
+        return len(tokens)
+
+    @staticmethod
+    def _normalize_stage_label(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        match = re.search(r"(발단|전개|위기|절정|결말)", text)
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
+    def _extract_stage(summary: str) -> Optional[str]:
+        if not summary:
+            return None
+        label = OpenAIClient._normalize_stage_label(summary)
+        if label:
+            return label
+        match = re.search(r"\((발단|전개|위기|절정|결말)\)\s*$", summary.strip())
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
     def _outline_summary(text: str) -> str:
         cleaned = (text or "").strip()
         if not cleaned:
@@ -283,6 +321,134 @@ class OpenAIClient:
         if len(first) > 120:
             return first[:117] + "…"
         return first
+
+    def _parse_plaintext_story(self, raw: str) -> dict:
+        if not raw or "## " not in raw:
+            raise ValueError("Plaintext format markers missing")
+
+        sections: Dict[str, str] = {}
+        section_pattern = re.compile(r"^##\s*(.+)$", re.MULTILINE)
+        matches = list(section_pattern.finditer(raw))
+        if not matches:
+            raise ValueError("No section headers found")
+
+        for idx, match in enumerate(matches):
+            key = match.group(1).strip().lower()
+            start = match.end()
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(raw)
+            sections[key] = raw[start:end].strip()
+
+        concept_text = sections.get("creative concept")
+        if not concept_text:
+            raise ValueError("Creative concept section missing")
+
+        def _extract_line(text_block: str, label: str) -> str:
+            pattern = re.compile(rf"{label}\s*:\s*(.+)", re.IGNORECASE)
+            match = pattern.search(text_block)
+            if not match:
+                raise ValueError(f"{label} not found")
+            return match.group(1).strip()
+
+        art_style = _extract_line(concept_text, "Art Style")
+        mood_and_tone = _extract_line(concept_text, "Mood and Tone")
+
+        character_sheets: List[Dict[str, str]] = []
+        cs_match = re.search(r"Character Sheets:\s*(.*)", concept_text, re.IGNORECASE | re.DOTALL)
+        if cs_match:
+            cs_block = cs_match.group(1).strip()
+            sheet_pattern = re.compile(
+                r"(?:^|\n)\s*\d+\.\s*Name:\s*(.+?)\n\s*Visual Description:\s*(.+?)\n\s*Voice Profile:\s*(.+?)(?=\n\s*\d+\.|\Z)",
+                re.IGNORECASE | re.DOTALL,
+            )
+            for sheet in sheet_pattern.finditer(cs_block):
+                character_sheets.append(
+                    {
+                        "name": sheet.group(1).strip(),
+                        "visual_description": sheet.group(2).strip(),
+                        "voice_profile": sheet.group(3).strip(),
+                    }
+                )
+        if not character_sheets:
+            raise ValueError("Character sheets missing or malformed")
+
+        outline_text = sections.get("story outline")
+        if not outline_text:
+            raise ValueError("Story outline section missing")
+
+        outline_items: List[Dict[str, str]] = []
+        outline_pattern = re.compile(
+            r"^\s*(\d+)\.\s*Page\s*(\d+)\s*\(([^)]+)\):\s*(.+)$",
+            re.IGNORECASE | re.MULTILINE,
+        )
+        for match in outline_pattern.finditer(outline_text):
+            page_idx = int(match.group(2))
+            summary = match.group(4).strip()
+            phase = self._normalize_stage_label(match.group(3))
+            entry = {"page": page_idx, "summary": summary}
+            if phase:
+                entry["phase"] = phase
+            outline_items.append(entry)
+        if not outline_items:
+            raise ValueError("Story outline entries missing")
+
+        story_text = sections.get("story")
+        if not story_text:
+            raise ValueError("Story section missing")
+
+        story_title_match = re.search(r"Story Title:\s*(.+)", story_text, re.IGNORECASE)
+        if story_title_match:
+            story_title = story_title_match.group(1).strip()
+        else:
+            story_title = "제목 미정"
+
+        pages_block = story_text[story_title_match.end():].strip() if story_title_match else story_text
+        page_pattern = re.compile(
+            r"Page\s+(?P<page>\d+)\s*\nTitle:\s*(?P<title>.+?)\nBody(?:\s*\(.*?\))?:\s*(?P<body>.+?)\nIllustration:\s*(?P<illustration>.+?)(?=\nPage\s+\d+|\Z)",
+            re.DOTALL | re.IGNORECASE,
+        )
+        pages: List[Dict[str, str]] = []
+        for match in page_pattern.finditer(pages_block):
+            page_no = int(match.group("page"))
+            title = match.group("title").strip()
+            body = match.group("body").strip()
+            illustration = match.group("illustration").strip()
+            page_text = f"장면 제목: {title}\n{body}\n일러스트 묘사: {illustration}"
+            pages.append({"page": page_no, "text": page_text})
+        if not pages:
+            raise ValueError("No story pages parsed")
+
+        quiz: List[Dict[str, object]] = []
+        quiz_key = next((key for key in sections.keys() if key.startswith("quiz")), None)
+        if quiz_key:
+            quiz_text = sections[quiz_key]
+            question_pattern = re.compile(
+                r"-\s*Question:\s*(.+)\n\s*Options:\s*\[(.+?)\]\s*\n\s*Answer:\s*(\d+)",
+                re.IGNORECASE,
+            )
+            for match in question_pattern.finditer(quiz_text):
+                options = [opt.strip() for opt in match.group(2).split(",")]
+                quiz.append(
+                    {
+                        "q": match.group(1).strip(),
+                        "options": options,
+                        "a": int(match.group(3)),
+                    }
+                )
+
+        story_data = {
+            "creative_concept": {
+                "art_style": art_style,
+                "mood_and_tone": mood_and_tone,
+                "character_sheets": character_sheets,
+            },
+            "story_outline": outline_items,
+            "story": {
+                "title": story_title,
+                "pages": pages,
+                "quiz": quiz,
+            },
+        }
+        return story_data
 
     def build_prompt(self, req: GenerateRequest, retry_reason: Optional[str] = None) -> list:
         is_ko = str(req.language).upper() == "KO"
@@ -320,7 +486,7 @@ class OpenAIClient:
             "- 폭력/공포/편견/노골적 표현 금지. 따뜻하고 쉬운 어휘 사용.\n"
             "- 권선징악은 사건 전개 속에 자연스럽게 드러나야 하며, 설교식 표현은 피할 것.\n"
             "- 아동 눈높이에 맞춘 공감·배려·용기·성장을 담되, 문장은 짧고 리듬감 있게.\n"
-            "- 출력은 반드시 JSON 하나만. 추가 텍스트/설명/코드블록 금지."
+            "- 출력은 위에서 제시한 Markdown 포맷을 정확히 따른다. 불필요한 설명이나 여분의 텍스트를 덧붙이지 않는다."
         )
 
         user_prompt = f"""
@@ -331,59 +497,74 @@ class OpenAIClient:
 {title_line}
 {character_prompt_section}
 
-# 출력 스키마 (키 고정, 추가 키 금지)
-{{
-  "creative_concept": {{
-    "art_style": "string (A unified art style guide for all illustrations)",
-    "mood_and_tone": "string (The overall mood for the story, art, and audio)",
-    "character_sheets": [
-      {{
-        "name": "string (Character's name)",
-        "visual_description": "string (Detailed visual description for the image generation AI to ensure consistency)",
-        "voice_profile": "string (Voice tone and emotion guide for the TTS AI)"
-      }}
-    ]
-  }},
-  "story_outline": [{{"page": 1, "summary": "string"}}],
-  "story": {{
-    "title": "string",
-    "pages": [{{"page": 1, "text": "string"}}],
-    "quiz": [{{"q": "string", "options": ["string","string","string"], "a": 0}}]
-  }}
-}}
+## Creative Concept
+Art Style: …
+Mood and Tone: …
+Character Sheets:
+1. Name: …
+   Visual Description: …
+   Voice Profile: …
+
+## Story Outline
+1. Page 1 (발단): …
+2. Page 2 (발단): …
+3. Page 3 (전개): …
+(이후 페이지도 같은 형식으로 {min_pages}페이지까지 이어집니다.)
+
+## Story
+Story Title: …
+Page 1
+Title: …
+Body (min 120 words):
+…
+Illustration: …
+
+Page 2
+Title: …
+Body (min 120 words):
+…
+Illustration: …
+(Page {min_pages}까지 동일 형식 반복. 마지막 Body는 100단어 이상이면 허용)
+
+## Quiz (선택)
+- Question: …
+  Options: [보기1, 보기2, 보기3]
+  Answer: 0
 
 # 작성 순서 지침
-1. 먼저 주어진 정보를 기반으로 내부적으로 이야기 전체 줄거리와 페이지별 핵심 사건을 계획한다.
-2. 계획은 JSON 최상위 객체의 `story_outline` 필드에 배열 형태로 요약한다. 각 요소는 `{{"page": 번호, "summary": 한 문장 요약}}` 구조여야 하며, 페이지 번호는 1부터 순차적으로 증가해야 한다.
-3. 그 다음 `creative_concept`와 `story`를 동일 JSON 객체 내에서 출력한다.
+1. 먼저 주어진 정보를 기반으로 내부적으로 이야기 전체 줄거리와 페이지별 핵심 사건을 계획한다. 계획 시 [발단]→[전개]→[위기]→[절정]→[결말] 흐름에 맞춰 각 단계에서 반드시 다뤄야 할 감정과 사건을 정리한다.
+2. 계획은 `## Story Outline` 섹션에 페이지 번호, 단계(괄호), 핵심 사건 한 문장으로 기록한다. (예: `3. Page 3 (전개): 루루가 별빛 공주 리아에게 도움을 청한다.`)
+3. `## Story` 섹션에서는 각 페이지를 하나의 장면으로 구성하고, `Title`·`Body`·`Illustration` 순서를 지킨다. `Body`는 서술과 대사가 균형을 이루는 120~160단어(마지막 페이지는 100단어 이상)로 작성한다.
 
 # 통합 콘셉트 요구사항
-- `art_style`: 동화책 전체의 그림 스타일을 한 문장으로 명확하게 정의할 것. (예: 부드러운 파스텔 색감의 미니멀한 수채화 스타일)
-- `mood_and_tone`: 글, 그림, 음성 모두에 적용될 전체적인 분위기를 정의할 것. (예: 따뜻하고 모험적이며, 약간의 신비로움이 가미된 분위기)
-- `character_sheets`: `[등장인물 가이드]`에 명시된 각 캐릭터에 대해 아래 내용을 상세히 작성할 것.
-  - `visual_description`: 그림 AI가 모든 페이지에서 동일한 캐릭터를 그릴 수 있도록, 외형, 의상, 색상, 주요 특징, 액세서리 등을 매우 구체적으로 묘사할 것.
-  - `voice_profile`: 음성 AI가 캐릭터의 감정을 표현할 수 있도록, 목소리 톤, 빠르기, 감정(예: 높고 밝은 톤, 호기심 가득한 어조)을 묘사할 것.
+- `Art Style`: 동화책 전체의 그림 스타일을 한 문장으로 명확하게 정의한다. (예: 부드러운 파스텔 색감의 미니멀한 수채화 스타일)
+- `Mood and Tone`: 글, 그림, 음성 모두에 적용될 전체적인 분위기를 정의한다. (예: 따뜻하고 모험적이며, 약간의 신비로움이 가미된 분위기)
+- `Character Sheets`: `[등장인물 가이드]`에 명시된 각 캐릭터에 대해 아래 내용을 상세히 작성한다.
+  - `Visual Description`: 그림 AI가 모든 페이지에서 동일한 캐릭터를 그릴 수 있도록, 외형·의상·색상·주요 특징·액세서리 등을 매우 구체적으로 묘사한다.
+  - `Voice Profile`: 음성 AI가 감정을 표현할 수 있도록 목소리 톤, 빠르기, 감정을 묘사한다.
 
-- 이야기 구조를 반드시 반영: [발단]→[전개]→[위기]→[절정]→[결말] 순서를 내부적으로 준수하되, 텍스트에는 라벨을 절대 표기하지 말 것.
-- 주인공이 해결해야 할 명확한 위기나 도전 과제를 반드시 포함할 것. 주인공은 최소 한 번의 어려움을 겪고, 자신의 힘이나 친구의 도움으로 극복해야 함.
-- 글을 작성하기 전에, 제공된 주제/학습목표/등장인물 정보를 기반으로 이야기의 전체 줄거리와 페이지별 핵심 사건을 내부적으로 계획한 후 본문을 작성할 것.
-- 분량은 최소 {min_pages}문단(=페이지) 이상 확보하되, 각 문단은 최소 2문장 이상을 포함해야 한다. 마지막 페이지는 1문장 이상이면 충분하다.
-- 각 페이지는 서술과 대사가 섞인 최소 두 문장을 포함하도록 하고, 서술형 문장이 먼저 등장하도록 한다.
-- 의성어·의태어와 짧은 대화를 적절히 배치해 생동감을 줄 것.
-- 마지막은 '교훈:' 같은 라벨 대신, 따뜻한 정서 문장으로 자연스럽게 교훈을 전달한다.
+- 이야기 구조를 엄격히 [발단]→[전개]→[위기]→[절정]→[결말] 흐름으로 구성한다. 각 단계는 최소 2페이지 이상 확보하고, 분량이 넉넉하면 3페이지 이상으로 확장해 사건과 감정 변화를 풍성하게 보여준다.
+- 주인공은 위기를 스스로 혹은 친구들의 도움으로 극복하며, 작은 용기가 어떻게 커다란 변화를 만드는지 보여준다.
+- 전체 분량은 최소 {min_pages}페이지 이상이며, 총 단어 수는 약 {min_pages * 120}~{min_pages * 200} 단어가 되도록 한다.
+- 의성어·의태어와 짧은 대화를 적절히 배치해 생동감을 준다.
+- 모든 페이지를 작성한 뒤 각 페이지의 단어 수를 스스로 계산하고, 120단어(마지막 페이지는 100단어) 미만인 페이지가 하나라도 있으면 결과를 폐기한 뒤 전 페이지를 다시 작성한다.
+- 마지막은 '교훈:' 같은 라벨 대신, "아무리 작아도 마음의 빛은 세상을 밝힌다"는 메시지를 따뜻하게 전달한다.
 
-# 형식/분량 규칙
-- pages는 최소 {min_pages}개 이상, 권장 10~15개. page는 1부터 1씩 증가.
-- quiz는 0~3개, options는 3개, a는 0부터 시작하는 정답 인덱스.
-- 키/구조를 절대 바꾸지 말 것. JSON 외 다른 텍스트 금지.
+# 형식/분량 권장사항
+- Story Outline은 페이지 번호 1부터 {min_pages}까지 빠짐없이 포함하고 실제 페이지 수와 일치해야 한다.
+- Story 섹션의 각 `Body`는 단락 사이에 빈 줄을 넣어 가독성을 높인다.
+- Quiz는 선택 사항이지만 포함할 경우 1~3문항, 보기 3개, 정답 인덱스 0~2 형태를 유지한다.
+- 반드시 위 Markdown/Plaintext 포맷으로 출력한다. (JSON으로 출력하지 말 것.)
+
+만약 위 포맷을 따를 수 없는 상황이라면, 마지막 수단으로 기존 JSON 스키마 형태로 출력하되 최소 분량 조건을 철저히 준수한다.
 """.strip()
 
         if retry_reason:
             user_prompt += (
                 f"\n\n[재시도 사유] {retry_reason}\n"
-                "- 구조 순서는 내부적으로 지키되, 텍스트에 라벨 표기 금지.\n"
-                "- 마지막은 설교식 표현이 아닌 따뜻한 정서 문장으로 마무리.\n"
-                "동일 스키마(JSON)로 다시 출력."
+                "- 지정한 Markdown 포맷(각 섹션 헤더, Page/Title/Body/Illustration 순서)을 정확히 지킬 것.\n"
+                "- Body는 페이지당 목표 단어 수를 충족하도록 다시 작성할 것.\n"
+                "동일 포맷으로 완전한 결과를 다시 출력."
             )
 
         return [
@@ -422,26 +603,49 @@ class OpenAIClient:
             entry = dict(item)
             if "page" not in entry and "page_no" in entry:
                 entry["page"] = entry.pop("page_no")
-            if "summary" in entry and entry["summary"] is not None:
-                entry["summary"] = str(entry["summary"]).strip()
+            summary_val = entry.get("summary")
+            if summary_val is not None:
+                entry["summary"] = str(summary_val).strip()
             if "page" in entry and entry.get("summary"):
                 try:
                     entry["page"] = int(entry["page"])
                 except Exception:
                     continue
+                phase = entry.get("phase") or entry.get("stage")
+                if not phase and "(" in entry["summary"] and ")" in entry["summary"]:
+                    inner = entry["summary"].rsplit("(", 1)[-1].rstrip(")")
+                    phase = inner.strip()
+                canonical_phase = self._normalize_stage_label(phase) if phase else None
+                if not canonical_phase:
+                    canonical_phase = self._extract_stage(entry.get("summary", ""))
+                if canonical_phase:
+                    entry["phase"] = canonical_phase
                 normalized_outline.append(entry)
 
         if not normalized_outline:
             fallback_outline = []
             pages = story.get("pages", []) if isinstance(story, dict) else []
             for idx, page in enumerate(pages, start=1):
-                page_text = ""
+                text_content = ""
+                heading = None
+                phase_hint = None
                 if isinstance(page, dict):
-                    page_text = page.get("text", "")
-                summary = self._outline_summary(page_text)
+                    text_content = str(page.get("text", ""))
+                    phase_hint = page.get("phase") or page.get("stage")
+                lines = [line.strip() for line in text_content.splitlines() if line.strip()]
+                if lines and lines[0].startswith("장면 제목:"):
+                    heading = lines[0].split(":", 1)[-1].strip() or None
+                summary = self._outline_summary(text_content)
                 if not summary:
                     summary = "(요약 준비 중)"
-                fallback_outline.append({"page": idx, "summary": summary})
+                entry = {"page": idx, "summary": summary}
+                if heading:
+                    entry["summary"] = f"{heading}: {summary}"
+                if phase_hint:
+                    canonical = self._normalize_stage_label(phase_hint)
+                    if canonical:
+                        entry["phase"] = canonical
+                fallback_outline.append(entry)
             normalized_outline = fallback_outline
 
         data["story_outline"] = normalized_outline
@@ -452,7 +656,7 @@ class OpenAIClient:
         moderation = Moderation()
         min_pages = self._required_min_pages(req)
 
-        max_attempts = 3
+        max_attempts = 4
         retry_reason: Optional[str] = None
         last_error: Optional[Exception] = None
         failure_messages: List[str] = []
@@ -462,12 +666,11 @@ class OpenAIClient:
 
             try:
                 resp = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model="gpt-4o",
                     messages=messages,
-                    temperature=0.7,
-                    max_tokens=2048,
+                    temperature=0.55,
+                    max_tokens=6144,
                     user=request_id or "anon",
-                    response_format={"type": "json_object"},
                 )
             except Exception as exc:  # pragma: no cover - SDK failure surface
                 last_error = exc
@@ -478,15 +681,45 @@ class OpenAIClient:
             raw = resp.choices[0].message.content.strip()
             logger.info("LLM raw output: %s", raw)
 
-            try:
-                story_data = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                last_error = exc
+            if not raw:
+                last_error = ValueError("Empty response")
                 logger.warning(
-                    "LLM JSON 파싱 실패 (attempt=%s): %s", attempt, exc
+                    "LLM 빈 응답 수신 (attempt=%s)", attempt
                 )
-                retry_reason = "JSON 구조가 손상되었습니다. 출력 스키마를 그대로 따라 다시 생성하세요."
+                retry_reason = (
+                    "내용이 비어 있습니다. 지정된 Markdown 포맷으로 전체 Creative Concept, Story Outline, Story, Quiz 섹션을 채워주세요."
+                )
                 continue
+
+            raw_snippet = raw[:500].replace("\n", "\\n")
+            parsed_plaintext = False
+            try:
+                story_data = self._parse_plaintext_story(raw)
+                parsed_plaintext = True
+                logger.debug("Plaintext story parsing succeeded (attempt=%s)", attempt)
+            except ValueError as exc_plain:
+                logger.warning(
+                    "Plaintext parsing failed (attempt=%s): %s | snippet=%s",
+                    attempt,
+                    exc_plain,
+                    raw_snippet,
+                )
+                try:
+                    story_data = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    last_error = exc
+                    logger.warning(
+                        "LLM 응답 JSON 파싱 실패 (attempt=%s): %s | snippet=%s",
+                        attempt,
+                        exc,
+                        raw_snippet,
+                    )
+                    retry_reason = (
+                        "출력 포맷을 지키지 못했습니다. 지정된 Markdown 포맷 또는 JSON 스키마를 정확히 따르세요."
+                    )
+                    continue
+                else:
+                    logger.debug("JSON parsing fallback succeeded (attempt=%s)", attempt)
 
             story_data = self._normalize(story_data)
 
@@ -502,35 +735,40 @@ class OpenAIClient:
                 continue
 
             page_count = len(story.pages)
-            insufficient_pages = page_count < min_pages
+            min_required_pages = max(4, min_pages)
+            page_warning = page_count < min_pages
+            page_block = page_count < min_required_pages
 
             outline_data = story_data.get("story_outline") or []
-                
-            outline_issue = False
             outline_count = len(outline_data)
-
-            if outline_count < min_pages:
-                outline_issue = True
-                logger.warning(
-                    "Story outline has %s items; expected >=%s",
-                    outline_count,
-                    min_pages,
-                )
+            outline_block = outline_count == 0
+            outline_warning = False
 
             if outline_data and outline_count != page_count:
-                outline_issue = True
+                outline_warning = True
                 logger.warning(
                     "Story outline count mismatch: outline=%s, pages=%s",
                     outline_count,
                     page_count,
                 )
 
+            if outline_data and outline_count < min_pages:
+                outline_warning = True
+                logger.warning(
+                    "Story outline has %s items; recommended >=%s",
+                    outline_count,
+                    min_pages,
+                )
+
+            stage_counts = {phase: 0 for phase in STORY_PHASES}
+            stage_data_missing = False
+
             if outline_data:
                 for idx, item in enumerate(outline_data, start=1):
                     page_ref = item.get("page") if isinstance(item, dict) else None
                     summary = item.get("summary") if isinstance(item, dict) else None
                     if page_ref is None or summary is None:
-                        outline_issue = True
+                        outline_warning = True
                         logger.warning(
                             "Story outline item %s missing page/summary", idx
                         )
@@ -538,63 +776,173 @@ class OpenAIClient:
                     try:
                         page_ref = int(page_ref)
                     except Exception:
-                        outline_issue = True
+                        outline_warning = True
                         logger.warning(
                             "Story outline page value invalid: %s", page_ref
                         )
                         continue
                     if page_ref != idx:
-                        outline_issue = True
+                        outline_warning = True
                         logger.warning(
                             "Story outline page order mismatch at index %s: got %s",
                             idx,
                             page_ref,
                         )
                     if not summary.strip():
-                        outline_issue = True
+                        outline_warning = True
                         logger.warning(
                             "Story outline summary empty at page %s",
                             page_ref,
                         )
+                        continue
+                    stage = item.get("phase") or item.get("stage")
+                    stage = self._normalize_stage_label(stage) or self._extract_stage(summary)
+                    if stage and stage in stage_counts:
+                        stage_counts[stage] += 1
+                    else:
+                        stage_data_missing = True
+                        logger.warning("Story outline page %s missing valid phase label.", idx)
             else:
-                outline_issue = True
+                outline_block = True
                 logger.warning("Story outline is missing")
+                stage_data_missing = True
 
-            sentence_issue = False
-            for idx, page in enumerate(story.pages, start=1):
-                is_last_page = idx == page_count
-                sentence_count = self._count_sentences(page.text)
-                min_sentences = 1 if is_last_page else 2
-                if sentence_count < min_sentences:
-                    sentence_issue = True
+            required_per_stage = max(1, min(3, min_pages // len(STORY_PHASES)))
+            stage_block = False
+            for phase, count in stage_counts.items():
+                if count < required_per_stage:
+                    stage_block = True
                     logger.warning(
-                        'Page %s has %s sentences; expected >=%s',
+                        "Story phase '%s' appears %s time(s); require >=%s pages for balanced arc.",
+                        phase,
+                        count,
+                        required_per_stage,
+                    )
+
+            total_words = 0
+            word_block = False
+            word_warning = False
+            structure_block = False
+            short_pages: List[str] = []
+
+            for idx, page in enumerate(story.pages, start=1):
+                text_content = page.text or ""
+                word_count = self._count_words(text_content)
+                total_words += word_count
+
+                is_last_page = idx == page_count
+                required_words = MIN_LAST_PAGE_WORDS if is_last_page else MIN_PAGE_WORDS
+                if word_count < required_words:
+                    word_block = True
+                    short_pages.append(f"{idx}페이지({word_count}단어)")
+                    logger.warning(
+                        "Page %s word count %s < required %s.",
                         idx,
-                        sentence_count,
-                        min_sentences,
+                        word_count,
+                        required_words,
+                    )
+                elif word_count < required_words + 30:
+                    word_warning = True
+                    logger.info(
+                        "Page %s meets minimum word count with little buffer (%s words).",
+                        idx,
+                        word_count,
                     )
 
-            if insufficient_pages or sentence_issue or outline_issue:
-                problems = []
-                if insufficient_pages:
-                    problems.append(
-                        f"pages 배열이 {page_count}개만 생성되었습니다. 최소 {min_pages}개의 페이지를 생성하세요."
-                    )
-                    last_error = ValueError(problems[-1])
-                if sentence_issue:
-                    problems.append(
-                        '각 page.text는 문장부호 기준 최소 2문장 이상이어야 합니다. (마지막 페이지는 1문장 이상)'
-                    )
-                    last_error = ValueError('Sentence count requirement not met')
-                if outline_issue:
-                    problems.append(
-                        'story_outline 배열에 모든 페이지(1부터 순서대로)의 한 문장 요약을 포함해야 합니다. outline 길이는 페이지 수와 최소 요구 분량을 충족해야 합니다.'
-                    )
-                    last_error = ValueError('Story outline requirement not met')
+                lines = [line.strip() for line in text_content.splitlines() if line.strip()]
+                has_heading = bool(lines) and (
+                    lines[0].startswith("장면 제목:")
+                    or lines[0].lower().startswith("scene title:")
+                    or lines[0].lower().startswith("chapter title:")
+                )
+                has_illustration = any(
+                    line.startswith("일러스트 묘사:")
+                    or line.lower().startswith("illustration description:")
+                    or line.lower().startswith("illustration cue:")
+                    or line.lower().startswith("illustration:")
+                    or line.lower().startswith("art prompt:")
+                    for line in lines
+                )
 
-                retry_reason = " ".join(problems)
+                if not has_heading:
+                    structure_block = True
+                    logger.warning("Page %s is missing '장면 제목:' 헤더.", idx)
+                if not has_illustration:
+                    structure_block = True
+                    logger.warning("Page %s is missing '일러스트 묘사:' 섹션.", idx)
+
+            min_total_words = (
+                (page_count - 1) * MIN_PAGE_WORDS + (MIN_LAST_PAGE_WORDS if page_count else 0)
+            )
+            max_total_words = max(page_count * 220, min_pages * 200)
+            total_word_block = False
+            total_word_warning = False
+            if total_words < min_total_words:
+                total_word_block = True
+                logger.warning(
+                    "Story total word count %s is below minimum target %s.",
+                    total_words,
+                    min_total_words,
+                )
+            elif total_words > max_total_words:
+                total_word_warning = True
+                logger.info(
+                    "Story total word count %s exceeds recommended ceiling %s.",
+                    total_words,
+                    max_total_words,
+                )
+
+            blocking_reasons: List[str] = []
+            warning_reasons: List[str] = []
+
+            if page_block:
+                message = (
+                    f"pages 배열이 {page_count}개만 생성되었습니다. 최소 {min_required_pages}페이지 이상은 필요합니다."
+                )
+                blocking_reasons.append(message)
+                last_error = ValueError(message)
+            elif page_warning:
+                warning_reasons.append(
+                    f"pages 배열이 {page_count}개입니다. 권장 분량 {min_pages}페이지에 미치지 못합니다."
+                )
+
+            if outline_block:
+                message = "story_outline 배열을 생성하지 못했습니다. 모든 페이지에 대한 요약을 포함하도록 다시 생성하세요."
+                blocking_reasons.append(message)
+                last_error = ValueError(message)
+            elif outline_warning:
+                warning_reasons.append("story_outline 길이나 페이지 매칭에 경고가 있습니다. (로그 참조)")
+
+            if stage_block or stage_data_missing:
+                message = "story_outline에 발단/전개/위기/절정/결말 단계가 충분히 분배되지 않았습니다."
+                blocking_reasons.append(message)
+                last_error = ValueError(message)
+
+            if word_block or total_word_block:
+                details = ""
+                if short_pages:
+                    details = " (부족 페이지: " + ", ".join(short_pages) + ")"
+                message = "페이지 또는 전체 단어 수가 최소 요구치를 충족하지 못했습니다." + details
+                blocking_reasons.append(message)
+                last_error = ValueError(message)
+            elif word_warning or total_word_warning:
+                warning_reasons.append("단어 수가 권장 범위와 차이가 있습니다. (로그 참조)")
+
+            if structure_block:
+                message = "각 페이지에 '장면 제목:'과 '일러스트 묘사:' 형식을 포함하세요."
+                blocking_reasons.append(message)
+                last_error = ValueError(message)
+
+            if blocking_reasons:
+                retry_reason = " ".join(blocking_reasons)
                 failure_messages.append(f"attempt={attempt}: {retry_reason}")
                 continue
+
+            if warning_reasons:
+                logger.info(
+                    "Non-blocking story quality warnings: %s",
+                    " | ".join(warning_reasons),
+                )
 
             return GenerateResponse(
                 story=story,
