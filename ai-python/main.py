@@ -18,7 +18,8 @@ from schemas import (
     GenerateRequest,
     GenerateResponse,
 )
-from service.openai_client import OpenAIClient
+# Refactored: Import services instead of clients
+from service.text_service import generate_story_with_plan
 from config import Config
 
 # Configure logging
@@ -27,8 +28,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Initialize OpenAIClient
-openai_client = OpenAIClient(api_key=Config.OPENAI_API_KEY)
+# Instantiate clients/services
+# Text generation is handled by the text_service directly.
+# Image and audio generation are handled by their respective services.
+logger.info(f"Text generation will be handled by text_service with provider: {Config.LLM_PROVIDER}")
 
 # CORS settings
 origins = [
@@ -171,8 +174,8 @@ def health_check():
 @app.post("/ai/generate", response_model=GenerateResponse)
 def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(...)):
     try:
-        # Call OpenAIClient to generate text
-        response = openai_client.generate_text(gen_req, request.state.request_id)
+        # Refactored: Call text_service directly
+        response = generate_story_with_plan(gen_req, request.state.request_id)
         return JSONResponse(content=response.dict()) # Return raw_json for debugging
     except ValueError as e:
         raise HTTPException(
@@ -187,11 +190,13 @@ def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(..
             detail={"code": "GENERATION_ERROR", "message": f"스토리 생성 중 오류 발생: {e}"}
         )
 
+from service.image_service import generate_image as generate_story_image
+
 @app.post("/ai/generate-image", response_model=GenerateImageResponse)
 def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Body(...)):
     IMAGE_DIR = "/Users/kyj/testimagedir"
     try:
-        b64_json = openai_client.generate_image(
+        b64_json = generate_story_image(
             text=img_req.text, 
             request_id=request.state.request_id, 
             character_images=img_req.characters,
@@ -218,13 +223,21 @@ def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Bo
             detail={"code": "IMAGE_GENERATION_ERROR", "message": str(e)}
         )
 
+from service.audio_service import synthesize_story_from_plan
+from schemas import SynthesizeFromPlanRequest
+
 @app.post("/ai/generate-audio")
-def generate_audio_endpoint(request: Request, audio_req: GenerateAudioRequest = Body(...)):
+def generate_audio_endpoint(request: Request, audio_req: SynthesizeFromPlanRequest = Body(...)):
     audio_dir = "/Users/kyj/testaudiodir"
     try:
         os.makedirs(audio_dir, exist_ok=True)
 
-        audio_bytes = openai_client.synthesize_story_audio(audio_req, request.state.request_id)
+        audio_bytes = synthesize_story_from_plan(
+            reading_plan=audio_req.reading_plan,
+            characters=audio_req.characters,
+            language=audio_req.language,
+            request_id=request.state.request_id
+        )
 
         filename = f"{uuid.uuid4()}.wav"
         file_path = os.path.join(audio_dir, filename)
@@ -245,13 +258,15 @@ def generate_audio_endpoint(request: Request, audio_req: GenerateAudioRequest = 
         )
 
 
+from service.audio_service import create_tts
+
 @app.post("/ai/generate-tts")
 def generate_tts_endpoint(request: Request, text: str = Body(..., media_type="text/plain")):
     audio_dir = "/Users/kyj/testaudiodir"
     try:
         os.makedirs(audio_dir, exist_ok=True)
 
-        audio_data = openai_client.create_tts(text)
+        audio_data = create_tts(text)
         
         filename = f"{uuid.uuid4()}.wav"
         file_path = os.path.join(audio_dir, filename)

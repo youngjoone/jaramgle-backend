@@ -92,6 +92,7 @@ class Moderation(BaseModel):
 class GenerateResponse(BaseModel):
     story: StoryOutput
     creative_concept: Optional[CreativeConcept] = None # ADDED
+    reading_plan: List[dict] = Field(default_factory=list)
     raw_json: str
     moderation: Moderation = Field(default_factory=Moderation)
 
@@ -139,3 +140,10 @@ class GenerateAudioRequest(BaseModel):
         if normalized in {"EN", "ENGLISH", "EN-US", "EN_US", "EN-GB", "EN_GB"}:
             return "EN"
         return normalized
+
+class SynthesizeFromPlanRequest(BaseModel):
+    reading_plan: List[dict] = Field(..., alias="readingPlan")
+    characters: List[CharacterProfile] = Field(default_factory=list)
+    language: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
