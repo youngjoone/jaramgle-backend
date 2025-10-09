@@ -50,7 +50,7 @@ public class StoryService {
     private final StoryAssembler storyAssembler;
 
     // Helper record to return multiple values from generation
-    public record GenerationResult(StableStoryDto story, JsonNode concept) {}
+    public record GenerationResult(StableStoryDto story, JsonNode concept, JsonNode readingPlan) {}
 
     @Transactional(readOnly = true)
     public List<Story> getStoriesByUserId(String userId) {
@@ -70,7 +70,7 @@ public class StoryService {
     @Transactional
     public Story saveNewStory(String userId, String title, String ageRange, String topicsJson, String language, String lengthLevel, List<String> pageTexts, List<Long> characterIds) {
         storageQuotaService.ensureSlotAvailable(userId);
-        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, null, new ArrayList<StorybookPage>(), new LinkedHashSet<Character>());
+        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, null, null, new ArrayList<StorybookPage>(), new LinkedHashSet<Character>());
         story = storyRepository.save(story);
         for (int i = 0; i < pageTexts.size(); i++) {
             StoryPage page = new StoryPage(null, story, i + 1, pageTexts.get(i));
@@ -98,26 +98,30 @@ public class StoryService {
     public Story generateAndSaveStory(String userId, StoryGenerateRequest request) {
         storageQuotaService.ensureSlotAvailable(userId);
         GenerationResult generationResult = generateAiStory(request);
-        return saveGeneratedStory(userId, request, generationResult.story(), generationResult.concept());
+        return saveGeneratedStory(userId, request, generationResult.story(), generationResult.concept(), generationResult.readingPlan());
     }
 
     // Overloaded method for backward compatibility with StoryStreamService
     @Transactional
     public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto) {
-        return saveGeneratedStory(userId, request, stableStoryDto, null);
+        return saveGeneratedStory(userId, request, stableStoryDto, null, null);
     }
 
     @Transactional
-    public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept) {
+    public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept, JsonNode readingPlan) {
         String quizJson;
         String creativeConceptJson = null;
+        String readingPlanJson = null;
         try {
             quizJson = objectMapper.writeValueAsString(stableStoryDto.quiz());
             if (creativeConcept != null) {
                 creativeConceptJson = objectMapper.writeValueAsString(creativeConcept);
             }
+            if (readingPlan != null) {
+                readingPlanJson = objectMapper.writeValueAsString(readingPlan);
+            }
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize quiz or concept data.", e);
+            throw new RuntimeException("Failed to serialize quiz, concept, or reading plan data.", e);
         }
 
         Story story = new Story(
@@ -133,6 +137,7 @@ public class StoryService {
                 quizJson,
                 null, // fullAudioUrl
                 creativeConceptJson, // creativeConcept
+                readingPlanJson, // readingPlan
                 new ArrayList<StorybookPage>(),
                 new LinkedHashSet<Character>()
         );
@@ -231,18 +236,19 @@ public class StoryService {
 
             if (aiResponse == null) {
                 log.warn("Received null response from LLM service, returning failsafe story.");
-                return new GenerationResult(createFailsafeStory(), objectMapper.createObjectNode());
+                return new GenerationResult(createFailsafeStory(), objectMapper.createObjectNode(), null);
             }
 
             AiStory aiStory = objectMapper.treeToValue(aiResponse.get("story"), AiStory.class);
             JsonNode creativeConcept = aiResponse.get("creative_concept");
+            JsonNode readingPlan = aiResponse.get("reading_plan"); // reading_plan 추출
 
             StableStoryDto stableStory = storyAssembler.assemble(aiStory, request.getMinPages());
-            return new GenerationResult(stableStory, creativeConcept);
+            return new GenerationResult(stableStory, creativeConcept, readingPlan); // 결과에 reading_plan 추가
 
         } catch (Exception e) {
             log.error("Failed to generate story from LLM service after retries. Returning failsafe story.", e);
-            return new GenerationResult(createFailsafeStory(), objectMapper.createObjectNode());
+            return new GenerationResult(createFailsafeStory(), objectMapper.createObjectNode(), null);
         }
     }
 
@@ -272,12 +278,21 @@ public class StoryService {
             return story.getFullAudioUrl();
         }
 
-        List<StoryPage> pages = storyPageRepository.findByStoryIdOrderByPageNoAsc(story.getId());
-        story.getCharacters().size(); // initialize lazy collection
+        // 1. Get readingPlan from DB
+        String readingPlanJson = story.getReadingPlan();
+        if (readingPlanJson == null || readingPlanJson.isEmpty()) {
+            throw new IllegalStateException("Reading plan is not generated for this story.");
+        }
 
-        List<GenerateAudioRequestDto.AudioPageDto> pageDtos = pages.stream()
-                .map(page -> new GenerateAudioRequestDto.AudioPageDto(page.getPageNo(), page.getText()))
-                .collect(Collectors.toList());
+        // 2. Deserialize readingPlan JSON string
+        List<Map<String, Object>> readingPlan;
+        try {
+            readingPlan = objectMapper.readValue(readingPlanJson, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to deserialize reading plan.", e);
+        }
+
+        story.getCharacters().size(); // initialize lazy collection
 
         List<GenerateAudioRequestDto.CharacterProfileDto> characterDtos = story.getCharacters().stream()
                 .sorted(Comparator.comparing(Character::getId))
@@ -294,11 +309,11 @@ public class StoryService {
 
         String language = Optional.ofNullable(story.getLanguage()).orElse("KO");
 
+        // 3. Create new DTO with readingPlan
         GenerateAudioRequestDto audioRequest = new GenerateAudioRequestDto(
-                story.getTitle(),
                 language,
-                pageDtos,
-                characterDtos
+                characterDtos,
+                readingPlan
         );
 
         String audioFileName = webClient.post()

@@ -1,28 +1,25 @@
 package com.fairylearn.backend.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
 public class GenerateAudioRequestDto {
 
-    private String title;
     private String language;
-    private List<AudioPageDto> pages;
     private List<CharacterProfileDto> characters;
 
-    @Getter
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class AudioPageDto {
-        private int pageNo;
-        private String text;
-    }
+    @JsonProperty("readingPlan") // ai-python 서비스의 SynthesizeFromPlanRequest 필드명과 일치시킴
+    private List<Map<String, Object>> readingPlan;
+
+    // AudioPageDto is no longer needed
 
     @Getter
     @NoArgsConstructor

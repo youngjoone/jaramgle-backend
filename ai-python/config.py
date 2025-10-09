@@ -24,8 +24,12 @@ class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")  # 'openai' or 'gemini'
     GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "imagen-4.0-generate-001")
-    DEFAULT_USE_GEMINI_IMAGE: bool = False  # Toggle here when you do not want to use environment variables
+    DEFAULT_USE_GEMINI_IMAGE: bool = True  # Toggle here when you do not want to use environment variables
     USE_GEMINI_IMAGE: bool = _env_flag("USE_GEMINI_IMAGE", default=DEFAULT_USE_GEMINI_IMAGE)
+
+    # Google Cloud project settings (for Vertex AI models like Imagen)
+    GOOGLE_PROJECT_ID: str = os.getenv("GOOGLE_PROJECT_ID", "")
+    GOOGLE_LOCATION: str = os.getenv("GOOGLE_LOCATION", "us-central1")
 
     # Azure Speech configuration (optional)
     AZURE_SPEECH_KEY: str = os.getenv("AZURE_SPEECH_KEY", "")

@@ -41,7 +41,11 @@ def _build_gemini_prompt_with_plan(req: GenerateRequest) -> str:
 {{
   "creative_concept": {{ ... }},
   "story_outline": [{{ ... }}],
-  "story": {{ ... }},
+  "story": {{
+    "title": "string",
+    "pages": [{{ "page": 1, "text": "string" }}],
+    "quiz": [{{ "q": "string", "options": ["string","string","string"], "a": 0}}]
+  }},
   "reading_plan": [
     {{
       "segment_type": "string (narration 또는 dialogue)",
@@ -57,7 +61,6 @@ def _build_gemini_prompt_with_plan(req: GenerateRequest) -> str:
 2.  완성된 `story`의 `pages`를 기반으로, 전체 이야기를 자연스럽게 낭독하기 위한 `reading_plan`을 생성한다.
 3.  `reading_plan`은 전체 텍스트를 빠짐없이 포함해야 하며, 각 문장을 적절한 단위로 나누고 `segment_type`, `speaker`, `emotion`, `text` 필드를 채운다.
 4.  이 모든 것을 포함하는 단일 JSON 객체를 최종적으로 출력한다.
-- 분량은 최소 {min_pages} 페이지 이상, 각 페이지는 약 50단어 이상으로 작성한다.
 """
     return dedent(full_prompt).strip()
 
