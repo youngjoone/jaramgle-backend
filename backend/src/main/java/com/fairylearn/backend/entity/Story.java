@@ -55,6 +55,9 @@ public class Story {
     @Column(name = "creative_concept", columnDefinition = "TEXT")
     private String creativeConcept;
 
+    @Column(name = "reading_plan", columnDefinition = "TEXT")
+    private String readingPlan;
+
     @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<StorybookPage> storybookPages = new ArrayList<>();
 

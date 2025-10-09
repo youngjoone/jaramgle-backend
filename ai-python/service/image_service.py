@@ -11,12 +11,12 @@ from openai import OpenAI
 from config import Config
 from schemas import CharacterProfile, CharacterVisual
 from service.image_providers import (
-    GeminiImageProvider,
-    GeminiProviderConfig,
     ImageProvider,
     ImageProviderError,
     OpenAIImageProvider,
     OpenAIProviderConfig,
+    ImagenImageProvider, # Use the new Imagen provider
+    ImagenProviderConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,17 +35,6 @@ _base_image_style = dedent(
     '''
 ).strip()
 
-def _parse_image_dimensions(value: str) -> Optional[Tuple[int, int]]:
-    try:
-        width_str, height_str = value.lower().split("x", 1)
-        width = int(width_str.strip())
-        height = int(height_str.strip())
-        if width > 0 and height > 0:
-            return width, height
-    except Exception:
-        logger.warning("Invalid image size format for Gemini image_dimensions: %s", value)
-    return None
-
 _openai_image_provider = OpenAIImageProvider(
     client=_openai_client,
     config=OpenAIProviderConfig(
@@ -55,39 +44,41 @@ _openai_image_provider = OpenAIImageProvider(
     ),
 )
 
-_gemini_image_provider: Optional[ImageProvider] = None
-_prefer_gemini = Config.USE_GEMINI_IMAGE
+_google_image_provider: Optional[ImageProvider] = None
+_prefer_google_image = Config.USE_GEMINI_IMAGE # This flag now controls Imagen vs OpenAI
 
-if _prefer_gemini:
-    dimensions = _parse_image_dimensions(Config.OPENAI_IMAGE_SIZE)
+if _prefer_google_image:
     try:
-        _gemini_image_provider = GeminiImageProvider(
-            api_key=Config.GEMINI_API_KEY,
-            config=GeminiProviderConfig(
-                model=Config.GEMINI_IMAGE_MODEL,
-                image_dimensions=dimensions,
-            ),
+        if not Config.GOOGLE_PROJECT_ID:
+            raise ImageProviderError("GOOGLE_PROJECT_ID is not set in config.")
+        
+        _google_image_provider = ImagenImageProvider(
+            config=ImagenProviderConfig(
+                model=Config.GEMINI_IMAGE_MODEL, # This now holds the Imagen model name
+                project_id=Config.GOOGLE_PROJECT_ID,
+                location=Config.GOOGLE_LOCATION,
+            )
         )
         logger.info(
-            "Gemini image provider initialised (model=%s)",
+            "Imagen image provider initialised (model=%s)",
             Config.GEMINI_IMAGE_MODEL,
         )
     except ImageProviderError as exc:
-        _prefer_gemini = False
+        _prefer_google_image = False
         logger.warning(
-            "Gemini image provider disabled, falling back to OpenAI: %s",
+            "Google Imagen provider disabled, falling back to OpenAI: %s",
             exc,
         )
 
-if not _prefer_gemini:
+if not _prefer_google_image:
     logger.info(
         "Using OpenAI image provider (model=%s)", Config.OPENAI_IMAGE_MODEL
     )
 
 
 def _get_image_provider() -> ImageProvider:
-    if _prefer_gemini and _gemini_image_provider is not None:
-        return _gemini_image_provider
+    if _prefer_google_image and _google_image_provider is not None:
+        return _google_image_provider
     return _openai_image_provider
 
 # --- Public API ---
@@ -101,7 +92,8 @@ def generate_image(
 ) -> str:
     """
     Generates an image based on the provided text and character descriptions.
-    It uses the preferred provider (Gemini) and falls back to OpenAI if needed.
+    It attempts to use the preferred Google provider (Imagen) first, and falls back
+    to OpenAI (DALL-E) if the primary provider fails.
     Returns a base64 encoded string of the image.
     """
     style_guide = art_style or _base_image_style
@@ -132,30 +124,34 @@ def generate_image(
         if descriptions:
             prompt += "\n\nCharacters to include:\n" + "\n".join(f"- {desc}" for desc in descriptions)
 
-    # For now, we just use the primary provider. A more robust implementation could add fallback.
-    primary_provider = _get_image_provider()
-    provider_name = "Gemini" if primary_provider is _gemini_image_provider else "OpenAI"
-    logger.info(
-        "Generating image via %s for request_id %s", provider_name, request_id
-    )
+    # Define providers in order of preference
+    providers: List[Tuple[str, ImageProvider]] = []
+    if _prefer_google_image and _google_image_provider is not None:
+        providers.append(("Imagen", _google_image_provider))
+    providers.append(("OpenAI", _openai_image_provider))
 
-    try:
-        image_bytes = primary_provider.generate(
-            prompt=prompt,
-            request_id=request_id,
-        )
-    except ImageProviderError as exc:
-        logger.warning(
-            "%s image provider failed for %s: %s",
-            provider_name,
-            request_id,
-            exc,
-        )
-        # In a full implementation, a fallback to another provider could be added here.
-        raise
+    last_error: Optional[Exception] = None
+    image_bytes: Optional[bytes] = None
+
+    for provider_name, provider in providers:
+        logger.info(f"Attempting image generation via {provider_name} for request_id {request_id}")
+        try:
+            image_bytes = provider.generate(prompt=prompt, request_id=request_id)
+            logger.info(f"{provider_name} provider succeeded.")
+            break  # Success, exit the loop
+        except ImageProviderError as exc:
+            last_error = exc
+            logger.warning(
+                "%s image provider failed for %s: %s",
+                provider_name,
+                request_id,
+                exc,
+            )
+            # Continue to the next provider
+            continue
 
     if image_bytes is None:
-        raise ImageProviderError("Image generation failed for all providers")
+        raise ImageProviderError("All image providers failed.") from last_error
 
     # Resize and encode the image
     image = Image.open(BytesIO(image_bytes)).convert("RGB")

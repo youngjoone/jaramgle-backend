@@ -225,3 +225,51 @@ class GeminiImageProvider(ImageProvider):
             return bytes(data)
 
         raise ImageProviderError("Gemini image bytes format is not supported")
+
+
+@dataclass
+class ImagenProviderConfig:
+    model: str
+    project_id: str
+    location: str
+    number_of_images: int = 1
+
+
+class ImagenImageProvider(ImageProvider):
+    """Image provider for Google's Imagen models via Vertex AI."""
+
+    def __init__(self, config: ImagenProviderConfig):
+        self._config = config
+        try:
+            from google.cloud import aiplatform
+            from vertexai.preview.vision_models import ImageGenerationModel
+
+            aiplatform.init(project=config.project_id, location=config.location)
+            self._model = ImageGenerationModel.from_pretrained(config.model)
+            logger.info("Imagen provider initialised for model %s", config.model)
+        except ImportError:
+            raise ImageProviderError(
+                "ImagenImageProvider requires google-cloud-aiplatform to be installed."
+            )
+        except Exception as exc:
+            logger.exception("Failed to initialise Vertex AI: %s", exc)
+            raise ImageProviderError(
+                "Failed to initialise Vertex AI. Ensure you have authenticated via 'gcloud auth application-default login'"
+            ) from exc
+
+    def generate(self, *, prompt: str, request_id: str) -> bytes:
+        try:
+            images = self._model.generate_images(
+                prompt=prompt,
+                number_of_images=self._config.number_of_images,
+            )
+            # The response contains a list of Image objects
+            if not images:
+                raise ImageProviderError("Imagen response contained no images.")
+            
+            # The _image_bytes property is already in bytes format
+            return images[0]._image_bytes
+        except Exception as exc:
+            logger.exception("Imagen image generation failed: %s", exc)
+            raise ImageProviderError(str(exc)) from exc
+
