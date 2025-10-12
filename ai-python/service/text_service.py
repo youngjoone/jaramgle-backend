@@ -23,6 +23,32 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     title_line = f'[제목] "{req.title}" (고정)' if req.title else "[제목] 미정(직접 생성)"
     min_pages = req.min_pages or 10
 
+    character_lines = []
+    if req.characters:
+        for character in req.characters:
+            details = []
+            if character.persona:
+                details.append(f"성격: {character.persona}")
+            if character.catchphrase:
+                details.append(f"말버릇: {character.catchphrase}")
+            prompt_keywords = getattr(character, "prompt_keywords", None)
+            if prompt_keywords:
+                details.append(f"시각 키워드: {prompt_keywords}")
+            detail_text = " | ".join(details) if details else "(추가 설명 없음)"
+            character_lines.append(f"- {character.name} ({character.slug}): {detail_text}")
+    if character_lines:
+        characters_section = "[선택된 캐릭터 가이드]\n" + "\n".join(character_lines)
+    else:
+        characters_section = "[선택된 캐릭터 가이드]\n- (선택된 캐릭터 없음)"
+
+    topic_goal_section = f"""[주제·학습목표 가이드]
+- 주제 키워드: {topics_str or '자유 선택'}
+- 학습 목표: {objectives_str or '자유 선택'}
+- 위 내용을 설교식 문장 대신 사건, 갈등 해결, 대사를 통해 자연스럽게 드러내라."""
+
+    extra_directions = """[일관된 아트 디렉션]
+- creative_concept.art_style과 mood_and_tone은 이야기 전체와 모든 image_prompt에서 동일하게 유지한다."""
+
     full_prompt = f"""
 너는 4~8세 아동용 그림책 작가이자, 아트 디렉터다.
 - 너의 임무는 글과 그림 아이디어를 포함하는 통합적인 창작물을 JSON 하나로 생성하는 것이다.
@@ -31,10 +57,15 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 
 [요청 정보]
 - 연령대: {req.age_range}세
-- 주제: {topics_str}
-- 학습목표: {objectives_str}
 - 언어: {lang_label}
 - {title_line}
+
+{topic_goal_section}
+
+{characters_section}
+- 위에 명시된 캐릭터 외 새로운 인물을 만들지 말 것.
+
+{extra_directions}
 
 # 출력 스키마 (키 고정, 추가 키 금지)
 {{
@@ -49,7 +80,7 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     "pages": [{{
       "page": 1,
       "text": "string",
-      "image_prompt": "string (Concise illustration brief describing layout, characters, and mood for the illustrator.)"
+      "image_prompt": "string (1~2 sentence illustration brief: layout, key characters, background, lighting, consistent art style)."
     }}],
     "quiz": [{{ "q": "string", "options": ["string","string","string"], "a": 0}}]
   }}
@@ -58,10 +89,11 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 # 작성 지침
 1.  `creative_concept`, `story_outline`, `story`를 모두 포함하는 동화를 구상한다.
 2.  동화의 각 `pages`에 들어가는 `text`는 **최소 50단어 이상**으로 충분히 길게 작성한다.
-3.  각 페이지마다 `image_prompt`를 1~2문장으로 작성하되 `creative_concept.art_style`과 `mood_and_tone`, 그리고 해당 페이지에 등장하는 캐릭터 시트를 참고해 일관된 그림 콘셉트를 유지한다. (장면 구성, 배경, 주요 행동, 감정 묘사를 포함)
+3.  각 페이지마다 `image_prompt`를 1~2문장으로 작성하되 `creative_concept.art_style`과 `mood_and_tone`, 그리고 위에서 정의한 캐릭터 가이드를 참고해 일관된 그림 콘셉트를 유지한다. (장면 구성, 배경, 주요 행동, 감정 묘사를 포함)
 4.  모든 내용을 종합하여 단일 JSON 객체로 최종 출력한다.
 """
     return dedent(full_prompt).strip()
+
 
 def _call_gemini(req: GenerateRequest, request_id: str) -> Dict:
     """Gemini API를 호출하고 결과를 dict로 반환합니다."""
