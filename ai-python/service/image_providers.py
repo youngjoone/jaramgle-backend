@@ -79,6 +79,14 @@ class GeminiProviderConfig:
 
 
 class GeminiImageProvider(ImageProvider):
+    @staticmethod
+    def _normalize_model_name(model: str) -> str:
+        if not model:
+            return model
+        if model.startswith("models/"):
+            return model
+        return f"models/{model}"
+
     def __init__(self, api_key: str, config: GeminiProviderConfig):
         if not api_key:
             raise ImageProviderError("Gemini API key is not configured")
@@ -86,15 +94,12 @@ class GeminiImageProvider(ImageProvider):
         self._config = config
         self._api_key = api_key
         self._client = None
-        self._image_config_cls = None
         self._mode = "rest"
 
         try:
             from google import genai as google_genai  # type: ignore
-            from google.genai.types import ImageGenerationConfig  # type: ignore
 
             self._client = google_genai.Client(api_key=api_key)
-            self._image_config_cls = ImageGenerationConfig
             self._mode = "client"
             logger.info(
                 "Gemini image provider initialised (client library) for model=%s",
@@ -119,11 +124,22 @@ class GeminiImageProvider(ImageProvider):
             raise ImageProviderError(str(exc)) from exc
 
     def _generate_with_client(self, *, prompt: str) -> bytes:
+        if self._client is None:
+            raise ImageProviderError("Gemini client unavailable")
+
+        generation_kwargs = {
+            "model": self._normalize_model_name(self._config.model),
+            "prompt": prompt,
+        }
+        try:
+            from google.genai import types  # type: ignore
+        except Exception as exc:  # pragma: no cover - dependency guard
+            raise ImageProviderError(f"google.genai types unavailable: {exc}") from exc
+
         config_kwargs = {
             "number_of_images": max(1, int(self._config.number_of_images or 1)),
             "output_mime_type": self._config.output_mime_type,
         }
-
         aspect_ratio = self._config.aspect_ratio
         if not aspect_ratio and self._config.image_dimensions:
             width, height = self._config.image_dimensions
@@ -132,19 +148,23 @@ class GeminiImageProvider(ImageProvider):
         if aspect_ratio:
             config_kwargs["aspect_ratio"] = aspect_ratio
 
-        image_config = None
-        if self._image_config_cls is not None:
-            image_config = self._image_config_cls(**config_kwargs)
-
-        response = self._client.models.generate_images(  # type: ignore[union-attr]
-            model=self._config.model,
-            prompt=prompt,
-            config=image_config,
-        )
+        try:
+            config_obj = types.GenerateImagesConfig(**config_kwargs)  # type: ignore[attr-defined]
+            generation_kwargs["config"] = config_obj
+            response = self._client.models.generate_images(**generation_kwargs)  # type: ignore[union-attr]
+        except TypeError as exc:
+            logger.warning(
+                "Gemini client generate_images signature mismatch (%s); falling back to REST", exc
+            )
+            # Fall back to REST implementation to maximise compatibility across SDK versions
+            return self._generate_via_rest(prompt=prompt)
 
         images = getattr(response, "generated_images", None) or []
         if not images:
-            raise ImageProviderError("Gemini response did not contain image data")
+            feedback = getattr(response, "prompt_feedback", None)
+            raise ImageProviderError(
+                f"Gemini response did not contain image data. feedback={feedback}"
+            )
 
         first = images[0]
         image = getattr(first, "image", None)
@@ -166,7 +186,7 @@ class GeminiImageProvider(ImageProvider):
 
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self._config.model}:generateImages"
+            f"{self._normalize_model_name(self._config.model)}:generateImages"
         )
         params = {"key": self._api_key}
 
@@ -192,10 +212,14 @@ class GeminiImageProvider(ImageProvider):
 
         response = requests.post(url, params=params, json=body, timeout=60)
         if response.status_code >= 400:
+            try:
+                payload = response.json()
+            except Exception:
+                payload = response.text
             logger.error(
-                "Gemini REST API error %s: %s", response.status_code, response.text
+                "Gemini REST API error %s: %s", response.status_code, payload
             )
-            raise ImageProviderError(response.text)
+            raise ImageProviderError(f"REST error {response.status_code}: {payload}")
 
         payload = response.json()
         images = (
@@ -272,4 +296,3 @@ class ImagenImageProvider(ImageProvider):
         except Exception as exc:
             logger.exception("Imagen image generation failed: %s", exc)
             raise ImageProviderError(str(exc)) from exc
-

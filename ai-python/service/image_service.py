@@ -11,12 +11,12 @@ from openai import OpenAI
 from config import Config
 from schemas import CharacterProfile, CharacterVisual
 from service.image_providers import (
+    GeminiImageProvider,
+    GeminiProviderConfig,
     ImageProvider,
     ImageProviderError,
     OpenAIImageProvider,
     OpenAIProviderConfig,
-    ImagenImageProvider, # Use the new Imagen provider
-    ImagenProviderConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,41 +44,64 @@ _openai_image_provider = OpenAIImageProvider(
     ),
 )
 
-_google_image_provider: Optional[ImageProvider] = None
-_prefer_google_image = Config.USE_GEMINI_IMAGE # This flag now controls Imagen vs OpenAI
+_gemini_image_provider: Optional[ImageProvider] = None
+_prefer_gemini_image = Config.USE_GEMINI_IMAGE
 
-if _prefer_google_image:
+
+def _parse_dimensions(size: str) -> Optional[Tuple[int, int]]:
     try:
-        if not Config.GOOGLE_PROJECT_ID:
-            raise ImageProviderError("GOOGLE_PROJECT_ID is not set in config.")
-        
-        _google_image_provider = ImagenImageProvider(
-            config=ImagenProviderConfig(
-                model=Config.GEMINI_IMAGE_MODEL, # This now holds the Imagen model name
-                project_id=Config.GOOGLE_PROJECT_ID,
-                location=Config.GOOGLE_LOCATION,
-            )
+        width, height = size.lower().split("x", 1)
+        return int(width.strip()), int(height.strip())
+    except Exception:  # pragma: no cover - defensive parsing
+        return None
+
+
+if _prefer_gemini_image:
+    try:
+        if not Config.GEMINI_API_KEY:
+            raise ImageProviderError("GEMINI_API_KEY is not configured.")
+
+        dimensions = _parse_dimensions(Config.OPENAI_IMAGE_SIZE)
+        aspect_ratio = None
+        if dimensions:
+            w, h = dimensions
+            if w and h:
+                try:
+                    from math import gcd
+
+                    g = gcd(w, h)
+                    aspect_ratio = f"{w // g}:{h // g}"
+                except Exception:  # pragma: no cover - math fallback
+                    aspect_ratio = f"{w}:{h}"
+
+        _gemini_image_provider = GeminiImageProvider(
+            api_key=Config.GEMINI_API_KEY,
+            config=GeminiProviderConfig(
+                model=Config.GEMINI_IMAGE_MODEL,
+                image_dimensions=dimensions,
+                aspect_ratio=aspect_ratio,
+                output_mime_type="image/png",
+                number_of_images=1,
+            ),
         )
         logger.info(
-            "Imagen image provider initialised (model=%s)",
+            "Gemini image provider initialised (model=%s)",
             Config.GEMINI_IMAGE_MODEL,
         )
     except ImageProviderError as exc:
-        _prefer_google_image = False
+        _prefer_gemini_image = False
         logger.warning(
-            "Google Imagen provider disabled, falling back to OpenAI: %s",
+            "Gemini image provider disabled, falling back to OpenAI: %s",
             exc,
         )
 
-if not _prefer_google_image:
-    logger.info(
-        "Using OpenAI image provider (model=%s)", Config.OPENAI_IMAGE_MODEL
-    )
+if not _prefer_gemini_image:
+    logger.info("Using OpenAI image provider (model=%s)", Config.OPENAI_IMAGE_MODEL)
 
 
 def _get_image_provider() -> ImageProvider:
-    if _prefer_google_image and _google_image_provider is not None:
-        return _google_image_provider
+    if _prefer_gemini_image and _gemini_image_provider is not None:
+        return _gemini_image_provider
     return _openai_image_provider
 
 # --- Public API ---
@@ -97,6 +120,8 @@ def generate_image(
     Returns a base64 encoded string of the image.
     """
     style_guide = art_style or _base_image_style
+    if not art_style:
+        logger.warning("No art_style supplied for %s; falling back to default style guide.", request_id)
 
     prompt = dedent(
         f"""
@@ -105,29 +130,37 @@ def generate_image(
         """
     ).strip()
 
+    character_section_added = False
     if character_visuals:
-        descriptions = []
-        for visual in character_visuals:
-            descriptions.append(f"- {visual.name}: {visual.visual_description}")
+        descriptions = [f"- {visual.name}: {visual.visual_description}" for visual in character_visuals if visual.visual_description]
         if descriptions:
             prompt += "\n\nCharacters to include (follow these descriptions strictly):\n" + "\n".join(descriptions)
-    
+            character_section_added = True
     elif character_images:
         descriptions = []
         for profile in character_images:
-            parts = [profile.name]
+            details = []
             if profile.persona:
-                parts.append(profile.persona)
+                details.append(f"persona: {profile.persona}")
             if profile.prompt_keywords:
-                parts.append(f"Visual cues: {profile.prompt_keywords}")
-            descriptions.append(" | ".join(filter(None, parts)))
+                details.append(f"visual cues: {profile.prompt_keywords}")
+            if profile.catchphrase:
+                details.append(f"catchphrase: {profile.catchphrase}")
+            detail_text = ", ".join(details) or "describe in warm, child-friendly style"
+            descriptions.append(f"- {profile.name}: {detail_text}")
         if descriptions:
-            prompt += "\n\nCharacters to include:\n" + "\n".join(f"- {desc}" for desc in descriptions)
+            prompt += "\n\nCharacters to include (derive consistent appearance from these cues):\n" + "\n".join(descriptions)
+            character_section_added = True
+
+    if not character_section_added:
+        logger.warning("No character visuals were provided for %s; image prompt may lack character guidance.", request_id)
+
+    logger.debug("Image prompt for %s:\n%s", request_id, prompt)
 
     # Define providers in order of preference
     providers: List[Tuple[str, ImageProvider]] = []
-    if _prefer_google_image and _google_image_provider is not None:
-        providers.append(("Imagen", _google_image_provider))
+    if _prefer_gemini_image and _gemini_image_provider is not None:
+        providers.append(("Gemini", _gemini_image_provider))
     providers.append(("OpenAI", _openai_image_provider))
 
     last_error: Optional[Exception] = None

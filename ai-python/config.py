@@ -23,7 +23,7 @@ class Config:
 
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")  # 'openai' or 'gemini'
-    GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image-preview")
+    GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "imagen-3.0-generate-002")
     DEFAULT_USE_GEMINI_IMAGE: bool = True  # Toggle here when you do not want to use environment variables
     USE_GEMINI_IMAGE: bool = _env_flag("USE_GEMINI_IMAGE", default=DEFAULT_USE_GEMINI_IMAGE)
 

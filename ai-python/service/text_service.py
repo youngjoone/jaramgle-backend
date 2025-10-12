@@ -46,7 +46,11 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
   "story_outline": [{{ ... }}],
   "story": {{
     "title": "string",
-    "pages": [{{ "page": 1, "text": "string" }}],
+    "pages": [{{
+      "page": 1,
+      "text": "string",
+      "image_prompt": "string (Concise illustration brief describing layout, characters, and mood for the illustrator.)"
+    }}],
     "quiz": [{{ "q": "string", "options": ["string","string","string"], "a": 0}}]
   }}
 }}
@@ -54,7 +58,8 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 # 작성 지침
 1.  `creative_concept`, `story_outline`, `story`를 모두 포함하는 동화를 구상한다.
 2.  동화의 각 `pages`에 들어가는 `text`는 **최소 50단어 이상**으로 충분히 길게 작성한다.
-3.  모든 내용을 종합하여 단일 JSON 객체로 최종 출력한다.
+3.  각 페이지마다 `image_prompt`를 1~2문장으로 작성하되 `creative_concept.art_style`과 `mood_and_tone`, 그리고 해당 페이지에 등장하는 캐릭터 시트를 참고해 일관된 그림 콘셉트를 유지한다. (장면 구성, 배경, 주요 행동, 감정 묘사를 포함)
+4.  모든 내용을 종합하여 단일 JSON 객체로 최종 출력한다.
 """
     return dedent(full_prompt).strip()
 
