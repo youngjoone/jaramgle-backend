@@ -26,4 +26,10 @@ public class StoryPage {
 
     @Column(columnDefinition = "TEXT", nullable = false)
     private String text;
+
+    @Column(name = "image_url")
+    private String imageUrl;
+
+    @Column(name = "audio_url")
+    private String audioUrl;
 }

@@ -1,16 +1,20 @@
+# -*- coding: utf-8 -*-
 import logging
 import wave
 from html import escape
 from io import BytesIO
 from typing import Dict, List, Optional, Tuple
+import json
+from textwrap import dedent
 
+import google.generativeai as genai
 from openai import OpenAI
 
 from config import Config
 from schemas import CharacterProfile
 from service.azure_tts_client import AzureTTSClient, AzureTTSConfigurationError
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__) 
 
 # --- Service-level client initialization ---
 
@@ -41,7 +45,7 @@ SUPPORTED_OPENAI_VOICES = {"alloy", "ash", "coral", "fable", "onyx", "sage", "ec
 VOICE_PRESETS: Dict[str, dict] = {
     "narration": {
         "voice": "alloy",
-        "style": "따뜻하고 차분한 엄마 목소리로",
+        "style": "Warm and calm mother's voice",
         "azure_voice": "ko-KR-SunHiNeural",
         "azure_style": "friendly",
         "azure_styledegree": "1.0",
@@ -49,7 +53,7 @@ VOICE_PRESETS: Dict[str, dict] = {
     },
     "default": {
         "voice": "alloy",
-        "style": "자연스럽고 편안하게",
+        "style": "Natural and comfortable",
         "azure_voice": "ko-KR-SunHiNeural",
         "azure_style": "calm",
         "azure_styledegree": "1.0",
@@ -58,7 +62,7 @@ VOICE_PRESETS: Dict[str, dict] = {
     "characters": {
         "lulu-rabbit": {
             "voice": "coral",
-            "style": "발랄하고 귀엽게",
+            "style": "Lively and cute",
             "azure_voice": "ko-KR-SunHiNeural",
             "azure_style": "cheerful",
             "azure_styledegree": "1.2",
@@ -66,7 +70,7 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
         "mungchi-puppy": {
             "voice": "nova",
-            "style": "친근하고 즐겁게",
+            "style": "Friendly and joyful",
             "azure_voice": "ko-KR-SoonBokNeural",
             "azure_style": "friendly",
             "azure_styledegree": "1.1",
@@ -74,7 +78,7 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
         "coco-squirrel": {
             "voice": "echo",
-            "style": "빠르고 신나게",
+            "style": "Fast and exciting",
             "azure_voice": "ko-KR-SeoHyeonNeural",
             "azure_style": "excited",
             "azure_styledegree": "1.2",
@@ -82,7 +86,7 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
         "ria-princess": {
             "voice": "shimmer",
-            "style": "우아하고 상냥하게",
+            "style": "Elegant and sweet",
             "azure_voice": "ko-KR-SeoHyeonNeural",
             "azure_style": "gentle",
             "azure_styledegree": "1.1",
@@ -90,7 +94,7 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
         "lucas-prince": {
             "voice": "fable",
-            "style": "장난기 넘치고 씩씩하게",
+            "style": "Playful and brave",
             "azure_voice": "ko-KR-SunHiNeural",
             "azure_style": "cheerful",
             "azure_styledegree": "1.1",
@@ -98,7 +102,7 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
         "geo-explorer": {
             "voice": "ash",
-            "style": "차분하지만 용감하게",
+            "style": "Calm but brave",
             "azure_voice": "ko-KR-SoonBokNeural",
             "azure_style": "calm",
             "azure_styledegree": "1.0",
@@ -106,7 +110,7 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
         "robo-roro": {
             "voice": "onyx",
-            "style": "기계적이면서 따뜻하게",
+            "style": "Mechanical yet warm",
             "azure_voice": "ko-KR-SoonBokNeural",
             "azure_style": "calm",
             "azure_styledegree": "1.0",
@@ -114,7 +118,7 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
         "mimi-fairy": {
             "voice": "sage",
-            "style": "속삭이듯 다정하게",
+            "style": "Whispering and affectionate",
             "azure_voice": "ko-KR-SeoHyeonNeural",
             "azure_style": "whispering",
             "azure_styledegree": "1.0",
@@ -122,7 +126,7 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
         "pipi-math-monster": {
             "voice": "coral",
-            "style": "경쾌하고 생동감 있게",
+            "style": "Upbeat and lively",
             "azure_voice": "ko-KR-SunHiNeural",
             "azure_style": "cheerful",
             "azure_styledegree": "1.1",
@@ -130,7 +134,7 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
         "nova-space": {
             "voice": "nova",
-            "style": "꿈꾸듯 신비롭게",
+            "style": "Dreamy and mysterious",
             "azure_voice": "ko-KR-SunHiNeural",
             "azure_style": "hopeful",
             "azure_styledegree": "1.1",
@@ -138,6 +142,80 @@ VOICE_PRESETS: Dict[str, dict] = {
         },
     },
 }
+
+def _build_reading_plan_prompt(story_text: str, characters: List[CharacterProfile]) -> str:
+    """오디오 읽기 계획 생성을 위한 프롬프트를 생성합니다."""
+    
+    character_descs = []
+    for char in characters:
+        desc = f"- {char.name} ({char.slug}): {char.persona}"
+        character_descs.append(desc)
+    characters_str = "\n".join(character_descs)
+
+    prompt = f"""
+너는 전문 오디오북 프로듀서다. 주어진 동화 텍스트를 가지고, TTS가 자연스럽게 읽을 수 있도록 오디오 연출 계획(reading plan)을 짜야 한다.
+
+# 입력 텍스트
+---
+{story_text}
+---
+
+# 등장인물 정보
+---
+{characters_str}
+- narrator: 전체 이야기를 설명하는 나레이터
+---
+
+# 출력 스키마 (JSON 형식)
+- 전체 텍스트를 담는 `reading_plan`이라는 키를 가진 JSON 배열을 출력해야 한다.
+- 각 배열 요소는 다음 키를 가진 객체다.
+  - `segment_type`: "narration" 또는 "dialogue"
+  - `speaker`: 말하는 사람. 등장인물 정보에 있는 `slug` 값 또는 "narrator"를 사용한다.
+  - `emotion`: 문장의 감정이나 톤. (예: cheerful, sad, calm, excited, whispering, friendly, hopeful)
+  - `text`: 실제 TTS가 읽을 문장.
+
+# 작업 지침
+1.  입력 텍스트 전체를 빠짐없이 `reading_plan`에 포함시켜야 한다.
+2.  텍스트를 의미 단위로 나누어 여러 세그먼트로 만든다. 너무 짧게 나누지 않도록 주의한다.
+3.  각 세그먼트가 나레이션인지, 특정 캐릭터의 대사인지 판단하여 `segment_type`과 `speaker`를 정확히 지정한다.
+4.  문맥에 맞는 `emotion`을 풍부하게 지정하여 오디오북의 생동감을 더한다.
+5.  **중요**: 전체 `reading_plan` 배열의 길이는 반드시 50개 미만이어야 한다. 텍스트를 너무 잘게 나누지 않도록 주의한다.
+6.  최종 출력은 반드시 JSON 객체 하나여야 한다. (예: `{{"reading_plan": [...]}}`) 추가 설명이나 코드 블록은 절대 포함하지 않는다.
+
+"""
+    return dedent(prompt).strip()
+
+def plan_reading_segments(story_text: str, characters: List[CharacterProfile], request_id: str) -> List[Dict]:
+    """LLM을 호출하여 오디오 읽기 계획을 생성합니다."""
+    
+    # 현재는 Gemini만 지원, 필요시 OpenAI 추가
+    provider = Config.LLM_PROVIDER.lower()
+    if provider != 'gemini':
+        raise NotImplementedError("Reading plan generation is currently only supported for Gemini.")
+
+    client = genai.GenerativeModel(
+        model_name="models/gemini-2.5-flash", # 1.5 Flash 모델 사용
+        generation_config={"response_mime_type": "application/json"}
+    )
+    
+    prompt = _build_reading_plan_prompt(story_text, characters)
+    
+    logger.info(f"Calling Gemini for reading plan generation. Request ID: {request_id}")
+    
+    try:
+        response = client.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(temperature=0.5),
+        )
+        raw_json_text = response.text
+        logger.info(f"Gemini raw response for reading plan ({request_id}): {raw_json_text[:300]}...")
+        
+        data = json.loads(raw_json_text)
+        return data.get("reading_plan", [])
+
+    except Exception as e:
+        logger.error(f"Failed to generate reading plan for request {request_id}: {e}", exc_info=True)
+        raise
 
 # --- Private Helper Functions ---
 

@@ -22,11 +22,11 @@ from schemas import (
     GenerateResponse,
     GenerateImageRequest,
     GenerateImageResponse,
-    SynthesizeFromPlanRequest,
+    GenerateAudioFromStoryRequest,
 )
-from service.text_service import generate_story_with_plan
+from service.text_service import generate_story
 from service.image_service import generate_image
-from service.audio_service import synthesize_story_from_plan, create_tts
+from service.audio_service import synthesize_story_from_plan, create_tts, plan_reading_segments
 
 # --- App Initialization and Logging ---
 
@@ -89,7 +89,7 @@ def health_check():
 @app.post("/ai/generate", response_model=GenerateResponse)
 def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(...)):
     try:
-        response = generate_story_with_plan(gen_req, request.state.request_id)
+        response = generate_story(gen_req, request.state.request_id)
         return JSONResponse(content=response.model_dump())
     except Exception as e:
         logger.error(f"Story generation failed for Request ID: {request.state.request_id}", exc_info=True)
@@ -128,12 +128,21 @@ def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Bo
         )
 
 @app.post("/ai/generate-audio")
-def generate_audio_endpoint(request: Request, audio_req: SynthesizeFromPlanRequest = Body(...)):
+def generate_audio_endpoint(request: Request, audio_req: GenerateAudioFromStoryRequest = Body(...)):
     audio_dir = "/Users/kyj/testaudiodir"
     try:
         os.makedirs(audio_dir, exist_ok=True)
+
+        # 1. Generate reading plan from story text
+        reading_plan = plan_reading_segments(
+            story_text=audio_req.story_text,
+            characters=audio_req.characters,
+            request_id=request.state.request_id
+        )
+
+        # 2. Synthesize audio from the generated plan
         audio_bytes = synthesize_story_from_plan(
-            reading_plan=audio_req.reading_plan,
+            reading_plan=reading_plan,
             characters=audio_req.characters,
             language=audio_req.language,
             request_id=request.state.request_id

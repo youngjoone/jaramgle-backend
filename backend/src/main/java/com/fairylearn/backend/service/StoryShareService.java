@@ -105,7 +105,6 @@ public class StoryShareService {
         storyDto.setSharedAt(sharedStory.getCreatedAt());
         boolean manageable = viewerUserId != null && viewerUserId.equals(story.getUserId());
         storyDto.setManageable(manageable);
-        storyDto.setFullAudioUrl(story.getFullAudioUrl());
         enrichStoryAuthorInfo(story, storyDto);
 
         Long viewerNumericId = parseUserId(viewerUserId);
