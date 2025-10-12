@@ -3,7 +3,7 @@ import os
 import json
 import logging
 from textwrap import dedent
-from typing import Dict
+from typing import Dict, Optional
 
 import google.generativeai as genai
 from openai import OpenAI
@@ -12,6 +12,23 @@ from config import Config
 from schemas import GenerateRequest, GenerateResponse, StoryOutput, CreativeConcept, Moderation
 
 logger = logging.getLogger(__name__)
+
+def _normalize_and_validate_story(story: StoryOutput, req: GenerateRequest) -> StoryOutput:
+    """Ensure the story meets structural requirements and normalise page text."""
+    min_pages = req.min_pages or 10
+    page_count = len(story.pages)
+    if page_count < min_pages:
+        raise ValueError(f"LLM generated {page_count} pages but at least {min_pages} pages are required.")
+
+    for page in story.pages:
+        clean_text = " ".join(page.text.split())
+        page.text = clean_text
+        if not getattr(page, "image_prompt", None):
+            page.image_prompt = (
+                clean_text[:140].rstrip() + "..." if len(clean_text) > 140 else clean_text
+            )
+    return story
+
 
 
 def _build_gemini_story_prompt(req: GenerateRequest) -> str:
@@ -44,10 +61,16 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     topic_goal_section = f"""[주제·학습목표 가이드]
 - 주제 키워드: {topics_str or '자유 선택'}
 - 학습 목표: {objectives_str or '자유 선택'}
-- 위 내용을 설교식 문장 대신 사건, 갈등 해결, 대사를 통해 자연스럽게 드러내라."""
+- 설교식 문장 대신 사건 전개와 대사를 통해 자연스럽게 드러낼 것."""
 
-    extra_directions = """[일관된 아트 디렉션]
-- creative_concept.art_style과 mood_and_tone은 이야기 전체와 모든 image_prompt에서 동일하게 유지한다."""
+    art_direction_section = """[일관된 아트 디렉션]
+- creative_concept.art_style과 mood_and_tone은 이야기 전체와 모든 image_prompt에서 동일하게 유지한다.
+- Realistic/photorealistic 표현은 피하고, 아동용 동화책 일러스트 톤을 유지한다."""
+
+    page_rules_section = f"""[페이지 구성 규칙]
+- 최소 {min_pages}개의 페이지를 작성하며, 각 페이지는 독립적인 장면을 다룬다.
+- 각 page.text는 한 단락(3~4문장)으로 작성하고, 불필요한 줄바꿈을 넣지 않는다.
+- 각 page.image_prompt는 1~2문장으로 장면의 배경·주요 캐릭터·감정을 요약하고, 위의 아트 디렉션을 다시 상기시킨다."""
 
     full_prompt = f"""
 너는 4~8세 아동용 그림책 작가이자, 아트 디렉터다.
@@ -65,7 +88,9 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 {characters_section}
 - 위에 명시된 캐릭터 외 새로운 인물을 만들지 말 것.
 
-{extra_directions}
+{art_direction_section}
+
+{page_rules_section}
 
 # 출력 스키마 (키 고정, 추가 키 금지)
 {{
@@ -88,7 +113,7 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 
 # 작성 지침
 1.  `creative_concept`, `story_outline`, `story`를 모두 포함하는 동화를 구상한다.
-2.  동화의 각 `pages`에 들어가는 `text`는 **최소 50단어 이상**으로 충분히 길게 작성한다.
+2.  동화의 각 `pages`에 들어가는 `text`는 **최소 50단어 이상**으로 충분히 길게 작성하되 한 단락으로 유지한다.
 3.  각 페이지마다 `image_prompt`를 1~2문장으로 작성하되 `creative_concept.art_style`과 `mood_and_tone`, 그리고 위에서 정의한 캐릭터 가이드를 참고해 일관된 그림 콘셉트를 유지한다. (장면 구성, 배경, 주요 행동, 감정 묘사를 포함)
 4.  모든 내용을 종합하여 단일 JSON 객체로 최종 출력한다.
 """
@@ -126,29 +151,53 @@ def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
     """
     설정에 따라 적절한 LLM을 호출하여 스토리를 생성합니다.
     """
-    story_data = {}
     provider = Config.LLM_PROVIDER.lower()
+    max_attempts = 3
+    last_error: Optional[Exception] = None
 
-    try:
-        if provider == 'gemini':
-            story_data = _call_gemini(req, request_id)
-        elif provider == 'openai':
-            story_data = _call_openai(req, request_id)
-        else:
-            raise ValueError(f"Unsupported LLM provider: {provider}")
+    for attempt in range(1, max_attempts + 1):
+        try:
+            if provider == 'gemini':
+                story_data = _call_gemini(req, request_id)
+            elif provider == 'openai':
+                story_data = _call_openai(req, request_id)
+            else:
+                raise ValueError(f"Unsupported LLM provider: {provider}")
 
-        # Pydantic 모델로 변환
-        story = StoryOutput(**story_data["story"])
-        concept = CreativeConcept(**story_data.get("creative_concept", {}))
-        raw_json = json.dumps(story_data, ensure_ascii=False)
+            story = StoryOutput(**story_data["story"])
+            story = _normalize_and_validate_story(story, req)
+            concept = CreativeConcept(**story_data.get("creative_concept", {}))
+            raw_json = json.dumps(story_data, ensure_ascii=False)
 
-        return GenerateResponse(
-            story=story,
-            creative_concept=concept,
-            reading_plan=[], # 빈 리스트를 명시적으로 반환
-            raw_json=raw_json,
-            moderation=Moderation(safe=True)
-        )
-    except Exception as e:
-        logger.error(f"Failed to generate story with plan for request {request_id}: {e}", exc_info=True)
-        raise
+            return GenerateResponse(
+                story=story,
+                creative_concept=concept,
+                reading_plan=[],
+                raw_json=raw_json,
+                moderation=Moderation(safe=True)
+            )
+        except ValueError as validation_error:
+            last_error = validation_error
+            logger.warning(
+                "Story validation failed (attempt %s/%s) for request %s: %s",
+                attempt,
+                max_attempts,
+                request_id,
+                validation_error,
+            )
+        except Exception as exc:
+            last_error = exc
+            logger.error(
+                "Failed to generate story (attempt %s/%s) for request %s: %s",
+                attempt,
+                max_attempts,
+                request_id,
+                exc,
+                exc_info=True,
+            )
+            break
+
+    if last_error is not None:
+        raise last_error
+
+    raise RuntimeError("Story generation failed for unknown reasons")
