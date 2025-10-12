@@ -56,6 +56,7 @@ class GenerateRequest(BaseModel):
 class StoryPage(BaseModel):
     page_no: int = Field(..., alias="page")
     text: str
+    image_prompt: Optional[str] = Field(default=None, alias="imagePrompt")
     id: Optional[int] = None
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
