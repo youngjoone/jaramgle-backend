@@ -20,13 +20,16 @@ def _normalize_and_validate_story(story: StoryOutput, req: GenerateRequest) -> S
     if page_count < min_pages:
         raise ValueError(f"LLM generated {page_count} pages but at least {min_pages} pages are required.")
 
-    for page in story.pages:
+    min_words_per_page = 20
+    for idx, page in enumerate(story.pages, start=1):
         clean_text = " ".join(page.text.split())
         page.text = clean_text
+        word_count = len(clean_text.split())
+        if word_count < min_words_per_page:
+            raise ValueError(f"Page {idx} has {word_count} words; at least {min_words_per_page} words are required per page.")
         if not getattr(page, "image_prompt", None):
-            page.image_prompt = (
-                clean_text[:140].rstrip() + "..." if len(clean_text) > 140 else clean_text
-            )
+            summary = clean_text[:140].rstrip()
+            page.image_prompt = summary + ("..." if len(clean_text) > 140 else "")
     return story
 
 
@@ -69,7 +72,7 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 
     page_rules_section = f"""[페이지 구성 규칙]
 - 최소 {min_pages}개의 페이지를 작성하며, 각 페이지는 독립적인 장면을 다룬다.
-- 각 page.text는 한 단락(3~4문장)으로 작성하고, 불필요한 줄바꿈을 넣지 않는다.
+- 각 page.text는 한 단락(최소 20단어)으로 작성하고, 불필요한 줄바꿈을 넣지 않는다.
 - 각 page.image_prompt는 1~2문장으로 장면의 배경·주요 캐릭터·감정을 요약하고, 위의 아트 디렉션을 다시 상기시킨다."""
 
     full_prompt = f"""
@@ -113,7 +116,7 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 
 # 작성 지침
 1.  `creative_concept`, `story_outline`, `story`를 모두 포함하는 동화를 구상한다.
-2.  동화의 각 `pages`에 들어가는 `text`는 **최소 50단어 이상**으로 충분히 길게 작성하되 한 단락으로 유지한다.
+2.  동화의 각 `pages`에 들어가는 `text`는 **최소 20단어 이상**으로 충분히 작성하되 한 단락으로 유지한다.
 3.  각 페이지마다 `image_prompt`를 1~2문장으로 작성하되 `creative_concept.art_style`과 `mood_and_tone`, 그리고 위에서 정의한 캐릭터 가이드를 참고해 일관된 그림 콘셉트를 유지한다. (장면 구성, 배경, 주요 행동, 감정 묘사를 포함)
 4.  모든 내용을 종합하여 단일 JSON 객체로 최종 출력한다.
 """
