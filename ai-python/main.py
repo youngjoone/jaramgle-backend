@@ -1,5 +1,6 @@
 
 # 1. Standard library imports
+import asyncio
 import base64
 import logging
 import os
@@ -23,10 +24,11 @@ from schemas import (
     GenerateImageRequest,
     GenerateImageResponse,
     GenerateAudioFromStoryRequest,
+    GeneratePageAssetsRequest, # Added
 )
 from service.text_service import generate_story
 from service.image_service import generate_image
-from service.audio_service import synthesize_story_from_plan, create_tts, plan_reading_segments
+from service.audio_service import synthesize_story_from_plan, create_tts, plan_reading_segments, plan_and_synthesize_audio # Added
 
 # --- App Initialization and Logging ---
 
@@ -102,12 +104,21 @@ def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(..
 def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Body(...)):
     IMAGE_DIR = "/Users/kyj/testimagedir"
     try:
+        combined_visuals = list(img_req.character_visuals)
+        if img_req.characters:
+            existing_names = {visual.name for visual in combined_visuals if visual.name}
+            for visual in img_req.characters:
+                if visual.name and visual.name in existing_names:
+                    continue
+                combined_visuals.append(visual)
+                if visual.name:
+                    existing_names.add(visual.name)
+
         b64_json = generate_image(
             text=img_req.text, 
             request_id=request.state.request_id, 
-            character_images=img_req.characters,
             art_style=img_req.art_style, 
-            character_visuals=img_req.character_visuals
+            character_visuals=combined_visuals
         )
         
         image_data = base64.b64decode(b64_json)
@@ -162,6 +173,63 @@ def generate_audio_endpoint(request: Request, audio_req: GenerateAudioFromStoryR
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "AUDIO_GENERATION_ERROR", "message": str(e)},
+        )
+
+@app.post("/ai/generate-page-assets")
+async def generate_page_assets_endpoint(request: Request, req: GeneratePageAssetsRequest = Body(...)):
+    audio_dir = "/Users/kyj/testaudiodir"
+    image_dir = "/Users/kyj/testimagedir"
+    try:
+        os.makedirs(audio_dir, exist_ok=True)
+        os.makedirs(image_dir, exist_ok=True)
+
+        # Run image and audio generation in parallel
+        image_task = asyncio.create_task(
+            asyncio.to_thread(
+                generate_image,
+                text=req.text,
+                request_id=request.state.request_id,
+                art_style=req.art_style,
+                character_visuals=req.character_visuals,
+            )
+        )
+        audio_task = asyncio.create_task(
+            asyncio.to_thread(
+                plan_and_synthesize_audio,
+                story_text=req.text,
+                characters=req.character_visuals, # Note: CharacterVisual is used here, not CharacterProfile
+                language="KO", # Assuming default language for now, can be passed in request if needed
+                request_id=request.state.request_id,
+            )
+        )
+
+        image_b64_json, audio_bytes = await asyncio.gather(image_task, audio_task)
+
+        # Save image
+        image_data = base64.b64decode(image_b64_json)
+        image_filename = f"{uuid.uuid4()}.png"
+        image_file_path = os.path.join(image_dir, image_filename)
+        with open(image_file_path, "wb") as f:
+            f.write(image_data)
+        logger.info(f"Image saved to {image_file_path}")
+
+        # Save audio
+        audio_filename = f"{uuid.uuid4()}.wav"
+        audio_file_path = os.path.join(audio_dir, audio_filename)
+        with open(audio_file_path, "wb") as f:
+            f.write(audio_bytes)
+        logger.info(f"Audio file saved to {audio_file_path}")
+
+        return JSONResponse(content={
+            "imageUrl": f"/api/image/{image_filename}", # Assuming a route to serve images
+            "audioUrl": f"/api/audio/{audio_filename}"  # Assuming a route to serve audio
+        })
+
+    except Exception as e:
+        logger.error(f"Page assets generation failed for Request ID: {request.state.request_id}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "PAGE_ASSETS_GENERATION_ERROR", "message": str(e)},
         )
 
 @app.post("/ai/generate-tts")

@@ -35,8 +35,11 @@ public class Character {
     @Column(name = "prompt_keywords", columnDefinition = "TEXT")
     private String promptKeywords;
 
-    @Column(name = "image_path")
-    private String imagePath;
+    @Column(name = "image_url")
+    private String imageUrl;
+
+    @Column(name = "visual_description", columnDefinition = "TEXT")
+    private String visualDescription;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

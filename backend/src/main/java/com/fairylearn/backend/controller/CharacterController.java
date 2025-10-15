@@ -33,7 +33,8 @@ public class CharacterController {
                 character.getPersona(),
                 character.getCatchphrase(),
                 character.getPromptKeywords(),
-                character.getImagePath()
+                character.getImageUrl(), // Changed from getImagePath()
+                character.getVisualDescription() // Added
         );
     }
 }

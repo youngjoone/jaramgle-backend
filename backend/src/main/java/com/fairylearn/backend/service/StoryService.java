@@ -74,7 +74,7 @@ public class StoryService {
         Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, new ArrayList<StorybookPage>(), new LinkedHashSet<Character>());
         story = storyRepository.save(story);
         for (int i = 0; i < pageTexts.size(); i++) {
-            StoryPage page = new StoryPage(null, story, i + 1, pageTexts.get(i), null, null);
+            StoryPage page = new StoryPage(null, story, i + 1, pageTexts.get(i), null, null, null);
             storyPageRepository.save(page);
         }
         assignCharacters(story, characterIds);
@@ -142,7 +142,7 @@ public class StoryService {
 
         int pageNo = 1;
         for (String pageText : stableStoryDto.pages()) {
-            StoryPage page = new StoryPage(null, story, pageNo++, pageText, null, null);
+            StoryPage page = new StoryPage(null, story, pageNo++, pageText, null, null, null);
             storyPageRepository.save(page);
         }
 
@@ -212,7 +212,8 @@ public class StoryService {
                     characterNode.put("persona", character.getPersona());
                     characterNode.put("catchphrase", character.getCatchphrase());
                     characterNode.put("prompt_keywords", character.getPromptKeywords());
-                    characterNode.put("image_path", character.getImagePath());
+                    characterNode.put("image_url", character.getImageUrl());
+                    characterNode.put("visual_description", character.getVisualDescription());
                 }
             }
         }
@@ -289,7 +290,7 @@ public class StoryService {
                         character.getPersona(),
                         character.getCatchphrase(),
                         character.getPromptKeywords(),
-                        character.getImagePath()
+                        character.getImageUrl()
                 ))
                 .collect(Collectors.toList());
 
@@ -313,5 +314,63 @@ public class StoryService {
         String audioUrl = "/api/audio/" + audioFileName;
 
         return audioUrl;
+    }
+
+    @Transactional
+    public void generateAssetsForPage(Long storyId, Integer pageNo) {
+        StoryPage storyPage = storyPageRepository.findByStoryIdAndPageNo(storyId, pageNo)
+                .orElseThrow(() -> new IllegalArgumentException("StoryPage not found."));
+
+        Story story = storyPage.getStory();
+        story.getCharacters().size(); // Initialize lazy collection
+
+        // Prepare character visuals for the AI service
+        List<Map<String, String>> characterVisuals = story.getCharacters().stream()
+                .map(character -> Map.of(
+                        "name", character.getName(),
+                        "visual_description", character.getVisualDescription(),
+                        "image_url", character.getImageUrl()
+                ))
+                .collect(Collectors.toList());
+
+        // Construct the request payload for the AI service
+        ObjectNode requestPayload = objectMapper.createObjectNode();
+        requestPayload.put("text", storyPage.getText());
+        requestPayload.put("art_style", story.getCreativeConcept() != null ? story.getCreativeConcept() : ""); // Assuming creativeConcept can be used as art_style
+        
+        ArrayNode characterArray = requestPayload.putArray("character_visuals");
+        characterVisuals.forEach(cv -> {
+            ObjectNode characterNode = characterArray.addObject();
+            cv.forEach(characterNode::put);
+        });
+
+        try {
+            JsonNode aiResponse = webClient.post()
+                    .uri("/ai/generate-page-assets")
+                    .bodyValue(requestPayload)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
+                            .filter(throwable -> throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable)
+                            .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
+                                    new RuntimeException("AI asset generation service unavailable after retries.", retrySignal.failure())))
+                    .block();
+
+            if (aiResponse != null) {
+                String imageUrl = aiResponse.get("imageUrl").asText();
+                String audioUrl = aiResponse.get("audioUrl").asText();
+
+                storyPage.setImageUrl(imageUrl);
+                storyPage.setAudioUrl(audioUrl);
+                storyPageRepository.save(storyPage);
+                log.info("Generated assets for StoryPage {}-{} and updated with imageUrl: {}, audioUrl: {}", storyId, pageNo, imageUrl, audioUrl);
+            } else {
+                log.warn("Received null response from AI asset generation service for StoryPage {}-{}", storyId, pageNo);
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to generate assets for StoryPage {}-{} from AI service: {}", storyId, pageNo, e.getMessage());
+            throw new RuntimeException("Failed to generate assets for story page.", e);
+        }
     }
 }

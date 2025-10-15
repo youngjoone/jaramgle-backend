@@ -15,7 +15,7 @@ class ImageProviderError(RuntimeError):
 
 class ImageProvider(ABC):
     @abstractmethod
-    def generate(self, *, prompt: str, request_id: str) -> bytes:
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
         """Return raw image bytes."""
 
 
@@ -31,7 +31,9 @@ class OpenAIImageProvider(ImageProvider):
         self._client = client
         self._config = config
 
-    def generate(self, *, prompt: str, request_id: str) -> bytes:
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
+        if image_bytes:
+            logger.warning("OpenAI DALL-E does not support image prompting; ignoring provided image_bytes.")
         try:
             response = self._client.images.generate(
                 model=self._config.model,
@@ -81,11 +83,7 @@ class GeminiProviderConfig:
 class GeminiImageProvider(ImageProvider):
     @staticmethod
     def _normalize_model_name(model: str) -> str:
-        if not model:
-            return model
-        if model.startswith("models/"):
-            return model
-        return f"models/{model}"
+        return model.strip() if model else model
 
     def __init__(self, api_key: str, config: GeminiProviderConfig):
         if not api_key:
@@ -112,30 +110,30 @@ class GeminiImageProvider(ImageProvider):
                 exc,
             )
 
-    def generate(self, *, prompt: str, request_id: str) -> bytes:
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
         try:
             if self._mode == "client" and self._client is not None:
-                return self._generate_with_client(prompt=prompt)
-            return self._generate_via_rest(prompt=prompt)
+                return self._generate_with_client(prompt=prompt, image_bytes=image_bytes)
+            return self._generate_via_rest(prompt=prompt, image_bytes=image_bytes)
         except ImageProviderError:
             raise
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.exception("Gemini image generation failed: %s", exc)
             raise ImageProviderError(str(exc)) from exc
 
-    def _generate_with_client(self, *, prompt: str) -> bytes:
+    def _generate_with_client(self, *, prompt: str, image_bytes: Optional[bytes] = None) -> bytes:
         if self._client is None:
             raise ImageProviderError("Gemini client unavailable")
 
-        generation_kwargs = {
-            "model": self._normalize_model_name(self._config.model),
-            "prompt": prompt,
-        }
         try:
             from google.genai import types  # type: ignore
         except Exception as exc:  # pragma: no cover - dependency guard
             raise ImageProviderError(f"google.genai types unavailable: {exc}") from exc
 
+        if image_bytes:
+            logger.warning("Gemini generate_images does not yet support image prompts via this client; ignoring provided image bytes.")
+
+        model_name = self._normalize_model_name(self._config.model)
         config_kwargs = {
             "number_of_images": max(1, int(self._config.number_of_images or 1)),
             "output_mime_type": self._config.output_mime_type,
@@ -150,8 +148,11 @@ class GeminiImageProvider(ImageProvider):
 
         try:
             config_obj = types.GenerateImagesConfig(**config_kwargs)  # type: ignore[attr-defined]
-            generation_kwargs["config"] = config_obj
-            response = self._client.models.generate_images(**generation_kwargs)  # type: ignore[union-attr]
+            response = self._client.models.generate_images(  # type: ignore[union-attr]
+                model=model_name,
+                prompt=prompt,
+                config=config_obj,
+            )
         except TypeError as exc:
             logger.warning(
                 "Gemini client generate_images signature mismatch (%s); falling back to REST", exc
@@ -180,24 +181,28 @@ class GeminiImageProvider(ImageProvider):
 
         raise ImageProviderError("Gemini image payload missing bytes")
 
-    def _generate_via_rest(self, *, prompt: str) -> bytes:
+    def _generate_via_rest(self, *, prompt: str, image_bytes: Optional[bytes] = None) -> bytes:
         # Lazy import to avoid dependency for users that do not need Gemini.
         import requests
 
+        model_name = self._normalize_model_name(self._config.model)
+        model_path = model_name if model_name.startswith("models/") else f"models/{model_name}"
         url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self._normalize_model_name(self._config.model)}:generateImages"
+            "https://generativelanguage.googleapis.com/v1beta/"
+            f"{model_path}:predict"
         )
         params = {"key": self._api_key}
 
-        body = {"prompt": {"text": prompt}}
-        config: dict = {}
+        if image_bytes:
+            logger.warning(
+                "Gemini REST API image generation currently ignores reference image bytes."
+            )
 
+        body = {"instances": [{"prompt": prompt}]}
+
+        parameters: dict = {}
         requested_images = max(1, int(self._config.number_of_images or 1))
-        config["numberOfImages"] = requested_images
-
-        if self._config.output_mime_type:
-            config["outputMimeType"] = self._config.output_mime_type
+        parameters["sampleCount"] = requested_images
 
         aspect_ratio = self._config.aspect_ratio
         if not aspect_ratio and self._config.image_dimensions:
@@ -205,10 +210,13 @@ class GeminiImageProvider(ImageProvider):
             if width and height:
                 aspect_ratio = f"{width}:{height}"
         if aspect_ratio:
-            config["aspectRatio"] = aspect_ratio
+            parameters["aspectRatio"] = aspect_ratio
 
-        if config:
-            body["imageGenerationConfig"] = config
+        if self._config.output_mime_type:
+            parameters.setdefault("outputOptions", {})["mimeType"] = self._config.output_mime_type
+
+        if parameters:
+            body["parameters"] = parameters
 
         response = requests.post(url, params=params, json=body, timeout=60)
         if response.status_code >= 400:
@@ -281,12 +289,18 @@ class ImagenImageProvider(ImageProvider):
                 "Failed to initialise Vertex AI. Ensure you have authenticated via 'gcloud auth application-default login'"
             ) from exc
 
-    def generate(self, *, prompt: str, request_id: str) -> bytes:
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
         try:
-            images = self._model.generate_images(
-                prompt=prompt,
-                number_of_images=self._config.number_of_images,
-            )
+            generation_kwargs = {
+                "prompt": prompt,
+                "number_of_images": self._config.number_of_images,
+            }
+            if image_bytes:
+                from vertexai.preview.vision_models import Image
+
+                generation_kwargs["image_input"] = Image(image_bytes)
+
+            images = self._model.generate_images(**generation_kwargs)
             # The response contains a list of Image objects
             if not images:
                 raise ImageProviderError("Imagen response contained no images.")

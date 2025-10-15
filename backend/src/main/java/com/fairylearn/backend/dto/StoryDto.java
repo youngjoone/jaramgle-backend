@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList; // Added
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -56,10 +57,11 @@ public class StoryDto {
                             character.getPersona(),
                             character.getCatchphrase(),
                             character.getPromptKeywords(),
-                            character.getImagePath()
+                            character.getImageUrl(), // Changed from getImagePath()
+                            character.getVisualDescription() // Added
                     ))
                     .collect(Collectors.toList())
-                : List.of());
+                : new ArrayList<>());
         // Pages will be set separately for detail view
         return dto;
     }
