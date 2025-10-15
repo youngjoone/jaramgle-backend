@@ -310,3 +310,72 @@ class ImagenImageProvider(ImageProvider):
         except Exception as exc:
             logger.exception("Imagen image generation failed: %s", exc)
             raise ImageProviderError(str(exc)) from exc
+
+
+@dataclass
+class Gemini25FlashProviderConfig:
+    model: str
+    project_id: str
+    location: str
+    candidate_count: int = 1
+
+
+class Gemini25FlashImageProvider(ImageProvider):
+    """Image provider for Google's multimodal Gemini models (e.g., Gemini 2.5 Flash Image) via Vertex AI."""
+
+    def __init__(self, config: Gemini25FlashProviderConfig):
+        self._config = config
+        try:
+            from google import genai
+
+            self._client = genai.Client(
+                vertexai=True, project=config.project_id, location=config.location
+            )
+            logger.info(
+                "Gemini 2.5 Flash provider initialised for model %s", config.model
+            )
+        except ImportError:
+            raise ImageProviderError(
+                "Gemini25FlashImageProvider requires google-generativeai to be installed."
+            )
+        except Exception as exc:
+            logger.exception("Failed to initialise Gemini 2.5 Flash provider: %s", exc)
+            raise ImageProviderError(
+                "Failed to initialise Gemini 2.5 Flash provider. Ensure you have authenticated via 'gcloud auth application-default login'"
+            ) from exc
+
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
+        try:
+            from google.genai.types import GenerateContentConfig
+            from PIL import Image
+            from io import BytesIO
+
+            contents = [prompt]
+            if image_bytes:
+                img = Image.open(BytesIO(image_bytes))
+                contents.append(img)
+
+            generation_config = GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                candidate_count=self._config.candidate_count,
+            )
+
+            response = self._client.models.generate_content(
+                model=self._config.model,
+                contents=contents,
+                config=generation_config,
+            )
+
+            if not response.candidates:
+                raise ImageProviderError("Gemini 2.5 Flash response contained no candidates.")
+
+            # Find the first part that contains image data
+            for part in response.candidates[0].content.parts:
+                if part.inline_data and part.inline_data.data:
+                    return part.inline_data.data
+
+            raise ImageProviderError("Gemini 2.5 Flash response did not contain image data.")
+
+        except Exception as exc:
+            logger.exception("Gemini 2.5 Flash image generation failed: %s", exc)
+            raise ImageProviderError(str(exc)) from exc
