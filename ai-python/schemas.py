@@ -100,16 +100,24 @@ class GenerateResponse(BaseModel):
 class CharacterVisual(BaseModel):
     name: str
     visual_description: str
+    image_url: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel) # ADDED
 
 class GenerateImageRequest(BaseModel):
     text: str
-    characters: List[CharacterProfile] = Field(default_factory=list)
+    art_style: Optional[str] = None
+    character_visuals: List[CharacterVisual] = Field(default_factory=list)
+    characters: List[CharacterVisual] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel) # ADDED
+
+class GeneratePageAssetsRequest(BaseModel):
+    text: str
     art_style: Optional[str] = None
     character_visuals: List[CharacterVisual] = Field(default_factory=list)
 
-    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel) # ADDED
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
 
 class GenerateImageResponse(BaseModel):
     file_path: str

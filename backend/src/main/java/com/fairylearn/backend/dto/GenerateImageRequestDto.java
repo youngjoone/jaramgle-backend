@@ -1,5 +1,6 @@
 package com.fairylearn.backend.dto;
 
+import com.fairylearn.backend.dto.CharacterVisualDto; // Import the top-level DTO
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -11,16 +12,7 @@ import java.util.List;
 @AllArgsConstructor
 public class GenerateImageRequestDto {
     private String text;
-    private List<CharacterImageRequestDto> characters; // Kept for now, but new fields are preferred
-    private String artStyle; // ADDED
-    private List<CharacterVisualDto> characterVisuals; // ADDED
-
-    // New inner DTO for detailed visual descriptions
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class CharacterVisualDto {
-        private String name;
-        private String visualDescription;
-    }
+    private List<CharacterVisualDto> characters; // Changed to CharacterVisualDto
+    private String artStyle;
+    private List<CharacterVisualDto> characterVisuals;
 }

@@ -419,3 +419,17 @@ def synthesize_story_from_plan(
         raise ValueError("No audio data generated from segments.")
 
     return _merge_wav_segments(audio_chunks)
+
+def plan_and_synthesize_audio(
+    story_text: str,
+    characters: List[CharacterProfile],
+    language: Optional[str],
+    request_id: str
+) -> bytes:
+    """
+    Generates a reading plan from story text and then synthesizes audio from that plan.
+    Combines plan_reading_segments and synthesize_story_from_plan.
+    """
+    reading_plan = plan_reading_segments(story_text, characters, request_id)
+    audio_bytes = synthesize_story_from_plan(reading_plan, characters, language, request_id)
+    return audio_bytes

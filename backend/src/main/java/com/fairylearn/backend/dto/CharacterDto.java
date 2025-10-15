@@ -7,6 +7,7 @@ public record CharacterDto(
         String persona,
         String catchphrase,
         String promptKeywords,
-        String imagePath
+        String imageUrl,
+        String visualDescription
 ) {
 }

@@ -14,8 +14,14 @@ public class StoryPageDto {
     @JsonAlias({"page", "pageNo"})
     private Integer pageNo;
     private String text;
+    private String imagePrompt;
 
     public static StoryPageDto fromEntity(StoryPage storyPage) {
-        return new StoryPageDto(storyPage.getId(), storyPage.getPageNo(), storyPage.getText());
+        return new StoryPageDto(
+                storyPage.getId(),
+                storyPage.getPageNo(),
+                storyPage.getText(),
+                storyPage.getImagePrompt()
+        );
     }
 }

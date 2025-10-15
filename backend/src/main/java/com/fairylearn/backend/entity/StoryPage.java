@@ -27,6 +27,9 @@ public class StoryPage {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String text;
 
+    @Column(name = "image_prompt", columnDefinition = "TEXT")
+    private String imagePrompt;
+
     @Column(name = "image_url")
     private String imageUrl;
 
