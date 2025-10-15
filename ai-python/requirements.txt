@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 openai>=1.40.0
 google-generativeai>=0.8.3
+google-cloud-aiplatform
 tenacity
 pillow
 
