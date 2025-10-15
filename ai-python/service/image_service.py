@@ -20,6 +20,8 @@ from service.image_providers import (
     ImageProviderError,
     ImagenImageProvider,
     ImagenProviderConfig,
+    Gemini25FlashImageProvider,
+    Gemini25FlashProviderConfig,
     OpenAIImageProvider,
     OpenAIProviderConfig,
 )
@@ -64,27 +66,27 @@ def _parse_dimensions(size: str) -> Optional[Tuple[int, int]]:
 
 if _prefer_google_image:
     try:
-        # Imagen provider requires project ID and location, not an API key directly
-        # for authentication (it uses application-default credentials).
         if not Config.GOOGLE_PROJECT_ID or not Config.GOOGLE_LOCATION:
-            raise ImageProviderError("GOOGLE_PROJECT_ID and GOOGLE_LOCATION must be configured for Imagen.")
+            raise ImageProviderError(
+                "GOOGLE_PROJECT_ID and GOOGLE_LOCATION must be configured for Gemini 2.5 Flash."
+            )
 
-        _google_image_provider = ImagenImageProvider(
-            config=ImagenProviderConfig(
+        _google_image_provider = Gemini25FlashImageProvider(
+            config=Gemini25FlashProviderConfig(
                 model=Config.GEMINI_IMAGE_MODEL,
                 project_id=Config.GOOGLE_PROJECT_ID,
                 location=Config.GOOGLE_LOCATION,
-                number_of_images=1,
+                candidate_count=1,
             ),
         )
         logger.info(
-            "Google Imagen image provider initialised (model=%s)",
+            "Google Gemini 2.5 Flash image provider initialised (model=%s)",
             Config.GEMINI_IMAGE_MODEL,
         )
     except ImageProviderError as exc:
         _prefer_google_image = False
         logger.warning(
-            "Google Imagen provider disabled, falling back to OpenAI: %s",
+            "Google Gemini 2.5 Flash provider disabled, falling back to OpenAI: %s",
             exc,
         )
 
@@ -119,57 +121,57 @@ def generate_image(
 ) -> str:
     """
     Generates an image based on the provided text and character descriptions.
-    It attempts to use the preferred Google provider (Imagen) first, and falls back
-    to OpenAI (DALL-E) if the primary provider fails.
+    It attempts to use the preferred Google provider first and falls back to OpenAI.
     Returns a base64 encoded string of the image.
     """
+    # 1. Define Style
     style_guide = art_style or _base_image_style
     if not art_style:
         logger.warning("No art_style supplied for %s; falling back to default style guide.", request_id)
 
-    sanitized_scene = _strip_dialogue(text)
-    if not sanitized_scene:
-        sanitized_scene = "Depict the key moment described in the story with characters mid-action."
+    # 2. Define Characters
+    character_descriptions = []
+    if character_visuals:
+        for visual in character_visuals:
+            if visual.visual_description:
+                # Extract just the persona/personality part, as visuals come from the reference image
+                persona_match = re.search(r"Persona: ([^|]+)", visual.visual_description, re.IGNORECASE)
+                persona = persona_match.group(1).strip() if persona_match else visual.name
+                character_descriptions.append(f"- {visual.name}: {persona}")
 
+    character_section = ""
+    if character_descriptions:
+        character_section = "\n\nCharacters in this scene:\n" + "\n".join(character_descriptions)
+
+    # 3. Define Scene
+    scene_summary = _strip_dialogue(text)
+    if not scene_summary:
+        scene_summary = "A key moment in the story with characters interacting."
+
+    # 4. Define Rules
+    rules = dedent("""
+        - Show characters mid-action with expressive body language and clear emotions.
+        - Vary the composition and background to make the setting feel alive.
+        - Maintain character appearance from the reference image.
+        - Absolutely no speech bubbles, captions, or text of any kind.
+    """).strip()
+
+    # 5. Assemble the final prompt
     prompt = dedent(
         f"""
         {style_guide}
-        Illustrate this story moment:
-        Scene overview: {sanitized_scene}
-        - Use only the provided main characters (max 3 visible figures). Do not invent extra humans unless they are background silhouettes.
-        - Keep clothing, props, and era consistent with the story and character descriptions; avoid traditional/period costumes unless explicitly stated.
-        - Show characters mid-action with expressive body language and clear emotions.
-        - Vary the composition and background details so the setting feels alive and imaginative.
-        - Absolutely no speech bubbles, captions, on-screen text, or lettering of any kind.
+        {character_section}
+
+        Illustrate the moment: {scene_summary}
+
+        Rules:
+        {rules}
         """
     ).strip()
 
-    character_section_added = False
-    if character_visuals:
-        descriptions = [f"- {visual.name}: {visual.visual_description}" for visual in character_visuals if visual.visual_description]
-        if descriptions:
-            prompt += "\n\nCharacters to include (follow these descriptions strictly):\n" + "\n".join(descriptions)
-            character_section_added = True
-    elif character_images:
-        descriptions = []
-        for profile in character_images:
-            details = []
-            if profile.persona:
-                details.append(f"persona: {profile.persona}")
-            if profile.prompt_keywords:
-                details.append(f"visual cues: {profile.prompt_keywords}")
-            if profile.catchphrase:
-                details.append(f"catchphrase: {profile.catchphrase}")
-            detail_text = ", ".join(details) or "describe in warm, child-friendly style"
-            descriptions.append(f"- {profile.name}: {detail_text}")
-        if descriptions:
-            prompt += "\n\nCharacters to include (derive consistent appearance from these cues):\n" + "\n".join(descriptions)
-            character_section_added = True
-
-    if not character_section_added:
-        logger.warning("No character visuals were provided for %s; image prompt may lack character guidance.", request_id)
-
     logger.info("Image generation prompt for %s: %s", request_id, prompt)
+
+    # --- The rest of the function remains the same ---
 
     reference_image_bytes: Optional[bytes] = None
     if character_visuals:
@@ -187,7 +189,7 @@ def generate_image(
                         with open(local_path, "rb") as f:
                             reference_image_bytes = f.read()
                         logger.info(f"Using local image file as reference: {local_path}")
-                        break  # Use the first valid image_url found
+                        break
                     else:
                         logger.warning(
                             "Non-file image_url provided but not yet supported for direct image prompting: %s",
@@ -198,10 +200,9 @@ def generate_image(
                 except Exception as e:
                     logger.error(f"Error reading reference image file {visual.image_url}: {e}")
 
-    # Define providers in order of preference
     providers: List[Tuple[str, ImageProvider]] = []
     if _prefer_google_image and _google_image_provider is not None:
-        providers.append(("Google Imagen", _google_image_provider))
+        providers.append(("Google Gemini 2.5 Flash", _google_image_provider))
     providers.append(("OpenAI", _openai_image_provider))
 
     last_error: Optional[Exception] = None
@@ -212,7 +213,7 @@ def generate_image(
         try:
             image_bytes = provider.generate(prompt=prompt, request_id=request_id, image_bytes=reference_image_bytes)
             logger.info(f"{provider_name} provider succeeded.")
-            break  # Success, exit the loop
+            break
         except ImageProviderError as exc:
             last_error = exc
             logger.warning(
@@ -221,13 +222,11 @@ def generate_image(
                 request_id,
                 exc,
             )
-            # Continue to the next provider
             continue
 
     if image_bytes is None:
         raise ImageProviderError("All image providers failed.") from last_error
 
-    # Resize and encode the image
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
     image = image.resize((512, 512), Image.LANCZOS)
     buffer = BytesIO()
