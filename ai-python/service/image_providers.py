@@ -2,7 +2,7 @@ import base64
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from openai import OpenAI
 
@@ -344,7 +344,7 @@ class Gemini25FlashImageProvider(ImageProvider):
                 "Failed to initialise Gemini 2.5 Flash provider. Ensure you have authenticated via 'gcloud auth application-default login'"
             ) from exc
 
-    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         try:
             from google.genai.types import GenerateContentConfig
             from PIL import Image
@@ -352,8 +352,9 @@ class Gemini25FlashImageProvider(ImageProvider):
 
             contents = [prompt]
             if image_bytes:
-                img = Image.open(BytesIO(image_bytes))
-                contents.append(img)
+                for img_bytes in image_bytes:
+                    img = Image.open(BytesIO(img_bytes))
+                    contents.append(img)
 
             generation_config = GenerateContentConfig(
                 response_modalities=["IMAGE"],

@@ -117,7 +117,7 @@ def generate_image(
     request_id: str,
     art_style: Optional[str] = None,
     character_visuals: Optional[List[CharacterVisual]] = None,
-    character_images: Optional[List[CharacterProfile]] = None, # Kept for fallback
+    character_images: Optional[List[CharacterProfile]] = None,  # Kept for fallback
 ) -> str:
     """
     Generates an image based on the provided text and character descriptions.
@@ -133,17 +133,20 @@ def generate_image(
     character_descriptions = []
     if character_visuals:
         for visual in character_visuals:
-            if visual.visual_description:
-                # Extract just the persona/personality part, as visuals come from the reference image
-                persona_match = re.search(r"Persona: ([^|]+)", visual.visual_description, re.IGNORECASE)
-                persona = persona_match.group(1).strip() if persona_match else visual.name
+            # Extract just the persona/personality part
+            persona_match = re.search(r"Persona: ([^|]+)", visual.visual_description, re.IGNORECASE)
+            if persona_match:
+                persona = persona_match.group(1).strip()
                 character_descriptions.append(f"- {visual.name}: {persona}")
+            elif visual.name: # Fallback to name if persona not found
+                character_descriptions.append(f"- {visual.name}")
 
     character_section = ""
     if character_descriptions:
         character_section = "\n\nCharacters in this scene:\n" + "\n".join(character_descriptions)
 
     # 3. Define Scene
+    # The incoming 'text' is now assumed to be just the scene summary
     scene_summary = _strip_dialogue(text)
     if not scene_summary:
         scene_summary = "A key moment in the story with characters interacting."
@@ -152,7 +155,7 @@ def generate_image(
     rules = dedent("""
         - Show characters mid-action with expressive body language and clear emotions.
         - Vary the composition and background to make the setting feel alive.
-        - Maintain character appearance from the reference image.
+        - Strictly maintain character appearance from all provided reference images.
         - Absolutely no speech bubbles, captions, or text of any kind.
     """).strip()
 
@@ -171,9 +174,8 @@ def generate_image(
 
     logger.info("Image generation prompt for %s: %s", request_id, prompt)
 
-    # --- The rest of the function remains the same ---
-
-    reference_image_bytes: Optional[bytes] = None
+    # --- Reference Image Collection (FIXED: Collect all images) ---
+    reference_images_bytes: List[bytes] = []
     if character_visuals:
         for visual in character_visuals:
             if visual.image_url:
@@ -187,12 +189,11 @@ def generate_image(
                             logger.warning("Empty local path extracted from %s", visual.image_url)
                             continue
                         with open(local_path, "rb") as f:
-                            reference_image_bytes = f.read()
+                            reference_images_bytes.append(f.read())
                         logger.info(f"Using local image file as reference: {local_path}")
-                        break
                     else:
                         logger.warning(
-                            "Non-file image_url provided but not yet supported for direct image prompting: %s",
+                            "Non-file image_url provided but not yet supported: %s",
                             visual.image_url,
                         )
                 except FileNotFoundError:
@@ -200,6 +201,7 @@ def generate_image(
                 except Exception as e:
                     logger.error(f"Error reading reference image file {visual.image_url}: {e}")
 
+    # --- Provider Execution ---
     providers: List[Tuple[str, ImageProvider]] = []
     if _prefer_google_image and _google_image_provider is not None:
         providers.append(("Google Gemini 2.5 Flash", _google_image_provider))
@@ -211,7 +213,8 @@ def generate_image(
     for provider_name, provider in providers:
         logger.info(f"Attempting image generation via {provider_name} for request_id {request_id}")
         try:
-            image_bytes = provider.generate(prompt=prompt, request_id=request_id, image_bytes=reference_image_bytes)
+            # Pass the list of reference images
+            image_bytes = provider.generate(prompt=prompt, request_id=request_id, image_bytes=reference_images_bytes)
             logger.info(f"{provider_name} provider succeeded.")
             break
         except ImageProviderError as exc:
@@ -227,6 +230,7 @@ def generate_image(
     if image_bytes is None:
         raise ImageProviderError("All image providers failed.") from last_error
 
+    # --- Image Post-processing ---
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
     image = image.resize((512, 512), Image.LANCZOS)
     buffer = BytesIO()
