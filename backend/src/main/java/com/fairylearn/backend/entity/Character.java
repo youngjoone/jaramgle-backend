@@ -41,6 +41,10 @@ public class Character {
     @Column(name = "visual_description", columnDefinition = "TEXT")
     private String visualDescription;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "modeling_status", nullable = false, length = 20)
+    private CharacterModelingStatus modelingStatus = CharacterModelingStatus.PENDING;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -51,6 +55,9 @@ public class Character {
     public void onPersist() {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
+        }
+        if (modelingStatus == null) {
+            modelingStatus = CharacterModelingStatus.PENDING;
         }
     }
 }

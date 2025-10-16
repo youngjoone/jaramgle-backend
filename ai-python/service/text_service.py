@@ -3,7 +3,7 @@ import os
 import json
 import logging
 from textwrap import dedent
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import google.generativeai as genai
 from openai import OpenAI
@@ -118,7 +118,7 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
   "creative_concept": {{
     "art_style": "string (A unified art style guide for all illustrations.)",
     "mood_and_tone": "string (The overall mood and tone for the story, art, and audio.)",
-    "character_sheets": [{{ "name": "string", "visual_description": "string", "voice_profile": "string" }}]
+    "character_sheets": [{{ "name": "string", "slug": "string", "visual_description": "string", "voice_profile": "string" }}]
   }},
   "story_outline": [{{ ... }}],
   "story": {{
@@ -135,13 +135,14 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 # 작성 지침
 1.  `creative_concept`, `story_outline`, `story`를 모두 포함하는 동화를 구상한다.
 2.  동화의 각 `pages`에 들어가는 `text`는 **최소 20단어 이상**으로 충분히 작성하되 한 단락으로 유지한다.
-3.  각 페이지마다 `image_prompt`를 1~2문장으로 작성하되 `creative_concept.art_style`과 `mood_and_tone`, 그리고 위에서 정의한 캐릭터 가이드를 참고해 일관된 그림 콘셉트를 유지한다. (장면 구성, 배경, 주요 행동, 감정 묘사를 포함)
-4.  모든 내용을 종합하여 단일 JSON 객체로 최종 출력한다.
+3.  `creative_concept.character_sheets`에는 각 캐릭터의 `name`과 제공된 `slug`를 함께 포함하고, 새로운 slug를 만들지 않는다.
+4.  각 페이지마다 `image_prompt`를 1~2문장으로 작성하되 `creative_concept.art_style`과 `mood_and_tone`, 그리고 위에서 정의한 캐릭터 가이드를 참고해 일관된 그림 콘셉트를 유지한다. (장면 구성, 배경, 주요 행동, 감정 묘사를 포함)
+5.  모든 내용을 종합하여 단일 JSON 객체로 최종 출력한다.
 """
     return dedent(full_prompt).strip()
 
 
-def _call_gemini(req: GenerateRequest, request_id: str) -> Dict:
+def _call_gemini(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
     """Gemini API를 호출하고 결과를 dict로 반환합니다."""
     client = genai.GenerativeModel(
         model_name="models/gemini-2.5-flash",
@@ -159,7 +160,7 @@ def _call_gemini(req: GenerateRequest, request_id: str) -> Dict:
     logger.info(f"Gemini raw response for {request_id}: {raw_json_text}")
     return json.loads(raw_json_text)
 
-def _call_openai(req: GenerateRequest, request_id: str) -> Dict:
+def _call_openai(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
     """OpenAI API를 호출하고 결과를 dict로 반환합니다."""
     # TODO: OpenAI 프롬프트도 reading_plan을 포함하도록 수정 필요
     logger.warning("OpenAI client in text_service is not fully implemented with reading_plan.")
@@ -187,7 +188,8 @@ def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
 
             story = StoryOutput(**story_data["story"])
             story = _normalize_and_validate_story(story, req)
-            concept = CreativeConcept(**story_data.get("creative_concept", {}))
+            concept_data = story_data.get("creative_concept")
+            concept = CreativeConcept(**concept_data) if concept_data else None
             raw_json = json.dumps(story_data, ensure_ascii=False)
 
             return GenerateResponse(
