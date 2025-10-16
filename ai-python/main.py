@@ -4,11 +4,13 @@ import asyncio
 import base64
 import logging
 import os
+import re
 import time
 import traceback
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # 2. FastAPI imports
 from fastapi import FastAPI, Body, HTTPException, status, Request, Response
@@ -23,11 +25,13 @@ from schemas import (
     GenerateResponse,
     GenerateImageRequest,
     GenerateImageResponse,
+    CreateCharacterReferenceImageRequest,
+    CharacterReferenceImageResponse,
     GenerateAudioFromStoryRequest,
     GeneratePageAssetsRequest, # Added
 )
 from service.text_service import generate_story
-from service.image_service import generate_image
+from service.image_service import generate_image, generate_character_reference_image
 from service.audio_service import synthesize_story_from_plan, create_tts, plan_reading_segments, plan_and_synthesize_audio # Added
 
 # --- App Initialization and Logging ---
@@ -138,6 +142,50 @@ def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Bo
             detail={"code": "IMAGE_GENERATION_ERROR", "message": str(e)}
         )
 
+@app.post("/ai/create-character-reference-image", response_model=CharacterReferenceImageResponse)
+def create_character_reference_image_endpoint(
+    request: Request,
+    ref_req: CreateCharacterReferenceImageRequest = Body(...)
+):
+    try:
+        os.makedirs(Config.CHARACTER_IMAGE_DIR, exist_ok=True)
+
+        slug_source = ref_req.slug or ref_req.character_name
+        slug_candidate = re.sub(r"[^a-z0-9]+", "-", slug_source.lower()).strip("-") if slug_source else "character"
+        slug_candidate = slug_candidate or "character"
+        filename = f"{slug_candidate}-{uuid.uuid4().hex}.png"
+
+        image_b64, metadata = generate_character_reference_image(
+            character_name=ref_req.character_name,
+            request_id=request.state.request_id,
+            description_prompt=ref_req.description_prompt,
+            art_style=ref_req.art_style,
+        )
+
+        image_data = base64.b64decode(image_b64)
+        file_path = os.path.join(Config.CHARACTER_IMAGE_DIR, filename)
+        with open(file_path, "wb") as f:
+            f.write(image_data)
+
+        file_uri = Path(file_path).resolve().as_uri()
+        logger.info("Reference image saved to %s for character %s", file_path, ref_req.character_name)
+
+        return CharacterReferenceImageResponse(
+            image_url=file_uri,
+            modeling_status="COMPLETED",
+            metadata=metadata,
+        )
+    except Exception as e:
+        logger.error(
+            "Reference image generation failed for Request ID: %s",
+            request.state.request_id,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "REFERENCE_IMAGE_ERROR", "message": str(e)},
+        )
+
 @app.post("/ai/generate-audio")
 def generate_audio_endpoint(request: Request, audio_req: GenerateAudioFromStoryRequest = Body(...)):
     audio_dir = "/Users/kyj/testaudiodir"
@@ -183,27 +231,20 @@ async def generate_page_assets_endpoint(request: Request, req: GeneratePageAsset
         os.makedirs(audio_dir, exist_ok=True)
         os.makedirs(image_dir, exist_ok=True)
 
-        # Run image and audio generation in parallel
-        image_task = asyncio.create_task(
-            asyncio.to_thread(
-                generate_image,
-                text=req.text,
-                request_id=request.state.request_id,
-                art_style=req.art_style,
-                character_visuals=req.character_visuals,
-            )
-        )
-        audio_task = asyncio.create_task(
-            asyncio.to_thread(
-                plan_and_synthesize_audio,
-                story_text=req.text,
-                characters=req.character_visuals, # Note: CharacterVisual is used here, not CharacterProfile
-                language="KO", # Assuming default language for now, can be passed in request if needed
-                request_id=request.state.request_id,
-            )
+        image_result = await asyncio.to_thread(
+            generate_image,
+            text=req.text,
+            request_id=request.state.request_id,
+            art_style=req.art_style,
+            character_visuals=req.character_visuals,
+            include_metadata=True,
         )
 
-        image_b64_json, audio_bytes = await asyncio.gather(image_task, audio_task)
+        if isinstance(image_result, tuple) and len(image_result) == 2:
+            image_b64_json, image_metadata = image_result
+        else:
+            image_b64_json = image_result
+            image_metadata = {}
 
         # Save image
         image_data = base64.b64decode(image_b64_json)
@@ -213,17 +254,44 @@ async def generate_page_assets_endpoint(request: Request, req: GeneratePageAsset
             f.write(image_data)
         logger.info(f"Image saved to {image_file_path}")
 
-        # Save audio
-        audio_filename = f"{uuid.uuid4()}.wav"
-        audio_file_path = os.path.join(audio_dir, audio_filename)
-        with open(audio_file_path, "wb") as f:
-            f.write(audio_bytes)
-        logger.info(f"Audio file saved to {audio_file_path}")
+        metadata_characters = {}
+        if isinstance(image_metadata, dict):
+            metadata_characters = {
+                (entry.get("slug") or entry.get("name") or "").lower(): entry
+                for entry in image_metadata.get("characters", [])
+                if isinstance(entry, dict)
+            }
 
-        return JSONResponse(content={
-            "imageUrl": f"/api/image/{image_filename}", # Assuming a route to serve images
-            "audioUrl": f"/api/audio/{audio_filename}"  # Assuming a route to serve audio
-        })
+        character_processing = []
+        for visual in req.character_visuals:
+            key = (visual.slug or visual.name or "").lower()
+            metadata_entry = metadata_characters.get(key) if key else None
+            used_reference = None
+            if metadata_entry is not None:
+                used_reference = bool(metadata_entry.get("usedReferenceImage"))
+            else:
+                used_reference = bool(visual.image_url)
+            modeling_status = visual.modeling_status
+            if used_reference and modeling_status:
+                if modeling_status.upper() in {"PENDING", "FAILED"}:
+                    modeling_status = "COMPLETED"
+            elif used_reference and not modeling_status:
+                modeling_status = "COMPLETED"
+            character_processing.append({
+                "name": visual.name,
+                "slug": visual.slug,
+                "modelingStatus": modeling_status,
+                "imageUrl": visual.image_url,
+                "usedReferenceImage": used_reference,
+            })
+
+        response_payload = {
+            "imageUrl": f"/api/image/{image_filename}",  # Assuming a route to serve images
+            "imageMetadata": image_metadata,
+            "characterProcessingResults": character_processing,
+        }
+
+        return JSONResponse(content=response_payload)
 
     except Exception as e:
         logger.error(f"Page assets generation failed for Request ID: {request.state.request_id}", exc_info=True)

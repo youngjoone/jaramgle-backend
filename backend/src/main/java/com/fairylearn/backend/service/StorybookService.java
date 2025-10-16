@@ -1,7 +1,5 @@
 package com.fairylearn.backend.service;
 
-import com.fairylearn.backend.dto.GenerateImageRequestDto;
-import com.fairylearn.backend.dto.GenerateImageResponseDto;
 import com.fairylearn.backend.dto.CharacterVisualDto; // Added
 import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.entity.StoryPage;
@@ -10,11 +8,16 @@ import com.fairylearn.backend.repository.StoryRepository;
 import com.fairylearn.backend.repository.StorybookPageRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
@@ -22,7 +25,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -38,6 +46,10 @@ public class StorybookService {
     private final StoryService storyService;
     private final WebClient webClient;
     private final ObjectMapper objectMapper; // ADDED
+    private final PlatformTransactionManager transactionManager;
+
+    private final ExecutorService pageAssetExecutor = Executors.newFixedThreadPool(
+            Math.max(2, Runtime.getRuntime().availableProcessors()));
 
     @Transactional
     public StorybookPage createStorybook(Long storyId) {
@@ -76,24 +88,47 @@ public class StorybookService {
         return pages;
     }
 
+    @PreDestroy
+    void shutdownExecutor() {
+        pageAssetExecutor.shutdown();
+    }
+
     @Async
-    @Transactional
     public void generateRemainingImages(Long storyId, List<StoryPage> remainingPages) {
         log.info("Starting async generation for {} remaining pages for storyId: {}", remainingPages.size(), storyId);
-        Story story = storyRepository.findById(storyId)
-                .orElseThrow(() -> new IllegalArgumentException("Story not found"));
-        story.getCharacters().size();
+        List<CompletableFuture<Void>> tasks = new ArrayList<>();
         for (int i = 0; i < remainingPages.size(); i++) {
-            int pageNumber = i + 2;
-            StoryPage currentPage = remainingPages.get(i);
-            try {
-                StorybookPage generatedPage = generateAndSaveStorybookPage(story, pageNumber, currentPage.getText(), currentPage.getImagePrompt());
-                log.info("Async: Generated and saved page {} for storyId: {}. ID: {}", pageNumber, story.getId(), generatedPage.getId());
-            } catch (Exception e) {
-                log.error("Async: Failed to generate image for storyId: {}, pageNumber: {}. Error: {}",
-                        storyId, pageNumber, e.getMessage());
-            }
+            final int pageNumber = i + 2;
+            final StoryPage currentPage = remainingPages.get(i);
+
+            log.info("Submitting page {} for parallel generation on storyId {} (thread={})",
+                    pageNumber, storyId, Thread.currentThread().getName());
+
+            CompletableFuture<Void> task = CompletableFuture.runAsync(() -> {
+                TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+                txTemplate.executeWithoutResult(status -> {
+                    try {
+                        log.info("Begin generation for storyId {} page {} (worker={})",
+                                storyId, pageNumber, Thread.currentThread().getName());
+
+                        Story transactionalStory = storyRepository.getReferenceById(storyId);
+                        transactionalStory.getCharacters().size();
+                        generateAndSaveStorybookPage(transactionalStory, pageNumber, currentPage.getText(), currentPage.getImagePrompt());
+                        log.info("Completed generation for storyId {} page {} (worker={})",
+                                storyId, pageNumber, Thread.currentThread().getName());
+                    } catch (Exception ex) {
+                        throw new RuntimeException(ex);
+                    }
+                });
+            }, pageAssetExecutor).exceptionally(ex -> {
+                log.error("Async: Failed to generate image for storyId: {}, pageNumber: {}", storyId, pageNumber, ex);
+                return null;
+            });
+
+            tasks.add(task);
         }
+
+        CompletableFuture.allOf(tasks.toArray(new CompletableFuture[0])).join();
         log.info("Finished async generation for storyId: {}", storyId);
     }
 
@@ -113,8 +148,10 @@ public class StorybookService {
                     characterVisuals = StreamSupport.stream(sheetsNode.spliterator(), false)
                             .map(node -> new CharacterVisualDto(
                                     node.path("name").asText(),
+                                    node.path("slug").asText(""),
                                     node.path("visual_description").asText(),
-                                    node.path("image_url").asText("") // Added imageUrl, defaulting to empty string
+                                    node.path("image_url").asText(""), // Added imageUrl, defaulting to empty string
+                                    node.path("modeling_status").asText("")
                             ))
                             .collect(Collectors.toList());
                 }
@@ -129,25 +166,71 @@ public class StorybookService {
                 .map(character -> createCharacterVisualDto(character, story.getId()))
                 .collect(Collectors.toList());
 
-        GenerateImageRequestDto requestDto = new GenerateImageRequestDto(
-                promptForImage, // Resolved image prompt for this page
-                characterVisualsForRequest, // Pass the mapped character visuals
-                artStyle,
-                characterVisuals // This characterVisuals is from creativeConcept, keep it separate for now
-        );
+        ObjectNode requestNode = objectMapper.createObjectNode();
+        requestNode.put("text", promptForImage);
+        requestNode.put("art_style", artStyle);
 
-        GenerateImageResponseDto responseDto = webClient.post()
-                .uri("/ai/generate-image")
-                .bodyValue(requestDto)
+        ArrayNode characterArray = requestNode.putArray("character_visuals");
+        Set<String> existingCharacterKeys = new HashSet<>();
+
+        characterVisualsForRequest.forEach(visual -> {
+            ObjectNode node = characterArray.addObject();
+            node.put("name", visual.getName());
+            if (visual.getSlug() != null && !visual.getSlug().isBlank()) {
+                node.put("slug", visual.getSlug());
+                existingCharacterKeys.add(visual.getSlug().toLowerCase());
+            }
+            if (visual.getVisualDescription() != null && !visual.getVisualDescription().isBlank()) {
+                node.put("visual_description", visual.getVisualDescription());
+            }
+            if (visual.getImageUrl() != null && !visual.getImageUrl().isBlank()) {
+                node.put("image_url", visual.getImageUrl());
+            }
+            if (visual.getModelingStatus() != null && !visual.getModelingStatus().isBlank()) {
+                node.put("modeling_status", visual.getModelingStatus());
+            }
+            existingCharacterKeys.add(visual.getName().toLowerCase());
+        });
+
+        characterVisuals.stream()
+                .filter(visual -> visual.getName() != null && !visual.getName().isBlank())
+                .filter(visual -> {
+                    String key = visual.getSlug() != null ? visual.getSlug().toLowerCase() : visual.getName().toLowerCase();
+                    return !existingCharacterKeys.contains(key);
+                })
+                .forEach(visual -> {
+                    ObjectNode node = characterArray.addObject();
+                    node.put("name", visual.getName());
+                    if (visual.getSlug() != null && !visual.getSlug().isBlank()) {
+                        node.put("slug", visual.getSlug());
+                        existingCharacterKeys.add(visual.getSlug().toLowerCase());
+                    }
+                    if (visual.getVisualDescription() != null && !visual.getVisualDescription().isBlank()) {
+                        node.put("visual_description", visual.getVisualDescription());
+                    }
+                    if (visual.getImageUrl() != null && !visual.getImageUrl().isBlank()) {
+                        node.put("image_url", visual.getImageUrl());
+                    }
+                    existingCharacterKeys.add(visual.getName().toLowerCase());
+                });
+
+        JsonNode assetResponse = webClient.post()
+                .uri("/ai/generate-page-assets")
+                .bodyValue(requestNode)
                 .retrieve()
-                .bodyToMono(GenerateImageResponseDto.class)
+                .bodyToMono(JsonNode.class)
                 .block();
 
-        if (responseDto == null || responseDto.getFilePath() == null) {
-            throw new RuntimeException("Failed to get image path from AI service.");
+        if (assetResponse == null || assetResponse.get("imageUrl") == null) {
+            throw new RuntimeException("Failed to get page asset response from AI service.");
         }
 
-        String webAccessibleUrl = String.format("http://localhost:8080/images/%s", responseDto.getFilePath());
+        String imagePath = assetResponse.get("imageUrl").asText();
+        if (imagePath == null || imagePath.isBlank()) {
+            throw new RuntimeException("Image URL missing in AI response.");
+        }
+
+        String webAccessibleUrl = String.format("http://localhost:8080%s", imagePath.startsWith("/") ? imagePath : ("/" + imagePath));
 
         StorybookPage storybookPage = new StorybookPage();
         storybookPage.setStory(story);
@@ -258,7 +341,9 @@ public class StorybookService {
         }
 
         String resolvedImageUrl = resolveImageUrl(imageUrl);
-        return new CharacterVisualDto(name, visualDescription, resolvedImageUrl);
+        String slug = character.getSlug();
+        String modelingStatus = character.getModelingStatus() != null ? character.getModelingStatus().name() : "";
+        return new CharacterVisualDto(name, slug, visualDescription, resolvedImageUrl, modelingStatus);
     }
 
     private String normalize(String value) {

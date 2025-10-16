@@ -148,7 +148,15 @@ def _build_reading_plan_prompt(story_text: str, characters: List[CharacterProfil
     
     character_descs = []
     for char in characters:
-        desc = f"- {char.name} ({char.slug}): {char.persona}"
+        name = getattr(char, "name", "Unknown")
+        slug = getattr(char, "slug", None) or name
+        persona = getattr(char, "persona", None)
+        if not persona:
+            persona = getattr(char, "visual_description", None)
+        if not persona:
+            persona = getattr(char, "prompt_keywords", None)
+        persona = persona or "No additional description provided"
+        desc = f"- {name} ({slug}): {persona}"
         character_descs.append(desc)
     characters_str = "\n".join(character_descs)
 

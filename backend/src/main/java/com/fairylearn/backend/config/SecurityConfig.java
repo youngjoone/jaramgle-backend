@@ -56,6 +56,7 @@ public class SecurityConfig {
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/health/ai")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/public/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/auth/**")).permitAll() // Consolidated auth paths
+                .requestMatchers(mvcMatcherBuilder.pattern("/api/image/**")).permitAll()
                 .requestMatchers(mvcMatcherBuilder.pattern("/images/**")).permitAll() // Permit access to images
                 .requestMatchers(mvcMatcherBuilder.pattern("/characters/**")).permitAll() // Permit access to character images
                 .requestMatchers(mvcMatcherBuilder.pattern("/api/audio/**")).permitAll() // Permit access to audio

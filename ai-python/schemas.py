@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional, Union, Literal
+from typing import Any, Dict, List, Optional, Union, Literal
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 def to_camel(string: str) -> str:
@@ -69,6 +69,7 @@ class QA(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
 class CharacterSheet(BaseModel):
+    slug: Optional[str] = None
     name: str
     visual_description: str = Field(..., description="Detailed visual description for the image generation AI.")
     voice_profile: str = Field(..., description="Voice tone and emotion guide for the TTS AI.")
@@ -93,14 +94,19 @@ class Moderation(BaseModel):
 class GenerateResponse(BaseModel):
     story: StoryOutput
     creative_concept: Optional[CreativeConcept] = None # ADDED
+    reading_plan: List[dict] = Field(default_factory=list, alias="readingPlan")
     raw_json: str
     moderation: Moderation = Field(default_factory=Moderation)
+
+    model_config = ConfigDict(populate_by_name=True)
 
 # -------- Image Generation --------
 class CharacterVisual(BaseModel):
     name: str
+    slug: Optional[str] = None
     visual_description: str
     image_url: Optional[str] = None
+    modeling_status: Optional[str] = Field(default=None, alias="modelingStatus")
 
     model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel) # ADDED
 
@@ -121,6 +127,23 @@ class GeneratePageAssetsRequest(BaseModel):
 
 class GenerateImageResponse(BaseModel):
     file_path: str
+
+class CreateCharacterReferenceImageRequest(BaseModel):
+    character_name: str = Field(..., alias="characterName")
+    slug: Optional[str] = None
+    description_prompt: Optional[str] = Field(default=None, alias="descriptionPrompt")
+    existing_image_url: Optional[str] = Field(default=None, alias="existingImageUrl")
+    art_style: Optional[str] = Field(default=None, alias="artStyle")
+
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
+
+
+class CharacterReferenceImageResponse(BaseModel):
+    image_url: str = Field(..., alias="imageUrl")
+    modeling_status: str = Field(default="COMPLETED", alias="modelingStatus")
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
 
 # -------- Audio Generation --------
 class AudioPageInput(BaseModel):

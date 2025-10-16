@@ -5,8 +5,9 @@ import os
 import re
 from io import BytesIO
 from textwrap import dedent
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse, unquote
+from urllib.request import urlopen
 
 from PIL import Image
 from openai import OpenAI
@@ -99,6 +100,43 @@ def _get_image_provider() -> ImageProvider:
         return _google_image_provider
     return _openai_image_provider
 
+def _generate_image_bytes(
+    prompt: str,
+    request_id: str,
+    reference_images: Optional[List[bytes]] = None,
+) -> Tuple[bytes, str]:
+    providers: List[Tuple[str, ImageProvider]] = []
+    if _prefer_google_image and _google_image_provider is not None:
+        providers.append(("Google Gemini 2.5 Flash", _google_image_provider))
+    providers.append(("OpenAI", _openai_image_provider))
+
+    last_error: Optional[Exception] = None
+    for provider_name, provider in providers:
+        logger.info("Attempting image generation via %s for request_id %s", provider_name, request_id)
+        try:
+            image_bytes = provider.generate(
+                prompt=prompt,
+                request_id=request_id,
+                image_bytes=reference_images or [],
+            )
+            logger.info("%s provider succeeded for request_id %s.", provider_name, request_id)
+            return image_bytes, provider_name
+        except ImageProviderError as exc:
+            last_error = exc
+            logger.warning("%s image provider failed for %s: %s", provider_name, request_id, exc)
+            continue
+
+    raise ImageProviderError("All image providers failed.") from last_error
+
+
+def _encode_png_base64(image_bytes: bytes, size: Tuple[int, int] = (512, 512)) -> str:
+    image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    if size:
+        image = image.resize(size, Image.LANCZOS)
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
 
 def _strip_dialogue(raw_text: Optional[str]) -> str:
     if not raw_text:
@@ -118,11 +156,13 @@ def generate_image(
     art_style: Optional[str] = None,
     character_visuals: Optional[List[CharacterVisual]] = None,
     character_images: Optional[List[CharacterProfile]] = None,  # Kept for fallback
-) -> str:
+    include_metadata: bool = False,
+) -> Union[str, Tuple[str, Dict[str, Any]]]:
     """
     Generates an image based on the provided text and character descriptions.
     It attempts to use the preferred Google provider first and falls back to OpenAI.
-    Returns a base64 encoded string of the image.
+    Returns a base64 encoded PNG string by default, or a tuple of (base64, metadata)
+    when include_metadata=True.
     """
     # 1. Define Style
     style_guide = art_style or _base_image_style
@@ -176,6 +216,7 @@ def generate_image(
 
     # --- Reference Image Collection (FIXED: Collect all images) ---
     reference_images_bytes: List[bytes] = []
+    reference_sources: List[str] = []
     if character_visuals:
         for visual in character_visuals:
             if visual.image_url:
@@ -189,8 +230,19 @@ def generate_image(
                             logger.warning("Empty local path extracted from %s", visual.image_url)
                             continue
                         with open(local_path, "rb") as f:
-                            reference_images_bytes.append(f.read())
+                            data = f.read()
+                            reference_images_bytes.append(data)
+                            reference_sources.append(visual.image_url)
                         logger.info(f"Using local image file as reference: {local_path}")
+                    elif parsed.scheme in {"http", "https"}:
+                        try:
+                            with urlopen(visual.image_url) as response:
+                                data = response.read()
+                                reference_images_bytes.append(data)
+                                reference_sources.append(visual.image_url)
+                            logger.info("Using remote image URL as reference: %s", visual.image_url)
+                        except Exception as fetch_err:  # pragma: no cover - network dependent
+                            logger.warning("Failed to download reference image %s: %s", visual.image_url, fetch_err)
                     else:
                         logger.warning(
                             "Non-file image_url provided but not yet supported: %s",
@@ -201,40 +253,70 @@ def generate_image(
                 except Exception as e:
                     logger.error(f"Error reading reference image file {visual.image_url}: {e}")
 
-    # --- Provider Execution ---
-    providers: List[Tuple[str, ImageProvider]] = []
-    if _prefer_google_image and _google_image_provider is not None:
-        providers.append(("Google Gemini 2.5 Flash", _google_image_provider))
-    providers.append(("OpenAI", _openai_image_provider))
+    image_bytes, provider_used = _generate_image_bytes(
+        prompt=prompt,
+        request_id=request_id,
+        reference_images=reference_images_bytes,
+    )
+    encoded = _encode_png_base64(image_bytes, size=(512, 512))
 
-    last_error: Optional[Exception] = None
-    image_bytes: Optional[bytes] = None
-
-    for provider_name, provider in providers:
-        logger.info(f"Attempting image generation via {provider_name} for request_id {request_id}")
-        try:
-            # Pass the list of reference images
-            image_bytes = provider.generate(prompt=prompt, request_id=request_id, image_bytes=reference_images_bytes)
-            logger.info(f"{provider_name} provider succeeded.")
-            break
-        except ImageProviderError as exc:
-            last_error = exc
-            logger.warning(
-                "%s image provider failed for %s: %s",
-                provider_name,
-                request_id,
-                exc,
-            )
-            continue
-
-    if image_bytes is None:
-        raise ImageProviderError("All image providers failed.") from last_error
-
-    # --- Image Post-processing ---
-    image = Image.open(BytesIO(image_bytes)).convert("RGB")
-    image = image.resize((512, 512), Image.LANCZOS)
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    if include_metadata:
+        metadata: Dict[str, Any] = {
+            "provider": provider_used,
+            "prompt": prompt,
+            "referenceCount": len(reference_images_bytes),
+            "referenceSources": reference_sources,
+        }
+        if character_visuals:
+            metadata["characters"] = [
+                {
+                    "name": visual.name,
+                    "slug": getattr(visual, "slug", None),
+                    "imageUrl": visual.image_url,
+                    "usedReferenceImage": bool(visual.image_url),
+                }
+                for visual in character_visuals
+            ]
+        return encoded, metadata
 
     return encoded
+
+
+def generate_character_reference_image(
+    character_name: str,
+    request_id: str,
+    description_prompt: Optional[str] = None,
+    art_style: Optional[str] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """
+    Generates a single character reference illustration, focusing on a clean,
+    front-facing pose that can be reused across story pages.
+    Returns the base64 image and metadata describing the generation.
+    """
+    style_guide = art_style or _base_image_style
+    description = description_prompt or f"Child-friendly description of {character_name} with a distinctive outfit."
+
+    prompt = dedent(
+        f"""
+        {style_guide}
+
+        Create a high-quality reference illustration for the character "{character_name}".
+        Visual description: {description}
+
+        Rules:
+        - Full-body or three-quarter view, neutral/heroic stance, clear lighting.
+        - Solid or softly gradient background so the silhouette is easy to read.
+        - No text, speech bubbles, or additional characters.
+        - Showcase signature outfit colors, accessories, and key props.
+        """
+    ).strip()
+
+    image_bytes, provider_used = _generate_image_bytes(prompt=prompt, request_id=request_id, reference_images=None)
+    encoded = _encode_png_base64(image_bytes, size=(512, 512))
+
+    metadata: Dict[str, Any] = {
+        "provider": provider_used,
+        "prompt": prompt,
+        "characterName": character_name,
+    }
+    return encoded, metadata

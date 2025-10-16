@@ -10,6 +10,7 @@ import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.entity.StoryPage;
 import com.fairylearn.backend.entity.StorybookPage; // Import StorybookPage
 import com.fairylearn.backend.entity.Character;
+import com.fairylearn.backend.entity.CharacterModelingStatus;
 import com.fairylearn.backend.repository.CharacterRepository;
 import com.fairylearn.backend.repository.StoryPageRepository;
 import com.fairylearn.backend.repository.StoryRepository;
@@ -27,14 +28,22 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.util.retry.Retry;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -49,6 +58,10 @@ public class StoryService {
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final StoryAssembler storyAssembler;
+    private final CharacterModelingService characterModelingService;
+
+    private static final String CHARACTER_IMAGE_DIR =
+            System.getenv().getOrDefault("CHARACTER_IMAGE_DIR", "/Users/kyj/testchardir");
 
     // Helper record to return multiple values from generation
     public record GenerationResult(StableStoryDto story, JsonNode concept) {}
@@ -149,6 +162,10 @@ public class StoryService {
         storageQuotaService.increaseUsedCount(userId);
         assignCharacters(story, request.getCharacterIds());
         storyRepository.save(story);
+        if (creativeConcept != null && !creativeConcept.isNull()) {
+            applyCharacterMetadata(story, request, creativeConcept);
+        }
+        storyRepository.save(story);
         story.getCharacters().size();
         return story;
     }
@@ -247,6 +264,154 @@ public class StoryService {
         }
     }
 
+    private void applyCharacterMetadata(Story story, StoryGenerateRequest request, JsonNode creativeConcept) {
+        if (creativeConcept == null || creativeConcept.isNull()) {
+            return;
+        }
+
+        Map<String, Character> storyCharactersBySlug = story.getCharacters().stream()
+                .filter(character -> character.getSlug() != null && !character.getSlug().isBlank())
+                .collect(Collectors.toMap(
+                        character -> character.getSlug().toLowerCase(Locale.ROOT),
+                        Function.identity(),
+                        (existing, duplicate) -> existing
+                ));
+
+        if (request.getCharacterIds() != null && !request.getCharacterIds().isEmpty()) {
+            List<Character> selectedCharacters = characterRepository.findByIdIn(request.getCharacterIds());
+            for (Character character : selectedCharacters) {
+                storyCharactersBySlug.putIfAbsent(character.getSlug().toLowerCase(Locale.ROOT), character);
+            }
+        }
+
+        JsonNode characterSheets = creativeConcept.path("character_sheets");
+        if (!characterSheets.isArray()) {
+            return;
+        }
+
+        Set<Character> charactersToPersist = new HashSet<>();
+        characterSheets.forEach(node -> {
+            String name = node.path("name").asText(null);
+            if (name == null || name.isBlank()) {
+                return;
+            }
+
+            String requestedSlug = node.path("slug").asText(null);
+            String slug = generateSlug(requestedSlug, name);
+            String normalizedSlug = slug.toLowerCase(Locale.ROOT);
+
+            Character character = storyCharactersBySlug.get(normalizedSlug);
+            if (character == null) {
+                character = characterRepository.findBySlug(slug).orElse(null);
+                if (character == null) {
+                    character = new Character();
+                    character.setSlug(slug);
+                    character.setName(name);
+                    character.setPersona(node.path("persona").asText(null));
+                    character.setPromptKeywords(node.path("prompt_keywords").asText(null));
+                    character.setCatchphrase(node.path("catchphrase").asText(null));
+                    character.setVisualDescription(node.path("visual_description").asText(""));
+                    String sheetImage = node.path("image_url").asText(null);
+                    if (sheetImage != null && !sheetImage.isBlank()) {
+                        character.setImageUrl(sheetImage);
+                        character.setModelingStatus(CharacterModelingStatus.COMPLETED);
+                    }
+                    character = characterRepository.save(character);
+                }
+                story.getCharacters().add(character);
+                storyCharactersBySlug.put(normalizedSlug, character);
+            }
+
+            if (node.hasNonNull("visual_description")) {
+                character.setVisualDescription(node.get("visual_description").asText());
+            }
+            if (node.hasNonNull("prompt_keywords")) {
+                character.setPromptKeywords(node.get("prompt_keywords").asText());
+            }
+            if (node.hasNonNull("catchphrase")) {
+                character.setCatchphrase(node.get("catchphrase").asText());
+            }
+            if (node.hasNonNull("image_url") && (character.getImageUrl() == null || character.getImageUrl().isBlank())) {
+                String sheetImage = node.get("image_url").asText();
+                if (sheetImage != null && !sheetImage.isBlank()) {
+                    character.setImageUrl(sheetImage);
+                    character.setModelingStatus(CharacterModelingStatus.COMPLETED);
+                }
+            }
+
+            charactersToPersist.add(character);
+            ensureCharacterReference(character, node.path("visual_description").asText(null));
+        });
+
+        if (!charactersToPersist.isEmpty()) {
+            characterRepository.saveAll(charactersToPersist);
+        }
+
+        storyRepository.save(story);
+    }
+
+    private String generateSlug(String slugCandidate, String name) {
+        String base = (slugCandidate != null && !slugCandidate.isBlank()) ? slugCandidate : name;
+        if (base == null) {
+            base = "character";
+        }
+        String normalized = base.trim().toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+|-+$", "");
+        if (normalized.isBlank()) {
+            normalized = UUID.randomUUID().toString();
+        }
+        return normalized;
+    }
+
+    private void ensureCharacterReference(Character character, String fallbackDescription) {
+        if (character.getId() == null) {
+            return;
+        }
+        if (character.getImageUrl() != null && !character.getImageUrl().isBlank()) {
+            character.setModelingStatus(CharacterModelingStatus.COMPLETED);
+            return;
+        }
+        String prompt = (fallbackDescription != null && !fallbackDescription.isBlank())
+                ? fallbackDescription
+                : character.getVisualDescription();
+
+        Character updated = characterModelingService.requestModelingSync(character.getId(), prompt);
+        if (updated != null && updated.getImageUrl() != null && !updated.getImageUrl().isBlank()) {
+            character.setImageUrl(updated.getImageUrl());
+            character.setModelingStatus(updated.getModelingStatus());
+        }
+    }
+
+    private String resolveCharacterImageUrl(String rawImageUrl) {
+        if (rawImageUrl == null || rawImageUrl.isBlank()) {
+            return null;
+        }
+
+        String trimmed = rawImageUrl.trim();
+        if (trimmed.startsWith("file:///") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            return trimmed;
+        }
+
+        Path resolvedPath;
+        if (trimmed.startsWith("/") || trimmed.matches("^[A-Za-z]:[\\\\/].*")) {
+            resolvedPath = Paths.get(trimmed).toAbsolutePath().normalize();
+        } else {
+            String sanitized = trimmed.startsWith("/") ? trimmed.substring(1) : trimmed;
+            if (sanitized.startsWith("characters/")) {
+                sanitized = sanitized.substring("characters/".length());
+            }
+            Path basePath = Paths.get(CHARACTER_IMAGE_DIR);
+            resolvedPath = basePath.resolve(sanitized).toAbsolutePath().normalize();
+        }
+
+        String unixPath = resolvedPath.toString().replace("\\", "/");
+        if (!unixPath.startsWith("/")) {
+            unixPath = "/" + unixPath;
+        }
+        return "file://" + unixPath;
+    }
+
     private StableStoryDto createFailsafeStory() {
         String title = "용감한 토끼의 모험";
         List<String> pages = List.of(
@@ -326,11 +491,24 @@ public class StoryService {
 
         // Prepare character visuals for the AI service
         List<Map<String, String>> characterVisuals = story.getCharacters().stream()
-                .map(character -> Map.of(
-                        "name", character.getName(),
-                        "visual_description", character.getVisualDescription(),
-                        "image_url", character.getImageUrl()
-                ))
+                .map(character -> {
+                    Map<String, String> visual = new HashMap<>();
+                    visual.put("name", character.getName());
+                    if (character.getSlug() != null) {
+                        visual.put("slug", character.getSlug());
+                    }
+                    if (character.getVisualDescription() != null) {
+                        visual.put("visual_description", character.getVisualDescription());
+                    }
+                    String resolvedImageUrl = resolveCharacterImageUrl(character.getImageUrl());
+                    if (resolvedImageUrl != null) {
+                        visual.put("image_url", resolvedImageUrl);
+                    }
+                    if (character.getModelingStatus() != null) {
+                        visual.put("modeling_status", character.getModelingStatus().name());
+                    }
+                    return visual;
+                })
                 .collect(Collectors.toList());
 
         // Construct the request payload for the AI service
@@ -358,12 +536,52 @@ public class StoryService {
 
             if (aiResponse != null) {
                 String imageUrl = aiResponse.get("imageUrl").asText();
-                String audioUrl = aiResponse.get("audioUrl").asText();
+
+                JsonNode characterProcessingNode = aiResponse.get("characterProcessingResults");
+                if (characterProcessingNode != null && characterProcessingNode.isArray()) {
+                    Map<String, Character> charactersBySlug = story.getCharacters().stream()
+                            .filter(character -> character.getSlug() != null)
+                            .collect(Collectors.toMap(
+                                    character -> character.getSlug().toLowerCase(Locale.ROOT),
+                                    Function.identity(),
+                                    (existing, replacement) -> existing
+                            ));
+                    List<Character> updatedCharacters = new ArrayList<>();
+                    characterProcessingNode.forEach(node -> {
+                        String slug = node.path("slug").asText(null);
+                        if (slug == null || slug.isBlank()) {
+                            return;
+                        }
+                        Character character = charactersBySlug.get(slug.toLowerCase(Locale.ROOT));
+                        if (character == null) {
+                            return;
+                        }
+                        if (node.hasNonNull("imageUrl")) {
+                            String updatedImageUrl = node.get("imageUrl").asText();
+                            if ((character.getImageUrl() == null || character.getImageUrl().isBlank())
+                                    && updatedImageUrl != null
+                                    && updatedImageUrl.startsWith("file://")) {
+                                character.setImageUrl(updatedImageUrl);
+                            }
+                        }
+                        if (node.hasNonNull("modelingStatus")) {
+                            String statusText = node.get("modelingStatus").asText();
+                            try {
+                                character.setModelingStatus(CharacterModelingStatus.valueOf(statusText));
+                            } catch (IllegalArgumentException ignored) {
+                                log.debug("Unknown modeling status '{}' from AI response for slug {}", statusText, slug);
+                            }
+                        }
+                        updatedCharacters.add(character);
+                    });
+                    if (!updatedCharacters.isEmpty()) {
+                        characterRepository.saveAll(updatedCharacters);
+                    }
+                }
 
                 storyPage.setImageUrl(imageUrl);
-                storyPage.setAudioUrl(audioUrl);
                 storyPageRepository.save(storyPage);
-                log.info("Generated assets for StoryPage {}-{} and updated with imageUrl: {}, audioUrl: {}", storyId, pageNo, imageUrl, audioUrl);
+                log.info("Generated assets for StoryPage {}-{} and updated with imageUrl: {}", storyId, pageNo, imageUrl);
             } else {
                 log.warn("Received null response from AI asset generation service for StoryPage {}-{}", storyId, pageNo);
             }
