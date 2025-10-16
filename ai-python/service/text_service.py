@@ -55,63 +55,67 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
             if prompt_keywords:
                 details.append(f"시각 키워드: {prompt_keywords}")
             detail_text = " | ".join(details) if details else "(추가 설명 없음)"
-            character_lines.append(f"- {character.name} ({character.slug}): {detail_text}")
+            slug_hint = f" ({character.slug})" if character.slug else ""
+            character_lines.append(f"- {character.name}{slug_hint}: {detail_text}")
     if character_lines:
-        characters_section = "[선택된 캐릭터 가이드]\n" + "\n".join(character_lines)
+        characters_section = "\n".join(character_lines)
     else:
-        characters_section = "[선택된 캐릭터 가이드]\n- (선택된 캐릭터 없음)"
+        characters_section = "- (선택된 캐릭터 없음)"
 
-    topic_goal_section = f"""[주제·학습목표 가이드]
+    goal_section = f"""
 - 주제 키워드: {topics_str or '자유 선택'}
 - 학습 목표: {objectives_str or '자유 선택'}
-- 설교식 문장 대신 사건 전개와 대사를 통해 자연스럽게 드러낼 것."""
+- 설교식 문장 대신 사건 전개와 대사를 통해 자연스럽게 메시지를 전달한다."""
 
-    art_direction_section = """[일관된 아트 디렉션]
-- creative_concept.art_style과 mood_and_tone은 이야기 전체와 모든 image_prompt에서 동일하게 유지한다.
+    art_direction_points = """
+- creative_concept.art_style과 mood_and_tone을 이야기 전체와 모든 image_prompt에 일관되게 반영한다.
 - Realistic/photorealistic 표현은 피하고, 아동용 동화책 일러스트 톤을 유지한다.
-- 이야기가 명시한 시대·장소·문화적 배경(없다면 현대 일상)을 끝까지 유지하며, 한복/전통 갑옷/사극풍 요소 등 임의의 시대 전환을 금지한다.
-- 장면마다 독창적이고 상상력 넘치는 요소(색감, 소품, 배경 디테일, 조명)를 부드럽게 가미해 아트북 수준의 생동감을 구현한다."""
+- 장면마다 색감·소품·배경 디테일을 활용해 따뜻하고 상상력 넘치는 분위기를 만든다."""
 
-    page_rules_section = f"""[페이지 구성 규칙]
-- 최소 {min_pages}개의 페이지를 작성하며, 각 페이지는 독립적인 장면을 다룬다.
-- 각 page.text는 한 단락(최소 20단어)으로 작성하고, 불필요한 줄바꿈을 넣지 않는다.
-- 각 page.image_prompt는 1~2문장으로 장면의 배경·주요 캐릭터·감정을 요약하되, **말풍선/대사/텍스트 오버레이는 절대 포함하지 않는다.**
-- image_prompt는 현재 페이지의 사건과 감정을 시각적으로 설명하며, 색채·구도·빛·공간감·창의적 소품 등 시각 디테일을 구체적으로 지시한다."""
+    page_rules_points = f"""
+- pages 배열에는 **정확히 {min_pages}개**의 항목만 포함되며, 그 밖의 텍스트는 반환하지 않는다.
+- 각 페이지는 독립적인 장면을 다루고, page.text는 한 단락(20단어 이상)을 유지한다.
+- page.image_prompt는 1~2문장으로 장면 배경·핵심 캐릭터·감정을 묘사하고, 텍스트 오버레이나 말풍선을 넣지 않는다."""
 
-    action_rules_section = """[장면 연출 규칙]
-- 각 page.text에는 주요 등장인물의 행동, 감정, 상호작용이 명시적으로 묘사되어야 한다 (예: \"루루가 다리를 건너기 위해 나뭇가지를 이용해 다리를 만든다\").
-- 각 page.image_prompt에는 캐릭터의 자세·표정·행동·감정과 함께 배경 환경의 변화(날씨, 시간대, 주변 사물)를 구체적으로 서술한다.
-- 모든 페이지는 이전/다음 장면과 연결되는 이야기 흐름을 유지하면서도, 배경과 소품을 변화시켜 반복적인 정적 장면을 피한다.
-- 대사나 속 뜻은 캐릭터의 표정, 손짓, 주변 상황으로 암시하고, 텍스트 형태로 직접 표기하지 않는다."""
+    action_rules_points = """
+- page.text에는 주요 인물의 행동·감정·상호작용을 명시적으로 묘사한다.
+- page.image_prompt에는 캐릭터의 자세·표정·행동과 함께 배경 환경의 변화(날씨, 시간대, 주변 사물)를 구체적으로 포함한다.
+- 반복적인 정적 장면을 피하고, 이야기 흐름이 자연스럽게 이어지도록 장면 간 변화를 설계한다."""
+
+    character_continuity_points = """
+- 각 캐릭터의 이름·역할·관계를 일관되게 유지하고, 페이지마다 성격이 잘 드러나도록 한다.
+- 의상과 소품은 character_sheets 또는 요청 정보에서 제시한 분위기를 반영한다.
+- 새로운 캐릭터를 도입할 경우 character_sheets에 이름, slug(케밥 케이스 권장), visual_description, voice_profile을 반드시 추가한다."""
 
     full_prompt = f"""
-너는 4~8세 아동용 그림책 작가이자, 아트 디렉터다.
-- 너의 임무는 글과 그림 아이디어를 포함하는 통합적인 창작물을 JSON 하나로 생성하는 것이다.
-- 폭력/공포/편견/노골적 표현 금지. 따뜻하고 쉬운 어휘 사용.
-- 출력은 반드시 JSON 하나만. 추가 텍스트/설명/코드블록 금지.
+너는 4~8세 아동용 그림책 작가이자 아트 디렉터다.
+- 글과 그림 아이디어를 동시에 고려하여 JSON 하나로 결과를 만든다.
+- 폭력/공포/편견/노골적 표현은 제외하고, 따뜻하고 쉬운 어휘를 사용한다.
+- 출력은 반드시 JSON 하나만 제공하며 추가 텍스트나 설명을 붙이지 않는다.
 
-[요청 정보]
+[입력 요약]
 - 연령대: {req.age_range}세
 - 언어: {lang_label}
 - {title_line}
 
-{topic_goal_section}
+[목표 & 톤]
+{goal_section}
 
+[주요 캐릭터]
 {characters_section}
-- 위에 명시된 캐릭터 외 새로운 인물을 만들지 말 것.
-- 캐릭터의 외형/의상/소품은 요청 정보 또는 character_sheets에 정의된 내용을 유지하며, 다른 시대 복장으로 임의 변경 금지.
+- 필요하다면 새 캐릭터를 도입해도 된다. 다만 등장한 캐릭터는 모두 `character_sheets`에 정의해야 한다.
 
-{art_direction_section}
+[비주얼 디렉션]
+{art_direction_points}
 
-{page_rules_section}
+[페이지 구성]
+{page_rules_points}
 
-{action_rules_section}
+[장면 연출]
+{action_rules_points}
 
-[캐릭터 일관성 규칙]
-- 등장인물은 요청에 제공된 캐릭터만 사용하고, 배경 엑스트라는 실루엣 수준으로 제한한다.
-- 캐릭터 이름·역할·관계·의상을 각 page.text에 재확인하여 일관되게 묘사한다.
-- 의상은 현대 캐주얼/테마에 맞춘 세부 묘사를 포함하고, 임의의 역사극 복장이나 무작위 캐릭터 추가를 금지한다.
-- 각 page.image_prompt는 캐릭터 수를 1~3명으로 제한하고, 캐릭터별 행동과 표정을 구체적으로 명시한다.
+[캐릭터 일관성]
+{character_continuity_points}
 
 # 출력 스키마 (키 고정, 추가 키 금지)
 {{
@@ -133,11 +137,10 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 }}
 
 # 작성 지침
-1.  `creative_concept`, `story_outline`, `story`를 모두 포함하는 동화를 구상한다.
-2.  동화의 각 `pages`에 들어가는 `text`는 **최소 20단어 이상**으로 충분히 작성하되 한 단락으로 유지한다.
-3.  `creative_concept.character_sheets`에는 각 캐릭터의 `name`과 제공된 `slug`를 함께 포함하고, 새로운 slug를 만들지 않는다.
-4.  각 페이지마다 `image_prompt`를 1~2문장으로 작성하되 `creative_concept.art_style`과 `mood_and_tone`, 그리고 위에서 정의한 캐릭터 가이드를 참고해 일관된 그림 콘셉트를 유지한다. (장면 구성, 배경, 주요 행동, 감정 묘사를 포함)
-5.  모든 내용을 종합하여 단일 JSON 객체로 최종 출력한다.
+1. `creative_concept`, `story_outline`, `story`, `quiz`가 모두 채워져 있고 pages 배열 길이가 정확히 {min_pages}인지 확인한다.
+2. 각 page.text는 한 단락·20단어 이상이며, page.image_prompt는 1~2문장으로 텍스트 오버레이 없이 장면을 묘사하는지 점검한다.
+3. 등장한 모든 캐릭터가 `character_sheets`에 name, slug, visual_description, voice_profile과 함께 정의되어 있는지 확인한다.
+4. 최종 출력은 JSON 한 개뿐인지 다시 점검한다.
 """
     return dedent(full_prompt).strip()
 

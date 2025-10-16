@@ -2,6 +2,7 @@ package com.fairylearn.backend.service;
 
 import com.fairylearn.backend.auth.CustomOAuth2User;
 import com.fairylearn.backend.dto.StableStoryDto;
+import com.fairylearn.backend.dto.StableStoryPageDto;
 import com.fairylearn.backend.dto.StoryGenerateRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
@@ -28,7 +29,7 @@ public class StoryStreamService {
             StableStoryDto stableStory = storyService.generateStableStoryDto(request);
 
             // 3. Send events
-            List<String> pages = stableStory.pages();
+            List<StableStoryPageDto> pages = stableStory.pages();
             if (!pages.isEmpty()) {
                 // Send first page immediately
                 sendSseEvent(emitter, "pages_head", pages.subList(0, 1));

@@ -4,6 +4,6 @@ import java.util.List;
 
 public record StableStoryDto(
     String title,
-    List<String> pages,
+    List<StableStoryPageDto> pages,
     List<AiQuiz> quiz
 ) {}
