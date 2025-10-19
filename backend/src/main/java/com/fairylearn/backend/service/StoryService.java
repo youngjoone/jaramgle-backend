@@ -12,9 +12,11 @@ import com.fairylearn.backend.entity.StoryPage;
 import com.fairylearn.backend.entity.StorybookPage; // Import StorybookPage
 import com.fairylearn.backend.entity.Character;
 import com.fairylearn.backend.entity.CharacterModelingStatus;
+import com.fairylearn.backend.entity.CharacterScope;
 import com.fairylearn.backend.repository.CharacterRepository;
 import com.fairylearn.backend.repository.StoryPageRepository;
 import com.fairylearn.backend.repository.StoryRepository;
+import com.fairylearn.backend.repository.StorybookPageRepository;
 import com.fairylearn.backend.service.stabilization.StoryAssembler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -54,6 +56,7 @@ public class StoryService {
 
     private final StoryRepository storyRepository;
     private final StoryPageRepository storyPageRepository;
+    private final StorybookPageRepository storybookPageRepository;
     private final CharacterRepository characterRepository;
     private final StorageQuotaService storageQuotaService;
     private final WebClient webClient;
@@ -102,10 +105,59 @@ public class StoryService {
     public void deleteStory(Long storyId, String userId) {
         Optional<Story> storyOptional = storyRepository.findByIdAndUserId(storyId, userId);
         if (storyOptional.isPresent()) {
-            storyRepository.delete(storyOptional.get());
+            Story story = storyOptional.get();
+
+            // Delete associated files
+            List<StoryPage> storyPages = storyPageRepository.findByStoryIdOrderByPageNoAsc(storyId);
+            for (StoryPage page : storyPages) {
+                deleteFileFromUrl(page.getImageUrl());
+                deleteFileFromUrl(page.getAudioUrl());
+            }
+
+            List<StorybookPage> storybookPages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
+            for (StorybookPage page : storybookPages) {
+                deleteFileFromUrl(page.getImageUrl());
+                deleteFileFromUrl(page.getAudioUrl());
+            }
+
+            storyRepository.delete(story);
             storageQuotaService.decreaseUsedCount(userId);
         } else {
             throw new IllegalArgumentException("Story not found or not owned by user.");
+        }
+    }
+
+    private void deleteFileFromUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+
+        try {
+            String path;
+            if (url.startsWith("http")) {
+                path = new java.net.URL(url).getPath();
+            } else {
+                path = url;
+            }
+            
+            java.io.File fileToDelete = null;
+            if (path.contains("/api/image/")) {
+                String filename = path.substring(path.lastIndexOf('/') + 1);
+                fileToDelete = new java.io.File("/Users/kyj/testimagedir", filename);
+            } else if (path.contains("/api/audio/")) {
+                String relativePath = path.substring("/api/audio/".length());
+                fileToDelete = new java.io.File("/Users/kyj/testaudiodir", relativePath);
+            }
+
+            if (fileToDelete != null && fileToDelete.exists()) {
+                if (fileToDelete.delete()) {
+                    log.info("Deleted file: {}", fileToDelete.getAbsolutePath());
+                } else {
+                    log.warn("Failed to delete file: {}", fileToDelete.getAbsolutePath());
+                }
+            }
+        } catch (java.net.MalformedURLException e) {
+            log.warn("Invalid URL, cannot delete file: {}", url);
         }
     }
 
@@ -312,6 +364,7 @@ public class StoryService {
                     character.setPromptKeywords(node.path("prompt_keywords").asText(null));
                     character.setCatchphrase(node.path("catchphrase").asText(null));
                     character.setVisualDescription(node.path("visual_description").asText(""));
+                    character.setScope(CharacterScope.STORY);
                     String sheetImage = node.path("image_url").asText(null);
                     if (sheetImage != null && !sheetImage.isBlank()) {
                         character.setImageUrl(sheetImage);
