@@ -6,6 +6,7 @@ import com.fairylearn.backend.service.CharacterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -20,6 +21,17 @@ public class CharacterController {
     @GetMapping("/characters")
     public List<CharacterDto> getCharacters() {
         List<Character> characters = characterService.findAll();
+        return characters.stream()
+                .map(this::toDto)
+                .toList();
+    }
+
+    @GetMapping("/characters/random")
+    public List<CharacterDto> getRandomCharacters(@RequestParam(defaultValue = "1") int count) {
+        if (count < 1 || count > 2) {
+            throw new IllegalArgumentException("Count must be 1 or 2.");
+        }
+        List<Character> characters = characterService.findRandomGlobalCharacters(count);
         return characters.stream()
                 .map(this::toDto)
                 .toList();
