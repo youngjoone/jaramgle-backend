@@ -1,6 +1,8 @@
 package com.fairylearn.backend.service;
 
 import com.fairylearn.backend.dto.CharacterVisualDto; // Added
+import com.fairylearn.backend.dto.GenerateParagraphAudioRequestDto;
+import com.fairylearn.backend.dto.GenerateParagraphAudioResponseDto;
 import com.fairylearn.backend.entity.Story;
 import com.fairylearn.backend.entity.StoryPage;
 import com.fairylearn.backend.entity.StorybookPage;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
@@ -241,6 +244,66 @@ public class StorybookService {
         StorybookPage savedPage = storybookPageRepository.save(storybookPage);
         log.info("Saved storybook page {} for storyId: {}. Image URL: {}", pageNumber, story.getId(), webAccessibleUrl);
         return savedPage;
+    }
+
+    @Transactional
+    public StorybookPage generatePageAudio(Long storyId,
+                                           Long pageId,
+                                           GenerateParagraphAudioRequestDto requestDto) {
+        StorybookPage page = storybookPageRepository.findByIdAndStoryId(pageId, storyId)
+                .orElseThrow(() -> new IllegalArgumentException("Storybook page not found for this story."));
+
+        if (!requestDto.isForceRegenerate() && StringUtils.hasText(page.getAudioUrl())) {
+            log.info("Audio already exists for storyId={}, pageId={}; returning cached audio.", storyId, pageId);
+            return page;
+        }
+
+        String resolvedText = StringUtils.hasText(requestDto.getText()) ? requestDto.getText() : page.getText();
+        if (!StringUtils.hasText(resolvedText)) {
+            throw new IllegalArgumentException("Paragraph text is required to generate audio.");
+        }
+
+        GenerateParagraphAudioRequestDto outbound = new GenerateParagraphAudioRequestDto();
+        outbound.setStoryId(String.valueOf(storyId));
+        outbound.setPageId(String.valueOf(pageId));
+        outbound.setParagraphId(requestDto.getParagraphId());
+        outbound.setSpeakerSlug(requestDto.getSpeakerSlug());
+        outbound.setEmotion(requestDto.getEmotion());
+        outbound.setStyleHint(requestDto.getStyleHint());
+        outbound.setLanguage(requestDto.getLanguage());
+        outbound.setForceRegenerate(requestDto.isForceRegenerate());
+        outbound.setText(resolvedText);
+
+        log.info("Requesting paragraph audio generation for storyId={}, pageId={} (forceRegenerate={})",
+                storyId, pageId, requestDto.isForceRegenerate());
+
+        GenerateParagraphAudioResponseDto response = webClient.post()
+                .uri("/ai/generate-page-audio")
+                .bodyValue(outbound)
+                .retrieve()
+                .bodyToMono(GenerateParagraphAudioResponseDto.class)
+                .block();
+
+        if (response == null || !StringUtils.hasText(response.getUrl())) {
+            throw new RuntimeException("Failed to receive audio URL from AI service.");
+        }
+
+        String audioUrl = toWebAccessibleUrl(response.getUrl());
+        page.setAudioUrl(audioUrl);
+        StorybookPage saved = storybookPageRepository.save(page);
+        log.info("Saved audio for storyId={}, pageId={} at {}", storyId, pageId, audioUrl);
+        return saved;
+    }
+
+    private String toWebAccessibleUrl(String providedUrl) {
+        if (!StringUtils.hasText(providedUrl)) {
+            return providedUrl;
+        }
+        if (providedUrl.startsWith("http://") || providedUrl.startsWith("https://")) {
+            return providedUrl;
+        }
+        String normalized = providedUrl.startsWith("/") ? providedUrl : "/" + providedUrl;
+        return "http://localhost:8080" + normalized;
     }
 
     private String resolveImagePrompt(String rawPrompt,

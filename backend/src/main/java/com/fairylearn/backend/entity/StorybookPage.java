@@ -29,4 +29,7 @@ public class StorybookPage {
 
     @Column(name = "image_url")
     private String imageUrl;
+
+    @Column(name = "audio_url")
+    private String audioUrl;
 }

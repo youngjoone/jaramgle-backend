@@ -2,6 +2,7 @@
 # 1. Standard library imports
 import asyncio
 import base64
+import hashlib
 import logging
 import os
 import re
@@ -13,7 +14,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # 2. FastAPI imports
-from fastapi import FastAPI, Body, HTTPException, status, Request, Response
+from typing import Optional
+
+from fastapi import FastAPI, Body, HTTPException, status, Request, Response, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -29,10 +32,20 @@ from schemas import (
     CharacterReferenceImageResponse,
     GenerateAudioFromStoryRequest,
     GeneratePageAssetsRequest, # Added
+    GenerateParagraphAudioRequest,
+    GenerateParagraphAudioResponse,
 )
 from service.text_service import generate_story
 from service.image_service import generate_image, generate_character_reference_image
-from service.audio_service import synthesize_story_from_plan, create_tts, plan_reading_segments, plan_and_synthesize_audio # Added
+from service.audio_service import (
+    synthesize_story_from_plan,
+    create_tts,
+    create_gemini_tts,
+    get_gemini_tts_extension,
+    generate_paragraph_audio,
+    plan_reading_segments,
+    plan_and_synthesize_audio,
+) # Added
 
 # --- App Initialization and Logging ---
 
@@ -44,6 +57,17 @@ app = FastAPI()
 logger.info(f"Text generation will be handled by text_service with provider: {Config.LLM_PROVIDER}")
 
 # --- Middleware ---
+
+_AUDIO_BASE_DIR = "/Users/kyj/testaudiodir"
+_IMAGE_BASE_DIR = "/Users/kyj/testimagedir"
+
+def _slugify_component(value: Optional[str], fallback: str = "segment") -> str:
+    candidate = str(value).strip().lower() if value is not None else ""
+    candidate = re.sub(r"[^a-z0-9]+", "-", candidate).strip("-")
+    return candidate or fallback
+
+def _hash_text_payload(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
 
 # CORS settings
 origins = [
@@ -106,7 +130,6 @@ def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(..
 
 @app.post("/ai/generate-image", response_model=GenerateImageResponse)
 def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Body(...)):
-    IMAGE_DIR = "/Users/kyj/testimagedir"
     try:
         combined_visuals = list(img_req.character_visuals)
         if img_req.characters:
@@ -125,9 +148,11 @@ def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Bo
             character_visuals=combined_visuals
         )
         
+        os.makedirs(_IMAGE_BASE_DIR, exist_ok=True)
+
         image_data = base64.b64decode(b64_json)
         filename = f"{uuid.uuid4()}.png"
-        file_path = os.path.join(IMAGE_DIR, filename)
+        file_path = os.path.join(_IMAGE_BASE_DIR, filename)
         
         with open(file_path, "wb") as f:
             f.write(image_data)
@@ -188,9 +213,8 @@ def create_character_reference_image_endpoint(
 
 @app.post("/ai/generate-audio")
 def generate_audio_endpoint(request: Request, audio_req: GenerateAudioFromStoryRequest = Body(...)):
-    audio_dir = "/Users/kyj/testaudiodir"
     try:
-        os.makedirs(audio_dir, exist_ok=True)
+        os.makedirs(_AUDIO_BASE_DIR, exist_ok=True)
 
         # 1. Generate reading plan from story text
         reading_plan = plan_reading_segments(
@@ -200,15 +224,15 @@ def generate_audio_endpoint(request: Request, audio_req: GenerateAudioFromStoryR
         )
 
         # 2. Synthesize audio from the generated plan
-        audio_bytes = synthesize_story_from_plan(
+        audio_bytes, extension = synthesize_story_from_plan(
             reading_plan=reading_plan,
             characters=audio_req.characters,
             language=audio_req.language,
             request_id=request.state.request_id
         )
 
-        filename = f"{uuid.uuid4()}.wav"
-        file_path = os.path.join(audio_dir, filename)
+        filename = f"{uuid.uuid4()}.{extension}"
+        file_path = os.path.join(_AUDIO_BASE_DIR, filename)
 
         with open(file_path, "wb") as f:
             f.write(audio_bytes)
@@ -220,16 +244,96 @@ def generate_audio_endpoint(request: Request, audio_req: GenerateAudioFromStoryR
         logger.error(f"Audio generation failed for Request ID: {request.state.request_id}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"code": "AUDIO_GENERATION_ERROR", "message": str(e)},
+        detail={"code": "AUDIO_GENERATION_ERROR", "message": str(e)},
+    )
+
+
+@app.post("/ai/generate-page-audio", response_model=GenerateParagraphAudioResponse)
+def generate_page_audio_endpoint(
+    request: Request,
+    audio_req: GenerateParagraphAudioRequest = Body(...),
+):
+    try:
+        os.makedirs(_AUDIO_BASE_DIR, exist_ok=True)
+
+        story_component = _slugify_component(str(audio_req.story_id), "story")
+        page_component = _slugify_component(str(audio_req.page_id), "page")
+        base_dir = os.path.join(_AUDIO_BASE_DIR, "stories", story_component, page_component)
+        os.makedirs(base_dir, exist_ok=True)
+
+        name_parts = []
+        if audio_req.paragraph_id is not None:
+            name_parts.append(_slugify_component(str(audio_req.paragraph_id), "paragraph"))
+        if audio_req.speaker_slug:
+            name_parts.append(_slugify_component(audio_req.speaker_slug, "speaker"))
+
+        name_parts.append(_hash_text_payload(audio_req.text))
+        base_name = "-".join(part for part in name_parts if part) or f"segment-{_hash_text_payload(audio_req.text)}"
+
+        preferred_ext = get_gemini_tts_extension()
+        existing_path = None
+        search_order = [preferred_ext, "mp3", "wav", "ogg"]
+        for ext in search_order:
+            candidate = os.path.join(base_dir, f"{base_name}.{ext}")
+            if os.path.exists(candidate):
+                existing_path = candidate
+                preferred_ext = ext
+                break
+
+        if existing_path and not audio_req.force_regenerate:
+            rel_path = os.path.relpath(existing_path, _AUDIO_BASE_DIR).replace(os.sep, "/")
+            url = f"/api/audio/{rel_path}"
+            logger.info(
+                "Reusing paragraph audio at %s for request %s",
+                existing_path,
+                request.state.request_id,
+            )
+            return GenerateParagraphAudioResponse(
+                file_path=rel_path,
+                url=url,
+                provider="Gemini TTS",
+                already_existed=True,
+            )
+
+        audio_bytes, extension = generate_paragraph_audio(
+            audio_req.text,
+            speaker_slug=audio_req.speaker_slug,
+            emotion=audio_req.emotion,
+            style_hint=audio_req.style_hint,
+            request_id=request.state.request_id,
+        )
+
+        filename = f"{base_name}.{extension}"
+        full_path = os.path.join(base_dir, filename)
+        with open(full_path, "wb") as f:
+            f.write(audio_bytes)
+
+        rel_path = os.path.relpath(full_path, _AUDIO_BASE_DIR).replace(os.sep, "/")
+        url = f"/api/audio/{rel_path}"
+        logger.info("Paragraph audio saved to %s", full_path)
+        return GenerateParagraphAudioResponse(
+            file_path=rel_path,
+            url=url,
+            provider="Gemini TTS",
+            already_existed=False,
+        )
+
+    except Exception as e:
+        logger.error(
+            "Paragraph audio generation failed for Request ID: %s",
+            request.state.request_id,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "PARAGRAPH_AUDIO_ERROR", "message": str(e)},
         )
 
 @app.post("/ai/generate-page-assets")
 async def generate_page_assets_endpoint(request: Request, req: GeneratePageAssetsRequest = Body(...)):
-    audio_dir = "/Users/kyj/testaudiodir"
-    image_dir = "/Users/kyj/testimagedir"
     try:
-        os.makedirs(audio_dir, exist_ok=True)
-        os.makedirs(image_dir, exist_ok=True)
+        os.makedirs(_AUDIO_BASE_DIR, exist_ok=True)
+        os.makedirs(_IMAGE_BASE_DIR, exist_ok=True)
 
         image_result = await asyncio.to_thread(
             generate_image,
@@ -249,7 +353,7 @@ async def generate_page_assets_endpoint(request: Request, req: GeneratePageAsset
         # Save image
         image_data = base64.b64decode(image_b64_json)
         image_filename = f"{uuid.uuid4()}.png"
-        image_file_path = os.path.join(image_dir, image_filename)
+        image_file_path = os.path.join(_IMAGE_BASE_DIR, image_filename)
         with open(image_file_path, "wb") as f:
             f.write(image_data)
         logger.info(f"Image saved to {image_file_path}")
@@ -301,14 +405,34 @@ async def generate_page_assets_endpoint(request: Request, req: GeneratePageAsset
         )
 
 @app.post("/ai/generate-tts")
-def generate_tts_endpoint(request: Request, text: str = Body(..., media_type="text/plain")):
-    audio_dir = "/Users/kyj/testaudiodir"
+def generate_tts_endpoint(
+    request: Request,
+    text: str = Body(..., media_type="text/plain"),
+    provider: Optional[str] = Query(None),
+):
     try:
-        os.makedirs(audio_dir, exist_ok=True)
-        audio_data = create_tts(text)
-        
-        filename = f"{uuid.uuid4()}.wav"
-        file_path = os.path.join(audio_dir, filename)
+        os.makedirs(_AUDIO_BASE_DIR, exist_ok=True)
+        if provider:
+            provider_key = provider.strip().lower()
+        else:
+            provider_key = "gemini" if Config.USE_GEMINI_TTS else "openai"
+        if provider_key == "gemini":
+            audio_data = create_gemini_tts(text)
+            extension = get_gemini_tts_extension()
+        elif provider_key == "openai":
+            audio_data = create_tts(text)
+            extension = "wav"
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "TTS_PROVIDER_UNSUPPORTED",
+                    "message": f"Unsupported TTS provider '{provider_key}'",
+                },
+            )
+
+        filename = f"{uuid.uuid4()}.{extension}"
+        file_path = os.path.join(_AUDIO_BASE_DIR, filename)
         
         with open(file_path, "wb") as f:
             f.write(audio_data)

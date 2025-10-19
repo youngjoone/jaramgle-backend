@@ -185,3 +185,26 @@ class SynthesizeFromPlanRequest(BaseModel):
     language: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+
+class GenerateParagraphAudioRequest(BaseModel):
+    story_id: Union[int, str] = Field(..., alias="storyId")
+    page_id: Union[int, str] = Field(..., alias="pageId")
+    text: str
+    paragraph_id: Optional[Union[int, str]] = Field(default=None, alias="paragraphId")
+    speaker_slug: Optional[str] = Field(default=None, alias="speakerSlug")
+    emotion: Optional[str] = None
+    style_hint: Optional[str] = Field(default=None, alias="styleHint")
+    language: Optional[str] = None
+    force_regenerate: bool = Field(default=False, alias="forceRegenerate")
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore", alias_generator=to_camel)
+
+
+class GenerateParagraphAudioResponse(BaseModel):
+    file_path: str = Field(..., alias="filePath")
+    url: str
+    provider: str
+    already_existed: bool = Field(default=False, alias="alreadyExisted")
+
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
