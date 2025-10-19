@@ -36,6 +36,15 @@ class Config:
     AZURE_SPEECH_REGION: str = os.getenv("AZURE_SPEECH_REGION", "")
     USE_AZURE_TTS: bool = os.getenv("USE_AZURE_TTS", "false").lower() in {"1", "true", "yes", "on"}
     AZURE_TTS_OUTPUT_FORMAT: str = os.getenv("AZURE_TTS_OUTPUT_FORMAT", "riff-24khz-16bit-mono-pcm")
+    USE_GEMINI_TTS: bool = _env_flag("USE_GEMINI_TTS", default=True)
+    GEMINI_TTS_MODEL: str = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+    GEMINI_TTS_VOICE: str = os.getenv("GEMINI_TTS_VOICE", "Charon")
+    GEMINI_TTS_LANGUAGE: str = os.getenv("GEMINI_TTS_LANGUAGE", "en-US")
+    GEMINI_TTS_AUDIO_ENCODING: str = os.getenv("GEMINI_TTS_AUDIO_ENCODING", "MP3")
+    GEMINI_TTS_PROMPT_TEMPLATE: str = os.getenv(
+        "GEMINI_TTS_PROMPT_TEMPLATE",
+        "Narrate the following passage for a children's story with a warm and engaging tone.",
+    )
     READING_PLAN_MODEL: str = os.getenv("READING_PLAN_MODEL", "gpt-4o-mini")
 
     # Add other models for reference

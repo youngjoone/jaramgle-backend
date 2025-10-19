@@ -13,6 +13,7 @@ from openai import OpenAI
 from config import Config
 from schemas import CharacterProfile
 from service.azure_tts_client import AzureTTSClient, AzureTTSConfigurationError
+from service.gemini_tts_client import GeminiTTSClient, GeminiTTSConfigurationError
 
 logger = logging.getLogger(__name__) 
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 _openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
 
 _azure_client: Optional[AzureTTSClient] = None
+_gemini_tts_client: Optional[GeminiTTSClient] = None
 logger.info("USE_AZURE_TTS=%s, region=%s", Config.USE_AZURE_TTS, Config.AZURE_SPEECH_REGION or "(unset)")
 if Config.USE_AZURE_TTS:
     try:
@@ -37,6 +39,30 @@ if Config.USE_AZURE_TTS:
         logger.warning("Azure TTS disabled: %s", exc)
     except Exception:
         logger.exception("Failed to initialise Azure TTS client; falling back to OpenAI")
+
+logger.info(
+    "USE_GEMINI_TTS=%s, model=%s",
+    Config.USE_GEMINI_TTS,
+    Config.GEMINI_TTS_MODEL or "(unset)",
+)
+if Config.USE_GEMINI_TTS:
+    try:
+        _gemini_tts_client = GeminiTTSClient(
+            model_name=Config.GEMINI_TTS_MODEL,
+            default_voice=Config.GEMINI_TTS_VOICE,
+            language_code=Config.GEMINI_TTS_LANGUAGE,
+            audio_encoding=Config.GEMINI_TTS_AUDIO_ENCODING,
+            prompt_template=Config.GEMINI_TTS_PROMPT_TEMPLATE,
+        )
+        logger.info(
+            "Gemini TTS client initialised (model=%s, voice=%s)",
+            Config.GEMINI_TTS_MODEL,
+            Config.GEMINI_TTS_VOICE,
+        )
+    except GeminiTTSConfigurationError as exc:
+        logger.warning("Gemini TTS disabled: %s", exc)
+    except Exception:
+        logger.exception("Failed to initialise Gemini TTS client; continuing without it")
 
 # --- Voice & Style Definitions (Copied from openai_client) ---
 
@@ -230,6 +256,23 @@ def plan_reading_segments(story_text: str, characters: List[CharacterProfile], r
 def _clean_text_for_tts(text: str) -> str:
     return text.replace('"', '').replace('“', '').replace('”', '').strip()
 
+def _build_gemini_tts_prompt(style_hint: Optional[str]) -> str:
+    base_prompt = (Config.GEMINI_TTS_PROMPT_TEMPLATE or "").strip()
+    if style_hint:
+        hint = style_hint.strip()
+        if base_prompt:
+            return f"{base_prompt}\nVoice style hint: {hint}"
+        return f"Voice style hint: {hint}"
+    return base_prompt
+
+def _resolve_gemini_extension() -> str:
+    encoding = (Config.GEMINI_TTS_AUDIO_ENCODING or "").strip().lower()
+    if encoding in {"linear16", "mulaw"}:
+        return "wav"
+    if encoding == "ogg_opus":
+        return "ogg"
+    return "mp3"
+
 def _resolve_voice(segment_type: str, speaker_slug: str) -> Dict[str, str]:
     if segment_type == "narration":
         return VOICE_PRESETS["narration"]
@@ -364,7 +407,168 @@ def _build_azure_ssml(reading_plan: List[dict], characters: List[CharacterProfil
     parts.append("</speak>")
     return "".join(parts)
 
+def _reading_plan_to_lines(
+    reading_plan: List[dict],
+    characters: List[CharacterProfile],
+) -> List[str]:
+    slug_to_name = {char.slug or char.name: char.name for char in characters if char.name}
+    fallback_by_name = {char.name.lower(): char.name for char in characters if char.name}
+    lines: List[str] = []
+    for segment in reading_plan:
+        text = (segment.get("text") or "").strip()
+        if not text:
+            continue
+        segment_type = (segment.get("segment_type") or "narration").lower()
+        slug = (segment.get("speaker") or "narrator").strip()
+        display_name = "Narrator"
+        if segment_type != "narration":
+            display_name = slug_to_name.get(slug)
+            if not display_name:
+                display_name = fallback_by_name.get(slug.lower(), slug or "Character")
+        emotion = (segment.get("emotion") or "").strip()
+        if emotion:
+            lines.append(f"{display_name} ({emotion}): {text}")
+        else:
+            lines.append(f"{display_name}: {text}")
+    return lines
+
+def _chunk_script_lines(lines: List[str], max_bytes: int = 3800) -> List[str]:
+    chunks: List[str] = []
+    buffer: List[str] = []
+    buffer_size = 0
+
+    def split_long_line(text: str) -> List[str]:
+        segments: List[str] = []
+        current_chars: List[str] = []
+        current_size = 0
+        for ch in text:
+            encoded_len = len(ch.encode("utf-8"))
+            if current_chars and current_size + encoded_len > max_bytes:
+                segments.append("".join(current_chars).strip())
+                current_chars = [ch]
+                current_size = encoded_len
+            else:
+                current_chars.append(ch)
+                current_size += encoded_len
+        if current_chars:
+            segments.append("".join(current_chars).strip())
+        return [seg for seg in segments if seg]
+
+    def flush_buffer() -> None:
+        nonlocal buffer, buffer_size
+        if buffer:
+            chunks.append("\n".join(buffer))
+            buffer = []
+            buffer_size = 0
+
+    def add_line(s: str) -> None:
+        nonlocal buffer, buffer_size
+        encoded_len = len(s.encode("utf-8"))
+        if encoded_len > max_bytes:
+            for segment in split_long_line(s):
+                add_line(segment)
+            return
+
+        if buffer and buffer_size + encoded_len + 1 > max_bytes:
+            flush_buffer()
+
+        buffer.append(s)
+        if buffer_size == 0:
+            buffer_size = encoded_len
+        else:
+            buffer_size += encoded_len + 1  # account for newline separator
+
+    for line in lines:
+        add_line(line)
+
+    flush_buffer()
+    return chunks
+
 # --- Public API ---
+
+def create_gemini_tts(
+    text: str,
+    *,
+    style_hint: Optional[str] = None,
+    voice_name: Optional[str] = None,
+) -> bytes:
+    """Generates TTS audio using the Gemini TTS preview models."""
+    if _gemini_tts_client is None:
+        raise RuntimeError("Gemini TTS client is not configured")
+    cleaned = _clean_text_for_tts(text)
+    prompt = _build_gemini_tts_prompt(style_hint)
+    voice_for_log = voice_name or Config.GEMINI_TTS_VOICE
+    logger.info("Generating Gemini TTS chunk (%s): %s...", voice_for_log, cleaned[:40])
+    return _gemini_tts_client.synthesize(
+        text=cleaned,
+        prompt=prompt,
+        voice_name=voice_name,
+    )
+
+def get_gemini_tts_extension() -> str:
+    return _resolve_gemini_extension()
+
+def generate_paragraph_audio(
+    text: str,
+    *,
+    speaker_slug: Optional[str],
+    emotion: Optional[str],
+    style_hint: Optional[str],
+    request_id: str,
+) -> Tuple[bytes, str]:
+    """Generate audio for a single paragraph using Gemini TTS."""
+    if _gemini_tts_client is None:
+        raise RuntimeError("Gemini TTS client is not configured")
+
+    cleaned = (text or "").strip()
+    if not cleaned:
+        raise ValueError("Paragraph text is empty")
+
+    segment_type = "dialogue" if speaker_slug else "narration"
+    preset = _resolve_voice(segment_type, speaker_slug or "narrator")
+
+    resolved_style = style_hint or preset.get("style")
+    if not style_hint and emotion:
+        inferred = _map_emotion_to_style(emotion)
+        if inferred:
+            resolved_style = inferred
+
+    chunks = _chunk_script_lines([cleaned])
+    if not chunks:
+        raise ValueError("Failed to segment paragraph text for TTS generation")
+
+    logger.info(
+        "Generating Gemini paragraph audio for request %s (chunks=%d, speaker=%s)",
+        request_id,
+        len(chunks),
+        speaker_slug or "narrator",
+    )
+
+    audio_segments: List[bytes] = []
+    for idx, chunk in enumerate(chunks, start=1):
+        logger.info(
+            "Gemini TTS paragraph chunk %d/%d for request %s",
+            idx,
+            len(chunks),
+            request_id,
+        )
+        audio_segments.append(
+            create_gemini_tts(chunk, style_hint=resolved_style)
+        )
+
+    extension = _resolve_gemini_extension()
+    if len(audio_segments) == 1:
+        return audio_segments[0], extension
+
+    if extension == "wav":
+        return _merge_wav_segments(audio_segments), "wav"
+
+    logger.warning(
+        "Concatenating %d Gemini paragraph audio chunks without re-encoding (encoding=%s)",
+        len(audio_segments),
+        extension,
+    )
+    return b"".join(audio_segments), extension
 
 def create_tts(text: str, voice: str = "alloy") -> bytes:
     """Generates a simple TTS audio from text using OpenAI."""
@@ -383,7 +587,7 @@ def synthesize_story_from_plan(
     characters: List[CharacterProfile],
     language: Optional[str],
     request_id: str
-) -> bytes:
+) -> Tuple[bytes, str]:
     """
     Synthesizes a full story audio from a pre-generated reading plan.
     It does NOT call an LLM to create the plan.
@@ -391,11 +595,40 @@ def synthesize_story_from_plan(
     if not reading_plan:
         raise ValueError("Reading plan cannot be empty.")
 
+    if _gemini_tts_client is not None:
+        lines = _reading_plan_to_lines(reading_plan, characters)
+        if not lines:
+            raise ValueError("Reading plan produced no script text for Gemini TTS.")
+        style_hint = VOICE_PRESETS.get("narration", {}).get("style")
+        chunks = _chunk_script_lines(lines)
+        if not chunks:
+            raise ValueError("Failed to segment script for Gemini TTS.")
+        logger.info(
+            "Synthesizing audio via Gemini TTS for request %s (chunks=%d)",
+            request_id,
+            len(chunks),
+        )
+        audio_segments: List[bytes] = []
+        for idx, chunk in enumerate(chunks, start=1):
+            logger.info("Generating Gemini TTS chunk %d/%d for request %s", idx, len(chunks), request_id)
+            audio_segments.append(create_gemini_tts(chunk, style_hint=style_hint))
+        extension = _resolve_gemini_extension()
+        if len(audio_segments) == 1:
+            return audio_segments[0], extension
+        if extension == "wav":
+            return _merge_wav_segments(audio_segments), "wav"
+        logger.warning(
+            "Concatenating %d Gemini audio chunks without re-encoding (encoding=%s)",
+            len(audio_segments),
+            extension,
+        )
+        return b"".join(audio_segments), extension
+
     if _azure_client is not None:
         try:
             ssml = _build_azure_ssml(reading_plan, characters, language)
             logger.info(f"Synthesizing audio from SSML for request {request_id}")
-            return _azure_client.synthesize_ssml(ssml)
+            return _azure_client.synthesize_ssml(ssml), "wav"
         except Exception:
             logger.exception("Azure TTS synthesis failed; falling back to OpenAI per-segment TTS")
 
@@ -426,18 +659,17 @@ def synthesize_story_from_plan(
     if not audio_chunks:
         raise ValueError("No audio data generated from segments.")
 
-    return _merge_wav_segments(audio_chunks)
+    return _merge_wav_segments(audio_chunks), "wav"
 
 def plan_and_synthesize_audio(
     story_text: str,
     characters: List[CharacterProfile],
     language: Optional[str],
     request_id: str
-) -> bytes:
+) -> Tuple[bytes, str]:
     """
     Generates a reading plan from story text and then synthesizes audio from that plan.
     Combines plan_reading_segments and synthesize_story_from_plan.
     """
     reading_plan = plan_reading_segments(story_text, characters, request_id)
-    audio_bytes = synthesize_story_from_plan(reading_plan, characters, language, request_id)
-    return audio_bytes
+    return synthesize_story_from_plan(reading_plan, characters, language, request_id)

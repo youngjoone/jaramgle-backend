@@ -9,6 +9,7 @@ public class StorybookPageDto {
     private Integer pageNumber;
     private String text;
     private String imageUrl;
+    private String audioUrl;
 
     public static StorybookPageDto fromEntity(StorybookPage entity) {
         StorybookPageDto dto = new StorybookPageDto();
@@ -16,6 +17,7 @@ public class StorybookPageDto {
         dto.setPageNumber(entity.getPageNumber());
         dto.setText(entity.getText());
         dto.setImageUrl(entity.getImageUrl());
+        dto.setAudioUrl(entity.getAudioUrl());
         return dto;
     }
 }
