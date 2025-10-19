@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -30,7 +31,7 @@ public class CharacterModelingService {
         performModeling(characterId, fallbackDescription);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Character requestModelingSync(Long characterId, String fallbackDescription) {
         return performModeling(characterId, fallbackDescription)
                 .orElse(null);

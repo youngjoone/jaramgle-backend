@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import com.fairylearn.backend.entity.CharacterScope;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +47,10 @@ public class Character {
     @Column(name = "modeling_status", nullable = false, length = 20)
     private CharacterModelingStatus modelingStatus = CharacterModelingStatus.PENDING;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "scope", nullable = false, length = 20)
+    private CharacterScope scope = CharacterScope.GLOBAL;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -58,6 +64,9 @@ public class Character {
         }
         if (modelingStatus == null) {
             modelingStatus = CharacterModelingStatus.PENDING;
+        }
+        if (scope == null) {
+            scope = CharacterScope.GLOBAL;
         }
     }
 }
