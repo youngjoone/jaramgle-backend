@@ -42,6 +42,9 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     lang_label = "한국어" if is_ko else "영어"
     title_line = f'[제목] "{req.title}" (고정)' if req.title else "[제목] 미정(직접 생성)"
     min_pages = req.min_pages or 10
+    moral_line = (req.moral or "").strip()
+    art_style_pref = (req.art_style or "").strip()
+    required_items = [item.strip() for item in req.required_elements if item.strip()]
 
     character_lines = []
     if req.characters:
@@ -65,10 +68,20 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     goal_section = f"""
 - 주제 키워드: {topics_str or '자유 선택'}
 - 학습 목표: {objectives_str or '자유 선택'}
-- 설교식 문장 대신 사건 전개와 대사를 통해 자연스럽게 메시지를 전달한다."""
+- 전달하고 싶은 교훈: {moral_line or '이야기 흐름 속에서 자연스럽게 긍정적인 메시지를 드러낸다.'}
+- 설교식 문장 대신 사건 전개와 대사를 통해 메시지를 자연스럽게 전달한다."""
 
-    art_direction_points = """
-- creative_concept.art_style과 mood_and_tone을 이야기 전체와 모든 image_prompt에 일관되게 반영한다.
+    if art_style_pref:
+        art_direction_intro = (
+            f'- 사용자 지정 그림 스타일: "{art_style_pref}" 콘셉트를 중심으로 한다.\n'
+            "  • creative_concept.art_style도 동일 문구로 서술하고, page.image_prompt마다 일관되게 반영한다."
+        )
+    else:
+        art_direction_intro = "- 사용자 지정 그림 스타일: 기본 동화책용 수채화/파스텔 톤을 유지한다."
+
+    art_direction_points = f"""
+{art_direction_intro}
+- creative_concept.mood_and_tone을 이야기 전체와 모든 image_prompt에 일관되게 반영한다.
 - Realistic/photorealistic 표현은 피하고, 아동용 동화책 일러스트 톤을 유지한다.
 - 장면마다 색감·소품·배경 디테일을 활용해 따뜻하고 상상력 넘치는 분위기를 만든다."""
 
@@ -80,12 +93,18 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     action_rules_points = """
 - page.text에는 주요 인물의 행동·감정·상호작용을 명시적으로 묘사한다.
 - page.image_prompt에는 캐릭터의 자세·표정·행동과 함께 배경 환경의 변화(날씨, 시간대, 주변 사물)를 구체적으로 포함한다.
-- 반복적인 정적 장면을 피하고, 이야기 흐름이 자연스럽게 이어지도록 장면 간 변화를 설계한다."""
+- 반복적인 정적 장면을 피하고, 이야기 흐름이 자연스럽게 이어지도록 장면 간 변화를 설계한다.
+- 아래 필수 요소(있다면)는 이야기 텍스트와 image_prompt 양쪽에 자연스럽게 등장시킨다."""
 
     character_continuity_points = """
 - 각 캐릭터의 이름·역할·관계를 일관되게 유지하고, 페이지마다 성격이 잘 드러나도록 한다.
 - 의상과 소품은 character_sheets 또는 요청 정보에서 제시한 분위기를 반영한다.
 - 새로운 캐릭터를 도입할 경우 character_sheets에 이름, slug(케밥 케이스 권장), visual_description, voice_profile을 반드시 추가한다."""
+
+    if required_items:
+        required_elements_section = "\n".join(f"- {item}" for item in required_items)
+    else:
+        required_elements_section = "- (명시된 필수 요소 없음. 이야기 전개에 자연스럽게 필요한 소재를 활용한다.)"
 
     full_prompt = f"""
 너는 4~8세 아동용 그림책 작가이자 아트 디렉터다.
@@ -104,6 +123,10 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 [주요 캐릭터]
 {characters_section}
 - 필요하다면 새 캐릭터를 도입해도 된다. 다만 등장한 캐릭터는 모두 `character_sheets`에 정의해야 한다.
+
+[필수 등장 요소]
+{required_elements_section}
+- 위 요소는 page.text와 page.image_prompt 모두에서 자연스럽게 활용한다.
 
 [비주얼 디렉션]
 {art_direction_points}

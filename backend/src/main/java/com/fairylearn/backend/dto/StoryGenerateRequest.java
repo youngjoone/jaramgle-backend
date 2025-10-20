@@ -15,6 +15,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 @Data
@@ -50,4 +51,27 @@ public class StoryGenerateRequest {
     @JsonAlias({"characterIds","character_ids"})
     @Size(max = 2)
     private List<Long> characterIds;
+
+    @Size(max = 150)
+    private String moral;
+
+    @JsonProperty("required_elements")
+    @JsonAlias({"requiredElements"})
+    private List<String> requiredElements;
+
+    @JsonProperty("art_style")
+    @JsonAlias({"artStyle"})
+    @Size(max = 80)
+    private String artStyle;
+
+    public void setRequiredElements(List<String> elements) {
+        if (elements == null) {
+            this.requiredElements = null;
+            return;
+        }
+        this.requiredElements = elements.stream()
+                .map(item -> item == null ? "" : item.trim())
+                .filter(item -> !item.isEmpty())
+                .collect(Collectors.toList());
+    }
 }

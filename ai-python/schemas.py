@@ -29,6 +29,9 @@ class GenerateRequest(BaseModel):
     language: Union[Literal["KO", "EN"], str]
     title: Optional[str] = None
     characters: List[CharacterProfile] = Field(default_factory=list)
+    moral: Optional[str] = None
+    required_elements: List[str] = Field(default_factory=list)
+    art_style: Optional[str] = Field(default=None, alias="artStyle")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -51,6 +54,30 @@ class GenerateRequest(BaseModel):
             if u in {"EN", "ENG", "EN-US", "EN_GB", "EN-GB"}:
                 return "EN"
         return v
+
+    @field_validator("required_elements", mode="before")
+    def _normalize_required_elements(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            parts = re.split(r"[,;\n]", value)
+        else:
+            parts = value
+        cleaned = []
+        for item in parts:
+            if item is None:
+                continue
+            candidate = str(item).strip()
+            if candidate:
+                cleaned.append(candidate)
+        return cleaned
+
+    @field_validator("moral", "art_style", mode="before")
+    def _strip_optional(cls, value):
+        if isinstance(value, str):
+            v = value.strip()
+            return v or None
+        return value
 
 # -------- Story / Quiz / Concept (NEW) --------
 class StoryPage(BaseModel):
