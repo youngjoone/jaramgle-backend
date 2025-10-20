@@ -15,7 +15,7 @@ class ImageProviderError(RuntimeError):
 
 class ImageProvider(ABC):
     @abstractmethod
-    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         """Return raw image bytes."""
 
 
@@ -31,9 +31,9 @@ class OpenAIImageProvider(ImageProvider):
         self._client = client
         self._config = config
 
-    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         if image_bytes:
-            logger.warning("OpenAI DALL-E does not support image prompting; ignoring provided image_bytes.")
+            logger.warning("OpenAI DALL-E does not support image prompting; ignoring %d provided reference images.", len(image_bytes))
         try:
             response = self._client.images.generate(
                 model=self._config.model,
@@ -110,7 +110,7 @@ class GeminiImageProvider(ImageProvider):
                 exc,
             )
 
-    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         try:
             if self._mode == "client" and self._client is not None:
                 return self._generate_with_client(prompt=prompt, image_bytes=image_bytes)
@@ -121,7 +121,7 @@ class GeminiImageProvider(ImageProvider):
             logger.exception("Gemini image generation failed: %s", exc)
             raise ImageProviderError(str(exc)) from exc
 
-    def _generate_with_client(self, *, prompt: str, image_bytes: Optional[bytes] = None) -> bytes:
+    def _generate_with_client(self, *, prompt: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         if self._client is None:
             raise ImageProviderError("Gemini client unavailable")
 
@@ -131,7 +131,7 @@ class GeminiImageProvider(ImageProvider):
             raise ImageProviderError(f"google.genai types unavailable: {exc}") from exc
 
         if image_bytes:
-            logger.warning("Gemini generate_images does not yet support image prompts via this client; ignoring provided image bytes.")
+            logger.warning("Gemini generate_images does not yet support image prompts via this client; ignoring %d provided reference images.", len(image_bytes))
 
         model_name = self._normalize_model_name(self._config.model)
         config_kwargs = {
@@ -181,7 +181,7 @@ class GeminiImageProvider(ImageProvider):
 
         raise ImageProviderError("Gemini image payload missing bytes")
 
-    def _generate_via_rest(self, *, prompt: str, image_bytes: Optional[bytes] = None) -> bytes:
+    def _generate_via_rest(self, *, prompt: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         # Lazy import to avoid dependency for users that do not need Gemini.
         import requests
 
@@ -195,7 +195,7 @@ class GeminiImageProvider(ImageProvider):
 
         if image_bytes:
             logger.warning(
-                "Gemini REST API image generation currently ignores reference image bytes."
+                "Gemini REST API image generation currently ignores reference images; ignoring %d provided.", len(image_bytes)
             )
 
         body = {"instances": [{"prompt": prompt}]}
@@ -289,7 +289,7 @@ class ImagenImageProvider(ImageProvider):
                 "Failed to initialise Vertex AI. Ensure you have authenticated via 'gcloud auth application-default login'"
             ) from exc
 
-    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[bytes] = None) -> bytes:
+    def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         try:
             generation_kwargs = {
                 "prompt": prompt,
@@ -298,7 +298,10 @@ class ImagenImageProvider(ImageProvider):
             if image_bytes:
                 from vertexai.preview.vision_models import Image
 
-                generation_kwargs["image_input"] = Image(image_bytes)
+                if len(image_bytes) > 1:
+                    logger.warning("Imagen provider received %d reference images, but only the first one will be used.", len(image_bytes))
+                
+                generation_kwargs["image_input"] = Image(image_bytes[0])
 
             images = self._model.generate_images(**generation_kwargs)
             # The response contains a list of Image objects
