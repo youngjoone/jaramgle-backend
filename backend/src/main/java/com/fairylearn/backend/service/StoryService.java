@@ -263,6 +263,19 @@ public class StoryService {
         if (request.getTitle() != null) {
             promptPayload.put("title", request.getTitle());
         }
+        if (request.getMoral() != null && !request.getMoral().isBlank()) {
+            promptPayload.put("moral", request.getMoral().trim());
+        }
+        if (request.getRequiredElements() != null && !request.getRequiredElements().isEmpty()) {
+            ArrayNode requiredArray = promptPayload.putArray("required_elements");
+            request.getRequiredElements().stream()
+                    .map(element -> element == null ? "" : element.trim())
+                    .filter(element -> !element.isEmpty())
+                    .forEach(requiredArray::add);
+        }
+        if (request.getArtStyle() != null && !request.getArtStyle().isBlank()) {
+            promptPayload.put("art_style", request.getArtStyle().trim());
+        }
 
         if (request.getCharacterIds() != null && !request.getCharacterIds().isEmpty()) {
             List<Character> characters = characterRepository.findByIdIn(request.getCharacterIds());
