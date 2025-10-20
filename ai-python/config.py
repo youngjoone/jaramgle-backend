@@ -40,7 +40,7 @@ class Config:
     GEMINI_TTS_MODEL: str = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
     GEMINI_TTS_VOICE: str = os.getenv("GEMINI_TTS_VOICE", "Charon")
     GEMINI_TTS_LANGUAGE: str = os.getenv("GEMINI_TTS_LANGUAGE", "en-US")
-    GEMINI_TTS_AUDIO_ENCODING: str = os.getenv("GEMINI_TTS_AUDIO_ENCODING", "MP3")
+    GEMINI_TTS_AUDIO_ENCODING: str = os.getenv("GEMINI_TTS_AUDIO_ENCODING", "LINEAR16")
     GEMINI_TTS_PROMPT_TEMPLATE: str = os.getenv(
         "GEMINI_TTS_PROMPT_TEMPLATE",
         "Narrate the following passage for a children's story with a warm and engaging tone.",
