@@ -30,7 +30,6 @@ from schemas import (
     GenerateImageResponse,
     CreateCharacterReferenceImageRequest,
     CharacterReferenceImageResponse,
-    GenerateAudioFromStoryRequest,
     GeneratePageAssetsRequest, # Added
     GenerateParagraphAudioRequest,
     GenerateParagraphAudioResponse,
@@ -38,13 +37,10 @@ from schemas import (
 from service.text_service import generate_story
 from service.image_service import generate_image, generate_character_reference_image
 from service.audio_service import (
-    synthesize_story_from_plan,
     create_tts,
     create_gemini_tts,
     get_gemini_tts_extension,
     generate_paragraph_audio,
-    plan_reading_segments,
-    plan_and_synthesize_audio,
 ) # Added
 
 # --- App Initialization and Logging ---
@@ -211,41 +207,7 @@ def create_character_reference_image_endpoint(
             detail={"code": "REFERENCE_IMAGE_ERROR", "message": str(e)},
         )
 
-@app.post("/ai/generate-audio")
-def generate_audio_endpoint(request: Request, audio_req: GenerateAudioFromStoryRequest = Body(...)):
-    try:
-        os.makedirs(_AUDIO_BASE_DIR, exist_ok=True)
 
-        # 1. Generate reading plan from story text
-        reading_plan = plan_reading_segments(
-            story_text=audio_req.story_text,
-            characters=audio_req.characters,
-            request_id=request.state.request_id
-        )
-
-        # 2. Synthesize audio from the generated plan
-        audio_bytes, extension = synthesize_story_from_plan(
-            reading_plan=reading_plan,
-            characters=audio_req.characters,
-            language=audio_req.language,
-            request_id=request.state.request_id
-        )
-
-        filename = f"{uuid.uuid4()}.{extension}"
-        file_path = os.path.join(_AUDIO_BASE_DIR, filename)
-
-        with open(file_path, "wb") as f:
-            f.write(audio_bytes)
-
-        logger.info("Audio file saved to %s", file_path)
-        return Response(content=filename, media_type="text/plain")
-
-    except Exception as e:
-        logger.error(f"Audio generation failed for Request ID: {request.state.request_id}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail={"code": "AUDIO_GENERATION_ERROR", "message": str(e)},
-    )
 
 
 @app.post("/ai/generate-page-audio", response_model=GenerateParagraphAudioResponse)
