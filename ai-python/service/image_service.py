@@ -130,23 +130,17 @@ def _generate_image_bytes(
 
 
 def _encode_png_base64(image_bytes: bytes, size: Tuple[int, int] = (512, 512)) -> str:
-
-
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
-
-
     if size:
-
-
         image.thumbnail(size, Image.LANCZOS)
-
+        background = Image.new("RGB", size, (255, 255, 255))
+        paste_x = (size[0] - image.width) // 2
+        paste_y = (size[1] - image.height) // 2
+        background.paste(image, (paste_x, paste_y))
+        image = background
 
     buffer = BytesIO()
-
-
     image.save(buffer, format="PNG")
-
-
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
