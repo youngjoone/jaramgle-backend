@@ -10,13 +10,17 @@ import com.fairylearn.backend.entity.RefreshTokenEntity;
 import com.fairylearn.backend.repository.RefreshTokenRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Collections;
@@ -33,6 +37,7 @@ public class AuthController {
     private final RefreshTokenRepository refreshTokenRepository;
     private final AuthService authService;
     private final UserRepository userRepository; // Inject UserRepository
+    private static final String REFRESH_COOKIE_NAME = "refresh_token";
 
     @PostMapping("/signup")
     public ResponseEntity<Map<String, String>> signup(@Valid @RequestBody SignupRequest signupRequest) {
@@ -43,7 +48,9 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<Map<String, String>> login(@Valid @RequestBody LoginRequest loginRequest) {
+    public ResponseEntity<Map<String, String>> login(
+            @Valid @RequestBody LoginRequest loginRequest
+    ) {
         User user = authService.login(loginRequest);
 
         // Generate access token using the User object (which uses ID as subject)
@@ -54,6 +61,12 @@ public class AuthController {
         LocalDateTime refreshTokenExpiresAt = jwtProvider.extractExpiration(refreshToken).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
 
         // Save refresh token to DB using user ID
+        refreshTokenRepository.findByUserId(String.valueOf(user.getId()))
+                .ifPresent(existing -> {
+                    existing.setRevokedAt(LocalDateTime.now());
+                    refreshTokenRepository.save(existing);
+                });
+
         RefreshTokenEntity refreshTokenEntity = new RefreshTokenEntity();
         refreshTokenEntity.setUserId(String.valueOf(user.getId())); // Use user's ID as userId
         refreshTokenEntity.setToken(refreshToken);
@@ -62,17 +75,20 @@ public class AuthController {
 
         Map<String, String> responseBody = new HashMap<>();
         responseBody.put("accessToken", accessToken);
-        responseBody.put("refreshToken", refreshToken);
 
-        return ResponseEntity.ok(responseBody);
+        ResponseCookie refreshCookie = buildRefreshCookie(refreshToken, refreshTokenExpiresAt);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
+                .body(responseBody);
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<Map<String, String>> refresh(@RequestBody Map<String, String> request) {
-        String oldRefreshToken = request.get("refreshToken");
-
+    public ResponseEntity<Map<String, String>> refresh(
+            @CookieValue(value = REFRESH_COOKIE_NAME, required = false) String oldRefreshToken
+    ) {
         if (oldRefreshToken == null || oldRefreshToken.isEmpty()) {
-            return ResponseEntity.status(401).body(Collections.singletonMap("message", "Refresh token is missing"));
+            return ResponseEntity.status(401).body(Collections.singletonMap("message", "Refresh token cookie is missing"));
         }
 
         // a) DB에서 token 조회 → 없거나 revoked_at!=null 또는 expires_at<now → 401
@@ -121,11 +137,50 @@ public class AuthController {
         storedRefreshToken.setRevokedAt(LocalDateTime.now());
         refreshTokenRepository.save(storedRefreshToken);
 
-        // g) Respond with new tokens
+        // g) Send new refresh cookie + respond with new access token
         Map<String, String> responseBody = new HashMap<>();
         responseBody.put("accessToken", newAccessToken);
-        responseBody.put("refreshToken", newRefreshToken);
 
-        return ResponseEntity.ok(responseBody);
+        ResponseCookie refreshCookie = buildRefreshCookie(newRefreshToken, newRefreshTokenExpiresAt);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
+                .body(responseBody);
+    }
+
+    private ResponseCookie buildRefreshCookie(String token, LocalDateTime expiresAt) {
+        long maxAgeSeconds = Math.max(0, Duration.between(LocalDateTime.now(), expiresAt).getSeconds());
+        return ResponseCookie.from(REFRESH_COOKIE_NAME, token)
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(maxAgeSeconds)
+                .build();
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, String>> logout(
+            @CookieValue(value = REFRESH_COOKIE_NAME, required = false) String currentRefreshToken
+    ) {
+        if (currentRefreshToken != null && !currentRefreshToken.isBlank()) {
+            refreshTokenRepository.findByToken(currentRefreshToken)
+                    .ifPresent(token -> {
+                        token.setRevokedAt(LocalDateTime.now());
+                        refreshTokenRepository.save(token);
+                    });
+        }
+
+        ResponseCookie expiredCookie = ResponseCookie.from(REFRESH_COOKIE_NAME, "")
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(0)
+                .build();
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, expiredCookie.toString())
+                .body(Collections.singletonMap("message", "LOGGED_OUT"));
     }
 }
