@@ -398,13 +398,6 @@ public class StoryService {
             if (node.hasNonNull("catchphrase")) {
                 character.setCatchphrase(node.get("catchphrase").asText());
             }
-            if (node.hasNonNull("image_url") && (character.getImageUrl() == null || character.getImageUrl().isBlank())) {
-                String sheetImage = node.get("image_url").asText();
-                if (sheetImage != null && !sheetImage.isBlank()) {
-                    character.setImageUrl(sheetImage);
-                    character.setModelingStatus(CharacterModelingStatus.COMPLETED);
-                }
-            }
 
             charactersToPersist.add(character);
             ensureCharacterReference(character, node.path("visual_description").asText(null));
