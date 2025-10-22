@@ -9,6 +9,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -19,6 +21,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.Duration;
 
 @Component
 @RequiredArgsConstructor
@@ -63,12 +66,25 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         refreshTokenEntity.setExpiresAt(refreshTokenExpiresAt);
         refreshTokenRepository.save(refreshTokenEntity);
 
-        // Build the redirect URL with tokens as query parameters
+        ResponseCookie refreshCookie = buildRefreshCookie(refreshToken, refreshTokenExpiresAt);
+        res.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+
+        // Build the redirect URL with only the access token as query parameter
         String redirectUrl = UriComponentsBuilder.fromUriString(frontendBaseUrl + "/auth/callback")
                 .queryParam("accessToken", accessToken)
-                .queryParam("refreshToken", refreshToken)
                 .build().toUriString();
 
         res.sendRedirect(redirectUrl);
+    }
+
+    private ResponseCookie buildRefreshCookie(String token, LocalDateTime expiresAt) {
+        long maxAgeSeconds = Math.max(0, Duration.between(LocalDateTime.now(), expiresAt).getSeconds());
+        return ResponseCookie.from("refresh_token", token)
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(maxAgeSeconds)
+                .build();
     }
 }
