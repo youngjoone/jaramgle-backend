@@ -401,6 +401,7 @@ public class StoryService {
 
             charactersToPersist.add(character);
             ensureCharacterReference(character, node.path("visual_description").asText(null));
+            log.info("[CHARACTER_DEBUG] After ensureCharacterReference for slug '{}': Status={}, ImageUrl={}", character.getSlug(), character.getModelingStatus(), character.getImageUrl());
         });
 
         if (!charactersToPersist.isEmpty()) {
@@ -581,6 +582,12 @@ public class StoryService {
             ObjectNode characterNode = characterArray.addObject();
             cv.forEach(characterNode::put);
         });
+
+        try {
+            log.info("[CHARACTER_DEBUG] Payload for page {} asset generation: {}", pageNo, objectMapper.writeValueAsString(requestPayload));
+        } catch (JsonProcessingException e) {
+            log.warn("[CHARACTER_DEBUG] Failed to serialize character visuals for logging.");
+        }
 
         try {
             JsonNode aiResponse = webClient.post()

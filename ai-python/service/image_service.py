@@ -130,86 +130,248 @@ def _generate_image_bytes(
 
 
 def _encode_png_base64(image_bytes: bytes, size: Tuple[int, int] = (512, 512)) -> str:
+
+
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
+
+
     if size:
-        image = image.resize(size, Image.LANCZOS)
+
+
+        image.thumbnail(size, Image.LANCZOS)
+
+
     buffer = BytesIO()
+
+
     image.save(buffer, format="PNG")
+
+
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
+
+
+
+
+
+
 def _strip_dialogue(raw_text: Optional[str]) -> str:
+
+
     if not raw_text:
+
+
         return ""
+
+
     cleaned = re.sub(r"“[^”]*”", "", raw_text)
+
+
     cleaned = re.sub(r"\"[^\"]*\"", "", cleaned)
+
+
     cleaned = re.sub(r"'[^']*'", "", cleaned)
+
+
     cleaned = cleaned.replace("\n", " ")
+
+
     cleaned = re.sub(r"\s{2,}", " ", cleaned)
+
+
     return cleaned.strip()
+
+
+
+
 
 # --- Public API ---
 
+
+
+
+
+
+
+
 def generate_image(
+
+
     text: str,
+
+
     request_id: str,
+
+
     art_style: Optional[str] = None,
+
+
     character_visuals: Optional[List[CharacterVisual]] = None,
+
+
     character_images: Optional[List[CharacterProfile]] = None,  # Kept for fallback
+
+
     include_metadata: bool = False,
+
+
 ) -> Union[str, Tuple[str, Dict[str, Any]]]:
+
+
     """
+
+
     Generates an image based on the provided text and character descriptions.
+
+
     It attempts to use the preferred Google provider first and falls back to OpenAI.
+
+
     Returns a base64 encoded PNG string by default, or a tuple of (base64, metadata)
+
+
     when include_metadata=True.
+
+
     """
+
+
     # 1. Define Style
+
+
     style_guide = art_style or _base_image_style
+
+
     if not art_style:
+
+
         logger.warning("No art_style supplied for %s; falling back to default style guide.", request_id)
 
+
+
+
+
     # 2. Define Characters
+
+
     character_descriptions = []
+
+
     if character_visuals:
+
+
         for visual in character_visuals:
+
+
             # Extract just the persona/personality part
+
+
             persona_match = re.search(r"Persona: ([^|]+)", visual.visual_description, re.IGNORECASE)
+
+
             if persona_match:
+
+
                 persona = persona_match.group(1).strip()
+
+
                 character_descriptions.append(f"- {visual.name}: {persona}")
+
+
             elif visual.name: # Fallback to name if persona not found
+
+
                 character_descriptions.append(f"- {visual.name}")
 
+
+
+
+
     character_section = ""
+
+
     if character_descriptions:
+
+
         character_section = "\n\nCharacters in this scene:\n" + "\n".join(character_descriptions)
 
+
+
+
+
     # 3. Define Scene
-    # The incoming 'text' is now assumed to be just the scene summary
+
+
     scene_summary = _strip_dialogue(text)
+
+
     if not scene_summary:
+
+
         scene_summary = "A key moment in the story with characters interacting."
 
+
+
+
+
     # 4. Define Rules
+
+
     rules = dedent("""
+
+
         - Show characters mid-action with expressive body language and clear emotions.
+
+
         - Vary the composition and background to make the setting feel alive.
+
+
         - Strictly maintain character appearance from all provided reference images.
+
+
         - Absolutely no speech bubbles, captions, or text of any kind.
+
+
     """).strip()
 
-    # 5. Assemble the final prompt
-    prompt = dedent(
-        f"""
-        {style_guide}
-        {character_section}
 
-        Illustrate the moment: {scene_summary}
+
+
+
+    # 5. Assemble the final prompt
+
+
+    prompt = dedent(
+
+
+        f"""
+
+
+        Task: Create an image for a children's storybook page.
+
+
+        Style: {style_guide}
+
+
+        Characters: {character_section or "As described in the scene."}
+
+
+        Scene: Illustrate the moment where {scene_summary}
+
+
+
+
 
         Rules:
+
+
         {rules}
+
+
         """
+
+
     ).strip()
 
     logger.info("Image generation prompt for %s: %s", request_id, prompt)
