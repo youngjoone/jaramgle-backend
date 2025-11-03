@@ -1,16 +1,49 @@
 spring:
   datasource:
-    # Placeholder for PostgreSQL connection details
-    # url: jdbc:postgresql://localhost:5432/your_db
-    # username: your_user
-    # password: your_password
-    driverClassName: org.postgresql.Driver
+    url: jdbc:postgresql://10.0.2.190:5432/cocobook_db
+    username: cocobook_app
+    password: cocobook123
+    driver-class-name: org.postgresql.Driver
+
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     properties:
       hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+
   flyway:
     enabled: true
     locations: classpath:db/migration/postgres
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: 1093953420579-hvtg3btvbdp6en06g56j9akpk76rjsia.apps.googleusercontent.com
+            client-secret: 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
+            scope: profile, email
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration-minutes: 60
+  refresh-expiration-minutes: 10080   # 7일 (분 단위)
+
+custom:
+  redis:
+    host: localhost
+    port: 6379
+  ai:
+    base-url: http://127.0.0.1:8000
+  frontend:
+    base-url: https://your-domain.com
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  error:
+    include-message: always
+
