@@ -2,7 +2,7 @@ spring:
   application:
     name: backend
   profiles:
-    active: local
+    active: ${SPRING_PROFILES_ACTIVE:prod}  # ✅ 환경변수를 우선 적용하고 기본값은 prod
   jackson:
     deserialization:
       fail-on-unknown-properties: false
@@ -28,4 +28,5 @@ app:
     base-url: http://localhost:5173
 ai:
   python:
-    base-url: http://localhost:8001
+    base-url: http://localhost:8000
+
