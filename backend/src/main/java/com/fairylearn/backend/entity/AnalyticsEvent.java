@@ -23,7 +23,7 @@ public class AnalyticsEvent {
     @Column(name = "session_id", nullable = false)
     private String sessionId;
 
-    @Column(columnDefinition = "CLOB") // For H2, TEXT in Postgres
+    @Column(columnDefinition = "TEXT") // Use TEXT for large strings in Postgres
     private String payload;
 
     @Column(name = "ts", nullable = false)
