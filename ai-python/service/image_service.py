@@ -108,7 +108,8 @@ def _generate_image_bytes(
     providers: List[Tuple[str, ImageProvider]] = []
     if _prefer_google_image and _google_image_provider is not None:
         providers.append(("Google Gemini 2.5 Flash", _google_image_provider))
-    providers.append(("OpenAI", _openai_image_provider))
+    else:
+        providers.append(("OpenAI", _openai_image_provider))
 
     last_error: Optional[Exception] = None
     for provider_name, provider in providers:

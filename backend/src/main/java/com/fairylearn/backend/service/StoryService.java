@@ -59,6 +59,7 @@ public class StoryService {
     private final StorybookPageRepository storybookPageRepository;
     private final CharacterRepository characterRepository;
     private final StorageQuotaService storageQuotaService;
+    private final HeartWalletService heartWalletService;
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final StoryAssembler storyAssembler;
@@ -66,6 +67,8 @@ public class StoryService {
 
     private static final String CHARACTER_IMAGE_DIR =
             System.getenv().getOrDefault("CHARACTER_IMAGE_DIR", "/Users/kyj/testchardir");
+
+    private static final int HEART_COST_PER_STORY = 1;
 
     // Helper record to return multiple values from generation
     public record GenerationResult(StableStoryDto story, JsonNode concept) {}
@@ -88,6 +91,8 @@ public class StoryService {
     @Transactional
     public Story saveNewStory(String userId, String title, String ageRange, String topicsJson, String language, String lengthLevel, List<String> pageTexts, List<Long> characterIds) {
         storageQuotaService.ensureSlotAvailable(userId);
+        Long numericUserId = parseUserId(userId);
+        heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
         Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, new ArrayList<StorybookPage>(), new LinkedHashSet<Character>());
         story = storyRepository.save(story);
         for (int i = 0; i < pageTexts.size(); i++) {
@@ -98,6 +103,10 @@ public class StoryService {
         storyRepository.save(story);
         story.getCharacters().size();
         storageQuotaService.increaseUsedCount(userId);
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("context", "manual");
+        metadata.put("title", title);
+        heartWalletService.spendHearts(numericUserId, HEART_COST_PER_STORY, "동화 생성", metadata);
         return story;
     }
 
@@ -163,6 +172,8 @@ public class StoryService {
 
     @Transactional
     public Story generateAndSaveStory(String userId, StoryGenerateRequest request) {
+        Long numericUserId = parseUserId(userId);
+        heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
         storageQuotaService.ensureSlotAvailable(userId);
         GenerationResult generationResult = generateAiStory(request);
         return saveGeneratedStory(userId, request, generationResult.story(), generationResult.concept());
@@ -176,6 +187,8 @@ public class StoryService {
 
     @Transactional
     public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept) {
+        Long numericUserId = parseUserId(userId);
+        heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
         String quizJson;
         String creativeConceptJson = null;
         try {
@@ -220,6 +233,12 @@ public class StoryService {
         }
         storyRepository.save(story);
         story.getCharacters().size();
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("context", "ai");
+        if (stableStoryDto.title() != null) {
+            metadata.put("title", stableStoryDto.title());
+        }
+        heartWalletService.spendHearts(numericUserId, HEART_COST_PER_STORY, "동화 생성", metadata);
         return story;
     }
 
@@ -656,6 +675,14 @@ public class StoryService {
         } catch (Exception e) {
             log.error("Failed to generate assets for StoryPage {}-{} from AI service: {}", storyId, pageNo, e.getMessage());
             throw new RuntimeException("Failed to generate assets for story page.", e);
+        }
+    }
+
+    private Long parseUserId(String userId) {
+        try {
+            return Long.parseLong(userId);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Invalid user id for heart wallet operations: " + userId, ex);
         }
     }
 }
