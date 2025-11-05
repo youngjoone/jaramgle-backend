@@ -374,9 +374,13 @@ class Gemini25FlashImageProvider(ImageProvider):
                 raise ImageProviderError("Gemini 2.5 Flash response contained no candidates.")
 
             # Find the first part that contains image data
-            for part in response.candidates[0].content.parts:
-                if part.inline_data and part.inline_data.data:
-                    return part.inline_data.data
+            first_candidate = response.candidates[0]
+            parts = getattr(getattr(first_candidate, "content", None), "parts", None) or []
+            for part in parts:
+                inline = getattr(part, "inline_data", None)
+                data = getattr(inline, "data", None) if inline else None
+                if data:
+                    return data
 
             raise ImageProviderError("Gemini 2.5 Flash response did not contain image data.")
 

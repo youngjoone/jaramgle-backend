@@ -2,6 +2,7 @@ package com.fairylearn.backend.controller;
 
 import com.fairylearn.backend.dto.ApiError;
 import com.fairylearn.backend.exception.BizException;
+import com.fairylearn.backend.exception.PaymentRequiredException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -39,6 +40,12 @@ public class GlobalExceptionHandler {
             errors.put(fieldName, errorMessage);
         });
         return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(PaymentRequiredException.class)
+    public ResponseEntity<ApiError> handlePaymentRequired(PaymentRequiredException ex) {
+        return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                .body(ApiError.of(ex.getCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(WebClientResponseException.class)
