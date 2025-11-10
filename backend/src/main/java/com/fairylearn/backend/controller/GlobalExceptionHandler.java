@@ -3,6 +3,7 @@ package com.fairylearn.backend.controller;
 import com.fairylearn.backend.dto.ApiError;
 import com.fairylearn.backend.exception.BizException;
 import com.fairylearn.backend.exception.PaymentRequiredException;
+import com.fairylearn.backend.exception.StoryGenerationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -57,6 +58,12 @@ public class GlobalExceptionHandler {
             default -> HttpStatus.INTERNAL_SERVER_ERROR;       // 500
         };
         return ResponseEntity.status(status).body(ApiError.of("AI_ERROR", ex.getMessage()));
+    }
+
+    @ExceptionHandler(StoryGenerationException.class)
+    public ResponseEntity<ApiError> handleStoryGeneration(StoryGenerationException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiError.of("STORY_GENERATION_FAILED", ex.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)

@@ -4,6 +4,7 @@ import com.fairylearn.backend.dto.CharacterModelingRequestDto;
 import com.fairylearn.backend.dto.CharacterModelingResponseDto;
 import com.fairylearn.backend.entity.Character;
 import com.fairylearn.backend.entity.CharacterModelingStatus;
+import com.fairylearn.backend.exception.CharacterModelingException;
 import com.fairylearn.backend.repository.CharacterRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,10 +29,14 @@ public class CharacterModelingService {
     @Async
     @Transactional
     public void requestModeling(Long characterId, String fallbackDescription) {
-        performModeling(characterId, fallbackDescription);
+        try {
+            performModeling(characterId, fallbackDescription);
+        } catch (CharacterModelingException ex) {
+            log.error("Async character modeling failed for {}: {}", characterId, ex.getMessage(), ex);
+        }
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public Character requestModelingSync(Long characterId, String fallbackDescription) {
         return performModeling(characterId, fallbackDescription)
                 .orElse(null);
@@ -76,23 +81,34 @@ public class CharacterModelingService {
                     .bodyToMono(CharacterModelingResponseDto.class)
                     .block();
 
-            if (response != null && response.imageUrl() != null && !response.imageUrl().isBlank()) {
-                character.setImageUrl(response.imageUrl());
-                character.setModelingStatus(CharacterModelingStatus.COMPLETED);
-                if (response.metadata() != null && !response.metadata().isEmpty()) {
-                    log.debug("Character modeling metadata for {}: {}", character.getSlug(), response.metadata());
-                }
-                log.info("Character modeling completed for {} ({}).", character.getSlug(), characterId);
-            } else {
-                character.setModelingStatus(CharacterModelingStatus.FAILED);
-                log.warn("Character modeling returned empty response for {} ({}).", character.getSlug(), characterId);
+            if (response == null) {
+                log.error("Character modeling returned null response for {} ({}).", character.getSlug(), characterId);
+                throw new CharacterModelingException("캐릭터 참조 이미지를 생성하지 못했습니다.");
             }
+
+            String imageUrl = response.imageUrl();
+            if (imageUrl == null || imageUrl.isBlank()) {
+                log.error("Character modeling returned empty imageUrl for {} ({}).", character.getSlug(), characterId);
+                throw new CharacterModelingException("캐릭터 참조 이미지 경로가 비어 있습니다.");
+            }
+
+            character.setImageUrl(imageUrl);
+            character.setModelingStatus(CharacterModelingStatus.COMPLETED);
+            if (response.metadata() != null && !response.metadata().isEmpty()) {
+                log.debug("Character modeling metadata for {}: {}", character.getSlug(), response.metadata());
+            }
+            log.info("Character modeling completed for {} ({}).", character.getSlug(), characterId);
+            return Optional.of(characterRepository.save(character));
+        } catch (CharacterModelingException ex) {
+            character.setModelingStatus(CharacterModelingStatus.FAILED);
+            characterRepository.save(character);
+            throw ex;
         } catch (Exception ex) {
             character.setModelingStatus(CharacterModelingStatus.FAILED);
+            characterRepository.save(character);
             log.error("Character modeling failed for {} ({}).", character.getSlug(), characterId, ex);
+            throw new CharacterModelingException("캐릭터 참조 이미지 생성 중 오류가 발생했습니다.", ex);
         }
-
-        return Optional.of(characterRepository.save(character));
     }
 
     private String buildPrompt(Character character, String fallbackDescription) {

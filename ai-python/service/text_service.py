@@ -73,11 +73,14 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 
     if art_style_pref:
         art_direction_intro = (
-            f'- 사용자 지정 그림 스타일: "{art_style_pref}" 콘셉트를 중심으로 한다.\n'
-            "  • creative_concept.art_style도 동일 문구로 서술하고, page.image_prompt마다 일관되게 반영한다."
+            f'- 이번 동화의 통일된 그림 스타일은 "{art_style_pref}" 콘셉트로 한다. (동일 동화 내에서는 완전히 일관되게 유지)\n'
+            "  • creative_concept.art_style에 정확히 동일한 문구를 적고, page.image_prompt마다 같은 팔레트/붓터치/촬영감으로 반복한다.\n"
+            "  • 개별 장면에서 창의적으로 연출해도 되지만, 캐릭터 외형/채도/윤곽선은 모든 페이지에서 동일해야 한다."
         )
     else:
-        art_direction_intro = "- 사용자 지정 그림 스타일: 기본 동화책용 수채화/파스텔 톤을 유지한다."
+        art_direction_intro = (
+            "- 이번 동화의 기본 그림 스타일: 따뜻한 파스텔 수채화 + 은은한 텍스처. (한 편 안에서는 톤과 라인 두께를 고정한다.)"
+        )
 
     art_direction_points = f"""
 {art_direction_intro}
@@ -99,6 +102,7 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     character_continuity_points = """
 - 각 캐릭터의 이름·역할·관계를 일관되게 유지하고, 페이지마다 성격이 잘 드러나도록 한다.
 - 의상과 소품은 character_sheets 또는 요청 정보에서 제시한 분위기를 반영한다.
+- 새 캐릭터를 만들 때는 다양한 범주의 친구(예: 동물, 사람, 로봇, 요정, 악기, 자동차·비행기 등 의인화된 사물)를 고르게 조합하고, 특정 종이나 유형이 반복되지 않도록 한다.
 - 새로운 캐릭터를 도입할 경우 character_sheets에 이름, slug(케밥 케이스 권장), visual_description, voice_profile을 반드시 추가한다."""
 
     if required_items:
@@ -200,7 +204,7 @@ def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
     설정에 따라 적절한 LLM을 호출하여 스토리를 생성합니다.
     """
     provider = Config.LLM_PROVIDER.lower()
-    max_attempts = 3
+    max_attempts = 2  # 최초 1회 + 재시도 1회
     last_error: Optional[Exception] = None
 
     for attempt in range(1, max_attempts + 1):
@@ -234,6 +238,8 @@ def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
                 request_id,
                 validation_error,
             )
+            if attempt == max_attempts:
+                break
         except Exception as exc:
             last_error = exc
             logger.error(
@@ -244,7 +250,8 @@ def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
                 exc,
                 exc_info=True,
             )
-            break
+            if attempt == max_attempts:
+                break
 
     if last_error is not None:
         raise last_error

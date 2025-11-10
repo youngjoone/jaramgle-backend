@@ -13,6 +13,8 @@ import com.fairylearn.backend.entity.StorybookPage; // Import StorybookPage
 import com.fairylearn.backend.entity.Character;
 import com.fairylearn.backend.entity.CharacterModelingStatus;
 import com.fairylearn.backend.entity.CharacterScope;
+import com.fairylearn.backend.exception.CharacterModelingException;
+import com.fairylearn.backend.exception.StoryGenerationException;
 import com.fairylearn.backend.repository.CharacterRepository;
 import com.fairylearn.backend.repository.StoryPageRepository;
 import com.fairylearn.backend.repository.StoryRepository;
@@ -29,6 +31,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.util.retry.Retry;
 
 import java.nio.file.Path;
@@ -333,8 +336,8 @@ public class StoryService {
                     .block();
 
             if (aiResponse == null) {
-                log.warn("Received null response from LLM service, returning failsafe story.");
-                return new GenerationResult(createFailsafeStory(), objectMapper.createObjectNode());
+                log.error("Received null response from LLM service.");
+                throw new StoryGenerationException("동화 생성 결과를 가져오지 못했어요. 잠시 후 다시 시도해 주세요.");
             }
 
             AiStory aiStory = objectMapper.treeToValue(aiResponse.get("story"), AiStory.class);
@@ -343,9 +346,12 @@ public class StoryService {
             StableStoryDto stableStory = storyAssembler.assemble(aiStory, request.getMinPages());
             return new GenerationResult(stableStory, creativeConcept); // 결과에 reading_plan 추가
 
+        } catch (WebClientResponseException ex) {
+            log.error("LLM service returned an error response: {}", ex.getMessage(), ex);
+            throw new StoryGenerationException("동화 생성에 실패했어요. 잠시 후 다시 시도해 주세요.", ex);
         } catch (Exception e) {
-            log.error("Failed to generate story from LLM service after retries. Returning failsafe story.", e);
-            return new GenerationResult(createFailsafeStory(), objectMapper.createObjectNode());
+            log.error("Failed to generate story from LLM service.", e);
+            throw new StoryGenerationException("동화 생성에 실패했어요. 잠시 후 다시 시도해 주세요.", e);
         }
     }
 
@@ -419,12 +425,17 @@ public class StoryService {
             }
 
             charactersToPersist.add(character);
+            characterRepository.saveAndFlush(character);
             ensureCharacterReference(character, node.path("visual_description").asText(null));
+            if (character.getImageUrl() == null || character.getImageUrl().isBlank()) {
+                throw new StoryGenerationException("새로 등장한 캐릭터 '" + character.getName() + "'의 참조 이미지를 생성하지 못했습니다.");
+            }
             log.info("[CHARACTER_DEBUG] After ensureCharacterReference for slug '{}': Status={}, ImageUrl={}", character.getSlug(), character.getModelingStatus(), character.getImageUrl());
         });
 
         if (!charactersToPersist.isEmpty()) {
             characterRepository.saveAll(charactersToPersist);
+            characterRepository.flush();
         }
 
         storyRepository.save(story);
@@ -456,7 +467,12 @@ public class StoryService {
                 ? fallbackDescription
                 : character.getVisualDescription();
 
-        Character updated = characterModelingService.requestModelingSync(character.getId(), prompt);
+        Character updated;
+        try {
+            updated = characterModelingService.requestModelingSync(character.getId(), prompt);
+        } catch (CharacterModelingException ex) {
+            throw new StoryGenerationException("캐릭터 '" + character.getName() + "'의 참조 이미지 생성에 실패했습니다.", ex);
+        }
         if (updated != null && updated.getImageUrl() != null && !updated.getImageUrl().isBlank()) {
             character.setImageUrl(updated.getImageUrl());
             character.setModelingStatus(updated.getModelingStatus());
@@ -570,8 +586,15 @@ public class StoryService {
         story.getCharacters().size(); // Initialize lazy collection
 
         // Prepare character visuals for the AI service
+        List<Character> charactersNeedingSave = new ArrayList<>();
         List<Map<String, String>> characterVisuals = story.getCharacters().stream()
                 .map(character -> {
+                    if (character.getImageUrl() == null || character.getImageUrl().isBlank()) {
+                        ensureCharacterReference(character, character.getVisualDescription());
+                        if (character.getImageUrl() != null && !character.getImageUrl().isBlank()) {
+                            charactersNeedingSave.add(character);
+                        }
+                    }
                     Map<String, String> visual = new HashMap<>();
                     visual.put("name", character.getName());
                     if (character.getSlug() != null) {
@@ -590,6 +613,12 @@ public class StoryService {
                     return visual;
                 })
                 .collect(Collectors.toList());
+
+        if (!charactersNeedingSave.isEmpty()) {
+            characterRepository.saveAll(charactersNeedingSave);
+        }
+
+        characterVisuals.removeIf(cv -> !cv.containsKey("image_url"));
 
         // Construct the request payload for the AI service
         ObjectNode requestPayload = objectMapper.createObjectNode();
