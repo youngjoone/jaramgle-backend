@@ -328,6 +328,12 @@ def generate_image(
         - Absolutely no speech bubbles, captions, or text of any kind.
 
 
+        - For each character, copy the silhouette, facial features, colors, outfit, and props exactly from the reference image. Never mix traits between characters or invent new costumes.
+
+
+        - Keep rendering style, line weight, and lighting consistent across all characters so the illustration looks like the same storybook page.
+
+
     """).strip()
 
 
