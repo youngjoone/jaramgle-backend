@@ -152,6 +152,15 @@ class GeneratePageAssetsRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
 
+class GenerateCoverImageRequest(BaseModel):
+    title: str
+    summary: Optional[str] = None
+    tagline: Optional[str] = None
+    art_style: Optional[str] = Field(default=None, alias="artStyle")
+    character_visuals: List[CharacterVisual] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
+
 class GenerateImageResponse(BaseModel):
     file_path: str
 

@@ -28,6 +28,7 @@ public class StoryDto {
     private LocalDateTime sharedAt;
     private boolean manageable;
     private String creativeConcept; // ADDED
+    private String coverImageUrl;
     private Long authorId;
     private String authorNickname;
 
@@ -45,6 +46,7 @@ public class StoryDto {
         dto.setCreatedAt(story.getCreatedAt());
         dto.setManageable(false);
         dto.setCreativeConcept(story.getCreativeConcept()); // ADDED
+        dto.setCoverImageUrl(story.getCoverImageUrl());
         dto.setAuthorId(null);
         dto.setAuthorNickname(null);
         dto.setPages(List.of());

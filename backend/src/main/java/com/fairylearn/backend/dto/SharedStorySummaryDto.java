@@ -14,4 +14,5 @@ public class SharedStorySummaryDto {
     private String preview;
     private long likeCount;
     private long commentCount;
+    private String coverImageUrl;
 }

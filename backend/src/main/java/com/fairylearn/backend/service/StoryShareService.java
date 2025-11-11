@@ -84,7 +84,8 @@ public class StoryShareService {
                         shared.getCreatedAt(),
                         buildPreview(shared.getStory()),
                         likeCounts.getOrDefault(shared.getId(), 0L),
-                        commentCounts.getOrDefault(shared.getId(), 0L)
+                        commentCounts.getOrDefault(shared.getId(), 0L),
+                        shared.getStory().getCoverImageUrl()
                 ))
                 .collect(Collectors.toList());
     }
