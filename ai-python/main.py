@@ -12,6 +12,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+from textwrap import dedent
 
 # 2. FastAPI imports
 from typing import Optional
@@ -31,6 +32,7 @@ from schemas import (
     CreateCharacterReferenceImageRequest,
     CharacterReferenceImageResponse,
     GeneratePageAssetsRequest, # Added
+    GenerateCoverImageRequest,
     GenerateParagraphAudioRequest,
     GenerateParagraphAudioResponse,
 )
@@ -364,6 +366,70 @@ async def generate_page_assets_endpoint(request: Request, req: GeneratePageAsset
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "PAGE_ASSETS_GENERATION_ERROR", "message": str(e)},
+        )
+
+@app.post("/ai/generate-cover-image")
+async def generate_cover_image_endpoint(request: Request, req: GenerateCoverImageRequest = Body(...)):
+    try:
+        os.makedirs(_IMAGE_BASE_DIR, exist_ok=True)
+
+        character_names = ", ".join([visual.name for visual in req.character_visuals if visual.name]) or "the main characters"
+        summary_line = req.summary or "A heartwarming children's adventure."
+        tagline = req.tagline or ""
+        style_line = req.art_style or "soft watercolor storybook illustration with warm pastel lighting"
+
+        cover_prompt = dedent(
+            f"""
+            Design a single, polished children's storybook cover illustration.
+
+            Title: "{req.title}"
+            Story summary: {summary_line}
+            Tagline / moral cue: {tagline or "Highlight friendship, curiosity, and joy."}
+            Featured characters: {character_names}
+
+            Requirements:
+            - Use {style_line} consistently across the entire cover.
+            - Focus on the main characters interacting in a dynamic yet readable composition.
+            - Include subtle environmental hints drawn from the summary (beach, sea, magical light if mentioned).
+            - Leave breathing room for typography, but do NOT draw any text, title, or logos.
+            - Keep proportions cute and cohesive so this cover matches the rest of the story's illustrations.
+            """
+        ).strip()
+
+        image_result = await asyncio.to_thread(
+            generate_image,
+            text=cover_prompt,
+            request_id=request.state.request_id,
+            art_style=req.art_style,
+            character_visuals=req.character_visuals,
+            include_metadata=True,
+        )
+
+        if isinstance(image_result, tuple) and len(image_result) == 2:
+            image_b64_json, image_metadata = image_result
+        else:
+            image_b64_json = image_result
+            image_metadata = {}
+
+        image_data = base64.b64decode(image_b64_json)
+        filename = f"cover-{uuid.uuid4()}.png"
+        file_path = os.path.join(_IMAGE_BASE_DIR, filename)
+        with open(file_path, "wb") as f:
+            f.write(image_data)
+        logger.info("Cover image saved to %s", file_path)
+
+        return JSONResponse(
+            content={
+                "imageUrl": f"/api/image/{filename}",
+                "imageMetadata": image_metadata,
+            }
+        )
+
+    except Exception as e:
+        logger.error("Cover image generation failed for Request ID: %s", request.state.request_id, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "COVER_IMAGE_ERROR", "message": str(e)},
         )
 
 @app.post("/ai/generate-tts")

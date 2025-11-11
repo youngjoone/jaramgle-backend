@@ -96,7 +96,7 @@ public class StoryService {
         storageQuotaService.ensureSlotAvailable(userId);
         Long numericUserId = parseUserId(userId);
         heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
-        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, new ArrayList<StorybookPage>(), new LinkedHashSet<Character>());
+        Story story = new Story(null, userId, title, ageRange, topicsJson, language, lengthLevel, "DRAFT", LocalDateTime.now(), null, null, null, new ArrayList<StorybookPage>(), new LinkedHashSet<Character>());
         story = storyRepository.save(story);
         for (int i = 0; i < pageTexts.size(); i++) {
             StoryPage page = new StoryPage(null, story, i + 1, pageTexts.get(i), null, null, null);
@@ -215,6 +215,7 @@ public class StoryService {
                 LocalDateTime.now(),
                 quizJson,
                 creativeConceptJson, // creativeConcept
+                null, // coverImageUrl
                 new ArrayList<StorybookPage>(),
                 new LinkedHashSet<Character>()
         );
@@ -236,6 +237,8 @@ public class StoryService {
         }
         storyRepository.save(story);
         story.getCharacters().size();
+        tryGenerateCoverImage(story, request, stableStoryDto, creativeConcept);
+        storyRepository.save(story);
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("context", "ai");
         if (stableStoryDto.title() != null) {
@@ -476,6 +479,73 @@ public class StoryService {
         if (updated != null && updated.getImageUrl() != null && !updated.getImageUrl().isBlank()) {
             character.setImageUrl(updated.getImageUrl());
             character.setModelingStatus(updated.getModelingStatus());
+        }
+    }
+
+    private void tryGenerateCoverImage(Story story, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept) {
+        if (story.getCoverImageUrl() != null && !story.getCoverImageUrl().isBlank()) {
+            return;
+        }
+        try {
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.put("title", story.getTitle() != null ? story.getTitle() : "미정 동화");
+            if (stableStoryDto.pages() != null && !stableStoryDto.pages().isEmpty()) {
+                String summary = stableStoryDto.pages().get(0).text();
+                if (summary != null && !summary.isBlank()) {
+                    payload.put("summary", summary);
+                }
+            }
+            if (request.getMoral() != null && !request.getMoral().isBlank()) {
+                payload.put("tagline", request.getMoral().trim());
+            }
+            String artStyle = null;
+            if (request.getArtStyle() != null && !request.getArtStyle().isBlank()) {
+                artStyle = request.getArtStyle().trim();
+            } else if (creativeConcept != null && creativeConcept.hasNonNull("art_style")) {
+                artStyle = creativeConcept.get("art_style").asText();
+            }
+            if (artStyle != null && !artStyle.isBlank()) {
+                payload.put("art_style", artStyle);
+            }
+            if (story.getTopicsJson() != null && !story.getTopicsJson().isBlank()) {
+                payload.put("topics", story.getTopicsJson());
+            }
+            ArrayNode charactersArray = payload.putArray("character_visuals");
+            story.getCharacters().forEach(character -> {
+                ObjectNode node = charactersArray.addObject();
+                node.put("name", character.getName());
+                if (character.getSlug() != null) {
+                    node.put("slug", character.getSlug());
+                }
+                if (character.getVisualDescription() != null) {
+                    node.put("visual_description", character.getVisualDescription());
+                }
+                String resolvedImage = resolveCharacterImageUrl(character.getImageUrl());
+                if (resolvedImage != null) {
+                    node.put("image_url", resolvedImage);
+                }
+            });
+
+            JsonNode response = webClient.post()
+                    .uri("/ai/generate-cover-image")
+                    .bodyValue(payload)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+
+            if (response != null && response.hasNonNull("imageUrl")) {
+                String coverUrl = response.get("imageUrl").asText(null);
+                if (coverUrl != null && !coverUrl.isBlank()) {
+                    story.setCoverImageUrl(coverUrl);
+                    log.info("Cover image generated for story {}: {}", story.getId(), coverUrl);
+                } else {
+                    log.warn("Cover image response missing imageUrl for story {}", story.getId());
+                }
+            } else {
+                log.warn("Cover image generation returned empty response for story {}", story.getId());
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to generate cover image for story {}: {}", story.getId(), ex.getMessage());
         }
     }
 

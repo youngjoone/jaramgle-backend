@@ -52,6 +52,9 @@ public class Story {
     @Column(name = "creative_concept", columnDefinition = "TEXT")
     private String creativeConcept;
 
+    @Column(name = "cover_image_url")
+    private String coverImageUrl;
+
     @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<StorybookPage> storybookPages = new ArrayList<>();
 
