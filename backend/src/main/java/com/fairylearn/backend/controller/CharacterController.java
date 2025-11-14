@@ -3,6 +3,7 @@ package com.fairylearn.backend.controller;
 import com.fairylearn.backend.dto.CharacterDto;
 import com.fairylearn.backend.entity.Character;
 import com.fairylearn.backend.service.CharacterService;
+import com.fairylearn.backend.util.AssetUrlResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -45,7 +46,7 @@ public class CharacterController {
                 character.getPersona(),
                 character.getCatchphrase(),
                 character.getPromptKeywords(),
-                character.getImageUrl(), // Changed from getImagePath()
+                AssetUrlResolver.toPublicUrl(character.getImageUrl()), // Changed from getImagePath()
                 character.getVisualDescription() // Added
         );
     }
