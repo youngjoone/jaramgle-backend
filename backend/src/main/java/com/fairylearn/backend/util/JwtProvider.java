@@ -55,11 +55,13 @@ public class JwtProvider {
 
     public String generateRefreshToken(String subject) {
         Map<String, Object> claims = new HashMap<>();
+        claims.put("jti", java.util.UUID.randomUUID().toString());
         return createRefreshToken(claims, subject);
     }
 
     private String createToken(Map<String, Object> claims, String subject) {
         return Jwts.builder()
+                .claims(claims)
                 .subject(subject)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expirationMinutes * 60 * 1000)) // Convert minutes to milliseconds
@@ -69,6 +71,7 @@ public class JwtProvider {
 
     private String createRefreshToken(Map<String, Object> claims, String subject) {
         return Jwts.builder()
+                .claims(claims)
                 .subject(subject)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + refreshExpirationMinutes * 60 * 1000))
