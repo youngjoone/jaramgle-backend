@@ -55,7 +55,7 @@ public class StorybookService {
 
     private static final int STORYBOOK_IMAGE_MAX_CONCURRENCY = Math.max(
             1,
-            Integer.parseInt(System.getenv().getOrDefault("STORYBOOK_IMAGE_MAX_CONCURRENCY", "2"))
+            Integer.parseInt(System.getenv().getOrDefault("STORYBOOK_IMAGE_MAX_CONCURRENCY", "1"))
     );
     private static final long STORYBOOK_IMAGE_QUEUE_TIMEOUT_MS = Math.max(
             1000L,

@@ -595,6 +595,19 @@ public class StoryService {
         }
     }
 
+    private String extractArtStyleFromConcept(String creativeConceptJson) {
+        if (creativeConceptJson == null || creativeConceptJson.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode node = objectMapper.readTree(creativeConceptJson);
+            return node.path("art_style").asText("");
+        } catch (Exception e) {
+            log.warn("Failed to parse creative concept for art style: {}", e.getMessage());
+            return "";
+        }
+    }
+
     private String resolveCharacterImageUrl(String rawImageUrl) {
         if (rawImageUrl == null || rawImageUrl.isBlank()) {
             return null;
@@ -737,7 +750,8 @@ public class StoryService {
         // Construct the request payload for the AI service
         ObjectNode requestPayload = objectMapper.createObjectNode();
         requestPayload.put("text", storyPage.getText());
-        requestPayload.put("art_style", story.getCreativeConcept() != null ? story.getCreativeConcept() : ""); // Assuming creativeConcept can be used as art_style
+        String artStyle = extractArtStyleFromConcept(story.getCreativeConcept());
+        requestPayload.put("art_style", artStyle);
         
         ArrayNode characterArray = requestPayload.putArray("character_visuals");
         characterVisuals.forEach(cv -> {
