@@ -5,8 +5,11 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from openai import OpenAI
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from google.genai.errors import ClientError
 
 logger = logging.getLogger(__name__)
+
 
 
 class ImageProviderError(RuntimeError):
@@ -347,6 +350,16 @@ class Gemini25FlashImageProvider(ImageProvider):
                 "Failed to initialise Gemini 2.5 Flash provider. Ensure you have authenticated via 'gcloud auth application-default login'"
             ) from exc
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(ClientError),
+        before_sleep=lambda retry_state: logger.warning(
+            "Retrying Gemini 2.5 Flash image generation after attempt %d, waiting %.1f seconds.",
+            retry_state.attempt_number,
+            retry_state.next_action.sleep,
+        ),
+    )
     def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         try:
             from google.genai.types import GenerateContentConfig
@@ -384,6 +397,9 @@ class Gemini25FlashImageProvider(ImageProvider):
 
             raise ImageProviderError("Gemini 2.5 Flash response did not contain image data.")
 
+        except ClientError as exc:
+            logger.error("Gemini 2.5 Flash API error after retries: %s", exc)
+            raise ImageProviderError(str(exc)) from exc
         except Exception as exc:
             logger.exception("Gemini 2.5 Flash image generation failed: %s", exc)
             raise ImageProviderError(str(exc)) from exc
