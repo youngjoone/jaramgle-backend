@@ -1,6 +1,7 @@
 package com.fairylearn.backend.dto;
 
 import com.fairylearn.backend.entity.Story;
+import com.fairylearn.backend.util.AssetUrlResolver;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -46,7 +47,7 @@ public class StoryDto {
         dto.setCreatedAt(story.getCreatedAt());
         dto.setManageable(false);
         dto.setCreativeConcept(story.getCreativeConcept()); // ADDED
-        dto.setCoverImageUrl(story.getCoverImageUrl());
+        dto.setCoverImageUrl(AssetUrlResolver.toPublicUrl(story.getCoverImageUrl()));
         dto.setAuthorId(null);
         dto.setAuthorNickname(null);
         dto.setPages(List.of());
@@ -59,7 +60,7 @@ public class StoryDto {
                             character.getPersona(),
                             character.getCatchphrase(),
                             character.getPromptKeywords(),
-                            character.getImageUrl(), // Changed from getImagePath()
+                            AssetUrlResolver.toPublicUrl(character.getImageUrl()), // Changed from getImagePath()
                             character.getVisualDescription() // Added
                     ))
                     .collect(Collectors.toList())
