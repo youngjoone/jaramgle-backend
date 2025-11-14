@@ -1,6 +1,7 @@
 package com.fairylearn.backend.controller;
 
 import com.fairylearn.backend.auth.AuthPrincipal;
+import com.fairylearn.backend.dto.StoryBulkDeleteRequest;
 import com.fairylearn.backend.dto.StoryDto;
 import com.fairylearn.backend.dto.StoryPageDto;
 import com.fairylearn.backend.dto.StorySaveRequest;
@@ -93,6 +94,15 @@ public class StoryController {
     @DeleteMapping("/stories/{id}")
     public ResponseEntity<Void> deleteStory(@PathVariable Long id, @AuthenticationPrincipal AuthPrincipal principal) {
         storyService.deleteStory(id, String.valueOf(principal.id()));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/stories/bulk-delete")
+    public ResponseEntity<Void> bulkDeleteStories(
+            @Valid @RequestBody StoryBulkDeleteRequest request,
+            @AuthenticationPrincipal AuthPrincipal principal
+    ) {
+        storyService.deleteStories(request.storyIds(), String.valueOf(principal.id()));
         return ResponseEntity.noContent().build();
     }
 

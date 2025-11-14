@@ -39,6 +39,7 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -115,11 +116,34 @@ public class StoryService {
 
     @Transactional
     public void deleteStory(Long storyId, String userId) {
-        Optional<Story> storyOptional = storyRepository.findByIdAndUserId(storyId, userId);
-        if (storyOptional.isPresent()) {
-            Story story = storyOptional.get();
+        deleteStoriesInternal(Collections.singletonList(storyId), userId, true);
+    }
 
-            // Delete associated files
+    @Transactional
+    public void deleteStories(List<Long> storyIds, String userId) {
+        if (storyIds == null || storyIds.isEmpty()) {
+            throw new IllegalArgumentException("삭제할 동화 ID 목록이 비어 있습니다.");
+        }
+        deleteStoriesInternal(storyIds, userId, false);
+    }
+
+    private void deleteStoriesInternal(List<Long> storyIds, String userId, boolean failOnMissing) {
+        for (Long storyId : storyIds) {
+            if (storyId == null) {
+                continue;
+            }
+            Optional<Story> storyOptional = storyRepository.findByIdAndUserId(storyId, userId);
+            if (storyOptional.isEmpty()) {
+                if (failOnMissing) {
+                    throw new IllegalArgumentException("Story not found or not owned by user.");
+                }
+                log.warn("Skipping deletion for story {} - not found or not owned by {}", storyId, userId);
+                continue;
+            }
+
+            Story story = storyOptional.get();
+            story.getCharacters().size();
+            Set<Character> storyCharacters = new HashSet<>(story.getCharacters());
             List<StoryPage> storyPages = storyPageRepository.findByStoryIdOrderByPageNoAsc(storyId);
             for (StoryPage page : storyPages) {
                 deleteFileFromUrl(page.getImageUrl());
@@ -134,8 +158,26 @@ public class StoryService {
 
             storyRepository.delete(story);
             storageQuotaService.decreaseUsedCount(userId);
-        } else {
-            throw new IllegalArgumentException("Story not found or not owned by user.");
+            cleanupStoryCharacters(storyCharacters);
+        }
+    }
+
+    private void cleanupStoryCharacters(Set<Character> characters) {
+        if (characters == null || characters.isEmpty()) {
+            return;
+        }
+        for (Character character : characters) {
+            if (character == null || character.getScope() != CharacterScope.STORY) {
+                continue;
+            }
+            characterRepository.findById(character.getId()).ifPresent(fresh -> {
+                fresh.getStories().size();
+                if (fresh.getStories().isEmpty()) {
+                    deleteFileFromUrl(fresh.getImageUrl());
+                    characterRepository.delete(fresh);
+                    log.info("Deleted STORY scoped character {} (ID={}) after removing its story.", fresh.getSlug(), fresh.getId());
+                }
+            });
         }
     }
 
