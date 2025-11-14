@@ -13,6 +13,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from textwrap import dedent
+from contextlib import asynccontextmanager
 
 # 2. FastAPI imports
 from typing import Optional
@@ -58,6 +59,40 @@ logger.info(f"Text generation will be handled by text_service with provider: {Co
 
 _AUDIO_BASE_DIR = "/Users/kyj/testaudiodir"
 _IMAGE_BASE_DIR = "/Users/kyj/testimagedir"
+_IMAGE_SEMAPHORE = asyncio.Semaphore(max(1, Config.IMAGE_GENERATION_MAX_CONCURRENCY))
+_IMAGE_QUEUE_TIMEOUT = max(0.0, Config.IMAGE_GENERATION_QUEUE_TIMEOUT_SECONDS)
+
+@asynccontextmanager
+async def _image_generation_slot() -> None:
+    """
+    Limit concurrent image-generation calls so we do not overwhelm Gemini.
+    Raises HTTP 429 if the queue is saturated beyond the configured timeout.
+    """
+    if Config.IMAGE_GENERATION_MAX_CONCURRENCY <= 0:
+        yield
+        return
+
+    acquired = False
+    try:
+        acquire_coro = _IMAGE_SEMAPHORE.acquire()
+        if _IMAGE_QUEUE_TIMEOUT > 0:
+            await asyncio.wait_for(acquire_coro, timeout=_IMAGE_QUEUE_TIMEOUT)
+        else:
+            await acquire_coro
+        acquired = True
+        yield
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Image generation queue saturated after %.2fs timeout.",
+            _IMAGE_QUEUE_TIMEOUT,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": "IMAGE_QUEUE_BUSY", "message": "이미지 생성 요청이 많아요. 잠시 후 다시 시도해 주세요."},
+        )
+    finally:
+        if acquired:
+            _IMAGE_SEMAPHORE.release()
 
 def _slugify_component(value: Optional[str], fallback: str = "segment") -> str:
     candidate = str(value).strip().lower() if value is not None else ""
@@ -127,7 +162,7 @@ def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(..
         )
 
 @app.post("/ai/generate-image", response_model=GenerateImageResponse)
-def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Body(...)):
+async def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Body(...)):
     try:
         combined_visuals = list(img_req.character_visuals)
         if img_req.characters:
@@ -139,12 +174,14 @@ def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Bo
                 if visual.name:
                     existing_names.add(visual.name)
 
-        b64_json = generate_image(
-            text=img_req.text, 
-            request_id=request.state.request_id, 
-            art_style=img_req.art_style, 
-            character_visuals=combined_visuals
-        )
+        async with _image_generation_slot():
+            b64_json = await asyncio.to_thread(
+                generate_image,
+                text=img_req.text,
+                request_id=request.state.request_id,
+                art_style=img_req.art_style,
+                character_visuals=combined_visuals,
+            )
         
         os.makedirs(_IMAGE_BASE_DIR, exist_ok=True)
 
@@ -166,7 +203,7 @@ def generate_image_endpoint(request: Request, img_req: GenerateImageRequest = Bo
         )
 
 @app.post("/ai/create-character-reference-image", response_model=CharacterReferenceImageResponse)
-def create_character_reference_image_endpoint(
+async def create_character_reference_image_endpoint(
     request: Request,
     ref_req: CreateCharacterReferenceImageRequest = Body(...)
 ):
@@ -178,12 +215,14 @@ def create_character_reference_image_endpoint(
         slug_candidate = slug_candidate or "character"
         filename = f"{slug_candidate}-{uuid.uuid4().hex}.png"
 
-        image_b64, metadata = generate_character_reference_image(
-            character_name=ref_req.character_name,
-            request_id=request.state.request_id,
-            description_prompt=ref_req.description_prompt,
-            art_style=ref_req.art_style,
-        )
+        async with _image_generation_slot():
+            image_b64, metadata = await asyncio.to_thread(
+                generate_character_reference_image,
+                ref_req.character_name,
+                request.state.request_id,
+                ref_req.description_prompt,
+                ref_req.art_style,
+            )
 
         image_data = base64.b64decode(image_b64)
         file_path = os.path.join(Config.CHARACTER_IMAGE_DIR, filename)
@@ -299,14 +338,15 @@ async def generate_page_assets_endpoint(request: Request, req: GeneratePageAsset
         os.makedirs(_AUDIO_BASE_DIR, exist_ok=True)
         os.makedirs(_IMAGE_BASE_DIR, exist_ok=True)
 
-        image_result = await asyncio.to_thread(
-            generate_image,
-            text=req.text,
-            request_id=request.state.request_id,
-            art_style=req.art_style,
-            character_visuals=req.character_visuals,
-            include_metadata=True,
-        )
+        async with _image_generation_slot():
+            image_result = await asyncio.to_thread(
+                generate_image,
+                text=req.text,
+                request_id=request.state.request_id,
+                art_style=req.art_style,
+                character_visuals=req.character_visuals,
+                include_metadata=True,
+            )
 
         if isinstance(image_result, tuple) and len(image_result) == 2:
             image_b64_json, image_metadata = image_result
@@ -396,14 +436,15 @@ async def generate_cover_image_endpoint(request: Request, req: GenerateCoverImag
             """
         ).strip()
 
-        image_result = await asyncio.to_thread(
-            generate_image,
-            text=cover_prompt,
-            request_id=request.state.request_id,
-            art_style=req.art_style,
-            character_visuals=req.character_visuals,
-            include_metadata=True,
-        )
+        async with _image_generation_slot():
+            image_result = await asyncio.to_thread(
+                generate_image,
+                text=cover_prompt,
+                request_id=request.state.request_id,
+                art_style=req.art_style,
+                character_visuals=req.character_visuals,
+                include_metadata=True,
+            )
 
         if isinstance(image_result, tuple) and len(image_result) == 2:
             image_b64_json, image_metadata = image_result

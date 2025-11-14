@@ -34,6 +34,8 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -51,8 +53,21 @@ public class StorybookService {
     private final ObjectMapper objectMapper; // ADDED
     private final PlatformTransactionManager transactionManager;
 
+    private static final int STORYBOOK_IMAGE_MAX_CONCURRENCY = Math.max(
+            1,
+            Integer.parseInt(System.getenv().getOrDefault("STORYBOOK_IMAGE_MAX_CONCURRENCY", "2"))
+    );
+    private static final long STORYBOOK_IMAGE_QUEUE_TIMEOUT_MS = Math.max(
+            1000L,
+            Long.parseLong(System.getenv().getOrDefault("STORYBOOK_IMAGE_QUEUE_TIMEOUT_MS", "5000"))
+    );
+    private final Semaphore pageAssetSemaphore = new Semaphore(STORYBOOK_IMAGE_MAX_CONCURRENCY, true);
     private final ExecutorService pageAssetExecutor = Executors.newFixedThreadPool(
-            Math.max(2, Runtime.getRuntime().availableProcessors()));
+            Math.max(
+                    1,
+                    Math.min(Runtime.getRuntime().availableProcessors(), STORYBOOK_IMAGE_MAX_CONCURRENCY)
+            )
+    );
 
     @Transactional
     public StorybookPage createStorybook(Long storyId) {
@@ -217,12 +232,27 @@ public class StorybookService {
                     existingCharacterKeys.add(visual.getName().toLowerCase());
                 });
 
-        JsonNode assetResponse = webClient.post()
-                .uri("/ai/generate-page-assets")
-                .bodyValue(requestNode)
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .block();
+        JsonNode assetResponse;
+        boolean permitAcquired = false;
+        try {
+            if (!pageAssetSemaphore.tryAcquire(STORYBOOK_IMAGE_QUEUE_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                throw new IllegalStateException("Image generation queue is busy. Please try again.");
+            }
+            permitAcquired = true;
+            assetResponse = webClient.post()
+                    .uri("/ai/generate-page-assets")
+                    .bodyValue(requestNode)
+                    .retrieve()
+                    .bodyToMono(JsonNode.class)
+                    .block();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for image generation slot.", ie);
+        } finally {
+            if (permitAcquired) {
+                pageAssetSemaphore.release();
+            }
+        }
 
         if (assetResponse == null || assetResponse.get("imageUrl") == null) {
             throw new RuntimeException("Failed to get page asset response from AI service.");

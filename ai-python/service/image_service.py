@@ -3,6 +3,7 @@ import base64
 import logging
 import os
 import re
+import time
 from io import BytesIO
 from textwrap import dedent
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -100,6 +101,10 @@ def _get_image_provider() -> ImageProvider:
         return _google_image_provider
     return _openai_image_provider
 
+def _is_resource_exhausted_error(exc: Exception) -> bool:
+    text = str(exc).upper()
+    return "RESOURCE_EXHAUSTED" in text or "429" in text
+
 def _generate_image_bytes(
     prompt: str,
     request_id: str,
@@ -112,20 +117,55 @@ def _generate_image_bytes(
         providers.append(("OpenAI", _openai_image_provider))
 
     last_error: Optional[Exception] = None
-    for provider_name, provider in providers:
-        logger.info("Attempting image generation via %s for request_id %s", provider_name, request_id)
-        try:
-            image_bytes = provider.generate(
-                prompt=prompt,
-                request_id=request_id,
-                image_bytes=reference_images or [],
+    max_attempts = max(1, Config.IMAGE_GENERATION_MAX_ATTEMPTS)
+    backoff_base = max(0.0, Config.IMAGE_GENERATION_BACKOFF_SECONDS)
+
+    attempt = 1
+    while attempt <= max_attempts:
+        for provider_name, provider in providers:
+            logger.info(
+                "Attempting image generation via %s for request_id %s (attempt %s/%s)",
+                provider_name,
+                request_id,
+                attempt,
+                max_attempts,
             )
-            logger.info("%s provider succeeded for request_id %s.", provider_name, request_id)
-            return image_bytes, provider_name
-        except ImageProviderError as exc:
-            last_error = exc
-            logger.warning("%s image provider failed for %s: %s", provider_name, request_id, exc)
-            continue
+            try:
+                image_bytes = provider.generate(
+                    prompt=prompt,
+                    request_id=request_id,
+                    image_bytes=reference_images or [],
+                )
+                logger.info("%s provider succeeded for request_id %s.", provider_name, request_id)
+                return image_bytes, provider_name
+            except ImageProviderError as exc:
+                last_error = exc
+                logger.warning(
+                    "%s image provider failed for %s on attempt %s/%s: %s",
+                    provider_name,
+                    request_id,
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+
+        should_retry = (
+            attempt < max_attempts
+            and last_error is not None
+            and _is_resource_exhausted_error(last_error)
+        )
+        if not should_retry:
+            break
+
+        sleep_seconds = backoff_base * (2 ** (attempt - 1))
+        if sleep_seconds > 0:
+            logger.warning(
+                "Image provider throttled for request %s. Backing off %.1fs before retry.",
+                request_id,
+                sleep_seconds,
+            )
+            time.sleep(sleep_seconds)
+        attempt += 1
 
     raise ImageProviderError("All image providers failed.") from last_error
 
