@@ -487,8 +487,11 @@ public class StoryService {
             return;
         }
         try {
+            // Reload the story to ensure all character updates (especially new image URLs) are present.
+            Story freshStory = storyRepository.findById(story.getId()).orElse(story);
+
             ObjectNode payload = objectMapper.createObjectNode();
-            payload.put("title", story.getTitle() != null ? story.getTitle() : "미정 동화");
+            payload.put("title", freshStory.getTitle() != null ? freshStory.getTitle() : "미정 동화");
             if (stableStoryDto.pages() != null && !stableStoryDto.pages().isEmpty()) {
                 String summary = stableStoryDto.pages().get(0).text();
                 if (summary != null && !summary.isBlank()) {
@@ -507,11 +510,11 @@ public class StoryService {
             if (artStyle != null && !artStyle.isBlank()) {
                 payload.put("art_style", artStyle);
             }
-            if (story.getTopicsJson() != null && !story.getTopicsJson().isBlank()) {
-                payload.put("topics", story.getTopicsJson());
+            if (freshStory.getTopicsJson() != null && !freshStory.getTopicsJson().isBlank()) {
+                payload.put("topics", freshStory.getTopicsJson());
             }
             ArrayNode charactersArray = payload.putArray("character_visuals");
-            story.getCharacters().forEach(character -> {
+            freshStory.getCharacters().forEach(character -> {
                 ObjectNode node = charactersArray.addObject();
                 node.put("name", character.getName());
                 if (character.getSlug() != null) {
@@ -536,13 +539,14 @@ public class StoryService {
             if (response != null && response.hasNonNull("imageUrl")) {
                 String coverUrl = response.get("imageUrl").asText(null);
                 if (coverUrl != null && !coverUrl.isBlank()) {
-                    story.setCoverImageUrl(coverUrl);
-                    log.info("Cover image generated for story {}: {}", story.getId(), coverUrl);
+                    freshStory.setCoverImageUrl(coverUrl);
+                    storyRepository.save(freshStory); // Save the updated story
+                    log.info("Cover image generated for story {}: {}", freshStory.getId(), coverUrl);
                 } else {
-                    log.warn("Cover image response missing imageUrl for story {}", story.getId());
+                    log.warn("Cover image response missing imageUrl for story {}", freshStory.getId());
                 }
             } else {
-                log.warn("Cover image generation returned empty response for story {}", story.getId());
+                log.warn("Cover image generation returned empty response for story {}", freshStory.getId());
             }
         } catch (Exception ex) {
             log.warn("Failed to generate cover image for story {}: {}", story.getId(), ex.getMessage());
@@ -555,21 +559,19 @@ public class StoryService {
         }
 
         String trimmed = rawImageUrl.trim();
+        // If it's already a full URL, just return it.
         if (trimmed.startsWith("file:///") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
             return trimmed;
         }
 
-        Path resolvedPath;
-        if (trimmed.startsWith("/") || trimmed.matches("^[A-Za-z]:[\\\\/].*")) {
-            resolvedPath = Paths.get(trimmed).toAbsolutePath().normalize();
-        } else {
-            String sanitized = trimmed.startsWith("/") ? trimmed.substring(1) : trimmed;
-            if (sanitized.startsWith("characters/")) {
-                sanitized = sanitized.substring("characters/".length());
-            }
-            Path basePath = Paths.get(CHARACTER_IMAGE_DIR);
-            resolvedPath = basePath.resolve(sanitized).toAbsolutePath().normalize();
+        // Treat all other paths as relative to the CHARACTER_IMAGE_DIR.
+        // This handles "/characters/name.png" and "name.png" the same way.
+        String sanitized = trimmed.startsWith("/") ? trimmed.substring(1) : trimmed;
+        if (sanitized.startsWith("characters/")) {
+            sanitized = sanitized.substring("characters/".length());
         }
+        Path basePath = Paths.get(CHARACTER_IMAGE_DIR);
+        Path resolvedPath = basePath.resolve(sanitized).toAbsolutePath().normalize();
 
         String unixPath = resolvedPath.toString().replace("\\", "/");
         if (!unixPath.startsWith("/")) {
