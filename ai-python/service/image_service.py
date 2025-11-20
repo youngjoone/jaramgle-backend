@@ -54,8 +54,7 @@ _openai_image_provider = OpenAIImageProvider(
     ),
 )
 
-_google_image_provider: Optional[ImageProvider] = None
-_google_image_providers: List[Tuple[str, ImageProvider]] = []
+_google_image_provider: Optional[Tuple[str, ImageProvider]] = None
 _prefer_google_image = Config.USE_GEMINI_IMAGE
 
 
@@ -67,15 +66,6 @@ def _parse_dimensions(size: str) -> Optional[Tuple[int, int]]:
         return None
 
 
-def _parse_locations(raw: str) -> List[str]:
-    locations: List[str] = []
-    for part in raw.split(","):
-        loc = part.strip().strip('"').strip("'")
-        if loc:
-            locations.append(loc)
-    return locations
-
-
 if _prefer_google_image:
     try:
         if not Config.GOOGLE_PROJECT_ID or not Config.GOOGLE_LOCATION:
@@ -83,46 +73,25 @@ if _prefer_google_image:
                 "GOOGLE_PROJECT_ID and GOOGLE_LOCATION must be configured for Gemini 2.5 Flash."
             )
 
-        base_location = Config.GOOGLE_LOCATION.strip().strip('"').strip("'")
-        fallback_locations = _parse_locations(Config.GEMINI_IMAGE_FALLBACK_LOCATIONS)
-        locations = [base_location] + fallback_locations
-        logger.info(
-            "Gemini image primary location=%s, fallback locations raw='%s', parsed=%s",
-            base_location,
-            Config.GEMINI_IMAGE_FALLBACK_LOCATIONS,
-            fallback_locations,
-        )
-
-        seen_locations = set()
-        for loc in locations:
-            if not loc or loc in seen_locations:
-                continue
-            seen_locations.add(loc)
-            try:
-                provider = Gemini25FlashImageProvider(
-                    config=Gemini25FlashProviderConfig(
-                        model=Config.GEMINI_IMAGE_MODEL,
-                        project_id=Config.GOOGLE_PROJECT_ID,
-                        location=loc,
-                        candidate_count=1,
-                    ),
-                )
-                _google_image_providers.append((f"Google Gemini 2.5 Flash ({loc})", provider))
-                logger.info(
-                    "Google Gemini 2.5 Flash image provider initialised (model=%s, location=%s)",
-                    Config.GEMINI_IMAGE_MODEL,
-                    loc,
-                )
-            except ImageProviderError as exc:
-                logger.warning("Gemini provider init failed for location %s: %s", loc, exc)
-                continue
-
-        if _google_image_providers:
-            _google_image_provider = _google_image_providers[0][1]
-            provider_names = [name for name, _ in _google_image_providers]
-            logger.info("Gemini image providers enabled in order: %s", ", ".join(provider_names))
-        else:
-            logger.warning("No Gemini providers initialised; will fall back to OpenAI.")
+        location = Config.GOOGLE_LOCATION.strip().strip('"').strip("'")
+        try:
+            provider = Gemini25FlashImageProvider(
+                config=Gemini25FlashProviderConfig(
+                    model=Config.GEMINI_IMAGE_MODEL,
+                    project_id=Config.GOOGLE_PROJECT_ID,
+                    location=location,
+                    candidate_count=1,
+                ),
+            )
+            provider_name = f"Google Gemini 2.5 Flash ({location})"
+            _google_image_provider = (provider_name, provider)
+            logger.info(
+                "Google Gemini 2.5 Flash image provider initialised (model=%s, location=%s)",
+                Config.GEMINI_IMAGE_MODEL,
+                location,
+            )
+        except ImageProviderError as exc:
+            logger.warning("Gemini provider init failed for location %s: %s", location, exc)
     except ImageProviderError as exc:
         _prefer_google_image = False
         logger.warning(
@@ -130,7 +99,7 @@ if _prefer_google_image:
             exc,
         )
     finally:
-        if not _google_image_providers:
+        if not _google_image_provider:
             _prefer_google_image = False
 
 if not _prefer_google_image:
@@ -146,8 +115,8 @@ def _generate_image_bytes(
     reference_images: Optional[List[bytes]] = None,
 ) -> Tuple[bytes, str]:
     providers: List[Tuple[str, ImageProvider]] = []
-    if _prefer_google_image and _google_image_providers:
-        providers.extend(_google_image_providers)
+    if _prefer_google_image and _google_image_provider:
+        providers.append(_google_image_provider)
     else:
         providers.append(("OpenAI", _openai_image_provider))
 
@@ -211,7 +180,7 @@ def _generate_image_bytes(
     raise ImageProviderError("All image providers failed.") from last_error
 
 
-def _encode_png_base64(image_bytes: bytes, size: Tuple[int, int] = (512, 512)) -> str:
+def _encode_png_base64(image_bytes: bytes, size: Tuple[int, int] = (Config.IMAGE_RESPONSE_SIZE, Config.IMAGE_RESPONSE_SIZE)) -> str:
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
     if size:
         image.thumbnail(size, Image.LANCZOS)
@@ -502,7 +471,7 @@ def generate_image(
         request_id=request_id,
         reference_images=reference_images_bytes,
     )
-    encoded = _encode_png_base64(image_bytes, size=(512, 512))
+    encoded = _encode_png_base64(image_bytes)
 
     if include_metadata:
         metadata: Dict[str, Any] = {
@@ -510,8 +479,9 @@ def generate_image(
             "prompt": prompt,
             "referenceCount": len(reference_images_bytes),
             "referenceSources": reference_sources,
-            "googleProviders": [name for name, _ in _google_image_providers],
         }
+        if _google_image_provider:
+            metadata["googleProviders"] = [_google_image_provider[0]]
         if character_visuals:
             metadata["characters"] = [
                 {
@@ -557,7 +527,7 @@ def generate_character_reference_image(
     ).strip()
 
     image_bytes, provider_used = _generate_image_bytes(prompt=prompt, request_id=request_id, reference_images=None)
-    encoded = _encode_png_base64(image_bytes, size=(512, 512))
+    encoded = _encode_png_base64(image_bytes)
 
     metadata: Dict[str, Any] = {
         "provider": provider_used,
