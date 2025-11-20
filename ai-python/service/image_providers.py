@@ -7,6 +7,10 @@ from typing import List, Optional, Tuple
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from google.genai.errors import ClientError
+from google.api_core.exceptions import ResourceExhausted
+
+from config import Config
+
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +296,16 @@ class ImagenImageProvider(ImageProvider):
                 "Failed to initialise Vertex AI. Ensure you have authenticated via 'gcloud auth application-default login'"
             ) from exc
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=2, max=60),
+        retry=retry_if_exception_type(ResourceExhausted),
+        before_sleep=lambda retry_state: logger.warning(
+            "Retrying Imagen generation after attempt %d due to ResourceExhausted, waiting %.1f seconds.",
+            retry_state.attempt_number,
+            retry_state.next_action.sleep,
+        ),
+    )
     def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         try:
             generation_kwargs = {
@@ -313,6 +327,9 @@ class ImagenImageProvider(ImageProvider):
             
             # The _image_bytes property is already in bytes format
             return images[0]._image_bytes
+        except ResourceExhausted as exc:
+            logger.error("Imagen API resource exhausted after retries: %s", exc)
+            raise ImageProviderError(str(exc)) from exc
         except Exception as exc:
             logger.exception("Imagen image generation failed: %s", exc)
             raise ImageProviderError(str(exc)) from exc
@@ -351,7 +368,7 @@ class Gemini25FlashImageProvider(ImageProvider):
             ) from exc
 
     @retry(
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(max(1, Config.GEMINI_IMAGE_PER_LOCATION_ATTEMPTS)),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(ClientError),
         before_sleep=lambda retry_state: logger.warning(

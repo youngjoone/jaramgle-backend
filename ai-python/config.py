@@ -26,6 +26,8 @@ class Config:
     GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
     DEFAULT_USE_GEMINI_IMAGE: bool = True  # Toggle here when you do not want to use environment variables
     USE_GEMINI_IMAGE: bool = _env_flag("USE_GEMINI_IMAGE", default=DEFAULT_USE_GEMINI_IMAGE)
+    GEMINI_IMAGE_FALLBACK_LOCATIONS: str = os.getenv("GEMINI_IMAGE_FALLBACK_LOCATIONS", "")
+    GEMINI_IMAGE_PER_LOCATION_ATTEMPTS: int = int(os.getenv("GEMINI_IMAGE_PER_LOCATION_ATTEMPTS", "2"))
     IMAGE_GENERATION_MAX_CONCURRENCY: int = int(os.getenv("IMAGE_GENERATION_MAX_CONCURRENCY", "3"))
     IMAGE_GENERATION_QUEUE_TIMEOUT_SECONDS: float = float(os.getenv("IMAGE_GENERATION_QUEUE_TIMEOUT_SECONDS", "5"))
     IMAGE_GENERATION_MAX_ATTEMPTS: int = int(os.getenv("IMAGE_GENERATION_MAX_ATTEMPTS", "3"))
