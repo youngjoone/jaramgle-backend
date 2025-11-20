@@ -55,6 +55,7 @@ _openai_image_provider = OpenAIImageProvider(
 )
 
 _google_image_provider: Optional[ImageProvider] = None
+_google_image_providers: List[Tuple[str, ImageProvider]] = []
 _prefer_google_image = Config.USE_GEMINI_IMAGE
 
 
@@ -66,6 +67,15 @@ def _parse_dimensions(size: str) -> Optional[Tuple[int, int]]:
         return None
 
 
+def _parse_locations(raw: str) -> List[str]:
+    locations: List[str] = []
+    for part in raw.split(","):
+        loc = part.strip().strip('"').strip("'")
+        if loc:
+            locations.append(loc)
+    return locations
+
+
 if _prefer_google_image:
     try:
         if not Config.GOOGLE_PROJECT_ID or not Config.GOOGLE_LOCATION:
@@ -73,33 +83,58 @@ if _prefer_google_image:
                 "GOOGLE_PROJECT_ID and GOOGLE_LOCATION must be configured for Gemini 2.5 Flash."
             )
 
-        _google_image_provider = Gemini25FlashImageProvider(
-            config=Gemini25FlashProviderConfig(
-                model=Config.GEMINI_IMAGE_MODEL,
-                project_id=Config.GOOGLE_PROJECT_ID,
-                location=Config.GOOGLE_LOCATION,
-                candidate_count=1,
-            ),
-        )
+        base_location = Config.GOOGLE_LOCATION.strip().strip('"').strip("'")
+        fallback_locations = _parse_locations(Config.GEMINI_IMAGE_FALLBACK_LOCATIONS)
+        locations = [base_location] + fallback_locations
         logger.info(
-            "Google Gemini 2.5 Flash image provider initialised (model=%s)",
-            Config.GEMINI_IMAGE_MODEL,
+            "Gemini image primary location=%s, fallback locations raw='%s', parsed=%s",
+            base_location,
+            Config.GEMINI_IMAGE_FALLBACK_LOCATIONS,
+            fallback_locations,
         )
+
+        seen_locations = set()
+        for loc in locations:
+            if not loc or loc in seen_locations:
+                continue
+            seen_locations.add(loc)
+            try:
+                provider = Gemini25FlashImageProvider(
+                    config=Gemini25FlashProviderConfig(
+                        model=Config.GEMINI_IMAGE_MODEL,
+                        project_id=Config.GOOGLE_PROJECT_ID,
+                        location=loc,
+                        candidate_count=1,
+                    ),
+                )
+                _google_image_providers.append((f"Google Gemini 2.5 Flash ({loc})", provider))
+                logger.info(
+                    "Google Gemini 2.5 Flash image provider initialised (model=%s, location=%s)",
+                    Config.GEMINI_IMAGE_MODEL,
+                    loc,
+                )
+            except ImageProviderError as exc:
+                logger.warning("Gemini provider init failed for location %s: %s", loc, exc)
+                continue
+
+        if _google_image_providers:
+            _google_image_provider = _google_image_providers[0][1]
+            provider_names = [name for name, _ in _google_image_providers]
+            logger.info("Gemini image providers enabled in order: %s", ", ".join(provider_names))
+        else:
+            logger.warning("No Gemini providers initialised; will fall back to OpenAI.")
     except ImageProviderError as exc:
         _prefer_google_image = False
         logger.warning(
             "Google Gemini 2.5 Flash provider disabled, falling back to OpenAI: %s",
             exc,
         )
+    finally:
+        if not _google_image_providers:
+            _prefer_google_image = False
 
 if not _prefer_google_image:
     logger.info("Using OpenAI image provider (model=%s)", Config.OPENAI_IMAGE_MODEL)
-
-
-def _get_image_provider() -> ImageProvider:
-    if _prefer_google_image and _google_image_provider is not None:
-        return _google_image_provider
-    return _openai_image_provider
 
 def _is_resource_exhausted_error(exc: Exception) -> bool:
     text = str(exc).upper()
@@ -111,10 +146,16 @@ def _generate_image_bytes(
     reference_images: Optional[List[bytes]] = None,
 ) -> Tuple[bytes, str]:
     providers: List[Tuple[str, ImageProvider]] = []
-    if _prefer_google_image and _google_image_provider is not None:
-        providers.append(("Google Gemini 2.5 Flash", _google_image_provider))
+    if _prefer_google_image and _google_image_providers:
+        providers.extend(_google_image_providers)
     else:
         providers.append(("OpenAI", _openai_image_provider))
+
+    logger.info(
+        "Image provider order for request %s: %s",
+        request_id,
+        ", ".join(name for name, _ in providers),
+    )
 
     last_error: Optional[Exception] = None
     max_attempts = max(1, Config.IMAGE_GENERATION_MAX_ATTEMPTS)
@@ -469,6 +510,7 @@ def generate_image(
             "prompt": prompt,
             "referenceCount": len(reference_images_bytes),
             "referenceSources": reference_sources,
+            "googleProviders": [name for name, _ in _google_image_providers],
         }
         if character_visuals:
             metadata["characters"] = [

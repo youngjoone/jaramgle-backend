@@ -562,9 +562,7 @@ public class StoryService {
                 if (character.getSlug() != null) {
                     node.put("slug", character.getSlug());
                 }
-                if (character.getVisualDescription() != null) {
-                    node.put("visual_description", character.getVisualDescription());
-                }
+                node.put("visual_description", buildCoverVisualDescription(character));
                 String resolvedImage = resolveCharacterImageUrl(character.getImageUrl());
                 if (resolvedImage != null) {
                     node.put("image_url", resolvedImage);
@@ -633,6 +631,36 @@ public class StoryService {
             unixPath = "/" + unixPath;
         }
         return "file://" + unixPath;
+    }
+
+    private String buildCoverVisualDescription(Character character) {
+        String visualDescription = character.getVisualDescription();
+        if (visualDescription != null && !visualDescription.isBlank()) {
+            return visualDescription;
+        }
+
+        List<String> descriptorParts = new ArrayList<>();
+        String persona = normalize(character.getPersona());
+        if (!persona.isBlank()) {
+            descriptorParts.add("Persona: " + persona);
+        }
+        String promptKeywords = normalize(character.getPromptKeywords());
+        if (!promptKeywords.isBlank()) {
+            descriptorParts.add("Visual cues: " + promptKeywords);
+        }
+        String catchphrase = normalize(character.getCatchphrase());
+        if (!catchphrase.isBlank()) {
+            descriptorParts.add("Catchphrase: \"" + catchphrase + "\"");
+        }
+
+        if (!descriptorParts.isEmpty()) {
+            return String.format("Child-friendly illustration of %s | %s", character.getName(), String.join(" | ", descriptorParts));
+        }
+        return "Child-friendly illustration of " + character.getName() + " with warm colors and inviting expression.";
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private StableStoryDto createFailsafeStory() {

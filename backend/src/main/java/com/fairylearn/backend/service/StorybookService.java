@@ -22,10 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.util.retry.Retry;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -244,6 +246,10 @@ public class StorybookService {
                     .bodyValue(requestNode)
                     .retrieve()
                     .bodyToMono(JsonNode.class)
+                    .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
+                            .filter(throwable -> throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable)
+                            .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
+                                    new RuntimeException("AI asset generation service unavailable after retries.", retrySignal.failure())))
                     .block();
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
