@@ -34,6 +34,9 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.util.retry.Retry;
 
+import java.io.IOException;
+import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -57,6 +60,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class StoryService {
+
+    private static final int MAX_TOTAL_STORY_CHARACTERS = 3;
 
     private final StoryRepository storyRepository;
     private final StoryPageRepository storyPageRepository;
@@ -103,7 +108,7 @@ public class StoryService {
             StoryPage page = new StoryPage(null, story, i + 1, pageTexts.get(i), null, null, null);
             storyPageRepository.save(page);
         }
-        assignCharacters(story, characterIds);
+        assignCharacters(story, characterIds, numericUserId);
         storyRepository.save(story);
         story.getCharacters().size();
         storageQuotaService.increaseUsedCount(userId);
@@ -187,6 +192,15 @@ public class StoryService {
         }
 
         try {
+            if (url.startsWith("file://")) {
+                Path path = Paths.get(URI.create(url));
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ioException) {
+                    log.warn("Failed to delete local file {}: {}", path, ioException.getMessage());
+                }
+                return;
+            }
             String path;
             if (url.startsWith("http")) {
                 path = new java.net.URL(url).getPath();
@@ -220,6 +234,7 @@ public class StoryService {
         Long numericUserId = parseUserId(userId);
         heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
         storageQuotaService.ensureSlotAvailable(userId);
+        validateCharacterAccess(request.getCharacterIds(), numericUserId);
         GenerationResult generationResult = generateAiStory(request);
         return saveGeneratedStory(userId, request, generationResult.story(), generationResult.concept());
     }
@@ -234,6 +249,7 @@ public class StoryService {
     public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept) {
         Long numericUserId = parseUserId(userId);
         heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
+        validateCharacterAccess(request.getCharacterIds(), numericUserId);
         String quizJson;
         String creativeConceptJson = null;
         try {
@@ -272,7 +288,7 @@ public class StoryService {
         }
 
         storageQuotaService.increaseUsedCount(userId);
-        assignCharacters(story, request.getCharacterIds());
+        assignCharacters(story, request.getCharacterIds(), numericUserId);
         storyRepository.save(story);
         if (creativeConcept != null && !creativeConcept.isNull()) {
             applyCharacterMetadata(story, request, creativeConcept);
@@ -290,14 +306,12 @@ public class StoryService {
         return story;
     }
 
-    private void assignCharacters(Story story, List<Long> characterIds) {
+    private void assignCharacters(Story story, List<Long> characterIds, Long numericUserId) {
         if (characterIds == null || characterIds.isEmpty()) {
             story.getCharacters().clear();
             return;
         }
-        if (characterIds.size() > 2) {
-            throw new IllegalArgumentException("At most two characters can be selected");
-        }
+        validateCharacterAccess(characterIds, numericUserId);
         List<Character> characters = characterRepository.findByIdIn(characterIds);
         if (characters.size() != characterIds.size()) {
             throw new IllegalArgumentException("One or more characters not found");
@@ -314,7 +328,9 @@ public class StoryService {
     }
     
     // Kept for backward compatibility with StoryStreamService
-    public StableStoryDto generateStableStoryDto(StoryGenerateRequest request) {
+    public StableStoryDto generateStableStoryDto(String userId, StoryGenerateRequest request) {
+        Long numericUserId = parseUserId(userId);
+        validateCharacterAccess(request.getCharacterIds(), numericUserId);
         return generateAiStory(request).story();
     }
 
@@ -412,11 +428,23 @@ public class StoryService {
                         Function.identity(),
                         (existing, duplicate) -> existing
                 ));
+        Map<String, Character> storyCharactersByName = story.getCharacters().stream()
+                .filter(character -> character.getName() != null && !character.getName().isBlank())
+                .collect(Collectors.toMap(
+                        character -> character.getName().trim().toLowerCase(Locale.ROOT),
+                        Function.identity(),
+                        (existing, duplicate) -> existing
+                ));
 
         if (request.getCharacterIds() != null && !request.getCharacterIds().isEmpty()) {
             List<Character> selectedCharacters = characterRepository.findByIdIn(request.getCharacterIds());
             for (Character character : selectedCharacters) {
-                storyCharactersBySlug.putIfAbsent(character.getSlug().toLowerCase(Locale.ROOT), character);
+                if (character.getSlug() != null) {
+                    storyCharactersBySlug.putIfAbsent(character.getSlug().toLowerCase(Locale.ROOT), character);
+                }
+                if (character.getName() != null && !character.getName().isBlank()) {
+                    storyCharactersByName.putIfAbsent(character.getName().trim().toLowerCase(Locale.ROOT), character);
+                }
             }
         }
 
@@ -425,19 +453,31 @@ public class StoryService {
             return;
         }
 
+        int currentCharacterCount = storyCharactersBySlug.size();
+        int maxAdditionalAllowed = Math.max(0, MAX_TOTAL_STORY_CHARACTERS - currentCharacterCount);
+        int additionalCreated = 0;
         Set<Character> charactersToPersist = new HashSet<>();
-        characterSheets.forEach(node -> {
-            String name = node.path("name").asText(null);
-            if (name == null || name.isBlank()) {
-                return;
+        for (JsonNode node : characterSheets) {
+            String rawName = node.path("name").asText(null);
+            if (rawName == null || rawName.isBlank()) {
+                continue;
             }
+            String name = rawName.trim();
 
             String requestedSlug = node.path("slug").asText(null);
             String slug = generateSlug(requestedSlug, name);
             String normalizedSlug = slug.toLowerCase(Locale.ROOT);
+            String normalizedName = name.toLowerCase(Locale.ROOT);
 
             Character character = storyCharactersBySlug.get(normalizedSlug);
+            if (character == null && normalizedName != null) {
+                character = storyCharactersByName.get(normalizedName);
+            }
             if (character == null) {
+                if (additionalCreated >= maxAdditionalAllowed) {
+                    log.info("Skipping additional character '{}' because the max ({}) is reached for story {}.", name, MAX_TOTAL_STORY_CHARACTERS, story.getId());
+                    continue;
+                }
                 character = characterRepository.findBySlug(slug).orElse(null);
                 if (character == null) {
                     character = new Character();
@@ -454,9 +494,18 @@ public class StoryService {
                         character.setModelingStatus(CharacterModelingStatus.COMPLETED);
                     }
                     character = characterRepository.save(character);
+                    additionalCreated++;
                 }
                 story.getCharacters().add(character);
                 storyCharactersBySlug.put(normalizedSlug, character);
+                if (normalizedName != null) {
+                    storyCharactersByName.put(normalizedName, character);
+                }
+            } else {
+                storyCharactersBySlug.put(normalizedSlug, character);
+                if (normalizedName != null) {
+                    storyCharactersByName.putIfAbsent(normalizedName, character);
+                }
             }
 
             if (node.hasNonNull("visual_description")) {
@@ -476,7 +525,7 @@ public class StoryService {
                 throw new StoryGenerationException("새로 등장한 캐릭터 '" + character.getName() + "'의 참조 이미지를 생성하지 못했습니다.");
             }
             log.info("[CHARACTER_DEBUG] After ensureCharacterReference for slug '{}': Status={}, ImageUrl={}", character.getSlug(), character.getModelingStatus(), character.getImageUrl());
-        });
+        }
 
         if (!charactersToPersist.isEmpty()) {
             characterRepository.saveAll(charactersToPersist);
@@ -514,7 +563,7 @@ public class StoryService {
 
         Character updated;
         try {
-            updated = characterModelingService.requestModelingSync(character.getId(), prompt);
+            updated = characterModelingService.requestModelingSync(character.getId(), prompt, null);
         } catch (CharacterModelingException ex) {
             throw new StoryGenerationException("캐릭터 '" + character.getName() + "'의 참조 이미지 생성에 실패했습니다.", ex);
         }
@@ -860,6 +909,32 @@ public class StoryService {
         } catch (Exception e) {
             log.error("Failed to generate assets for StoryPage {}-{} from AI service: {}", storyId, pageNo, e.getMessage());
             throw new RuntimeException("Failed to generate assets for story page.", e);
+        }
+    }
+
+    private void validateCharacterAccess(List<Long> characterIds, Long numericUserId) {
+        if (characterIds == null || characterIds.isEmpty()) {
+            return;
+        }
+        if (characterIds.size() > 2) {
+            throw new IllegalArgumentException("At most two characters can be selected");
+        }
+        List<Character> characters = characterRepository.findByIdIn(characterIds);
+        if (characters.size() != characterIds.size()) {
+            throw new IllegalArgumentException("One or more characters not found");
+        }
+        for (Character character : characters) {
+            CharacterScope scope = character.getScope();
+            if (scope == CharacterScope.GLOBAL) {
+                continue;
+            }
+            if (scope == CharacterScope.USER) {
+                if (numericUserId == null || character.getOwner() == null || !numericUserId.equals(character.getOwner().getId())) {
+                    throw new IllegalArgumentException("선택한 캐릭터를 사용할 수 없습니다.");
+                }
+                continue;
+            }
+            throw new IllegalArgumentException("선택한 캐릭터를 사용할 수 없습니다.");
         }
     }
 

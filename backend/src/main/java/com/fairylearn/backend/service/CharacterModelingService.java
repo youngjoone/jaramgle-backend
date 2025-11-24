@@ -10,7 +10,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -28,21 +27,21 @@ public class CharacterModelingService {
 
     @Async
     @Transactional
-    public void requestModeling(Long characterId, String fallbackDescription) {
+    public void requestModeling(Long characterId, String fallbackDescription, String referenceImageUri) {
         try {
-            performModeling(characterId, fallbackDescription);
+            performModeling(characterId, fallbackDescription, referenceImageUri);
         } catch (CharacterModelingException ex) {
             log.error("Async character modeling failed for {}: {}", characterId, ex.getMessage(), ex);
         }
     }
 
     @Transactional
-    public Character requestModelingSync(Long characterId, String fallbackDescription) {
-        return performModeling(characterId, fallbackDescription)
+    public Character requestModelingSync(Long characterId, String fallbackDescription, String referenceImageUri) {
+        return performModeling(characterId, fallbackDescription, referenceImageUri)
                 .orElse(null);
     }
 
-    private Optional<Character> performModeling(Long characterId, String fallbackDescription) {
+    private Optional<Character> performModeling(Long characterId, String fallbackDescription, String referenceImageUri) {
         Optional<Character> optionalCharacter = characterRepository.findById(characterId);
         if (optionalCharacter.isEmpty()) {
             log.warn("Cannot start modeling: character {} not found.", characterId);
@@ -71,7 +70,7 @@ public class CharacterModelingService {
                     character.getName(),
                     character.getSlug(),
                     prompt,
-                    character.getImageUrl()
+                    referenceImageUri
             );
 
             CharacterModelingResponseDto response = webClient.post()
@@ -112,6 +111,9 @@ public class CharacterModelingService {
     }
 
     private String buildPrompt(Character character, String fallbackDescription) {
+        if (character.getDescriptionPrompt() != null && !character.getDescriptionPrompt().isBlank()) {
+            return character.getDescriptionPrompt().trim();
+        }
         if (fallbackDescription != null && !fallbackDescription.isBlank()) {
             return fallbackDescription.trim();
         }
@@ -129,6 +131,9 @@ public class CharacterModelingService {
 
         if (character.getCatchphrase() != null && !character.getCatchphrase().isBlank()) {
             builder.append(" | Signature line: ").append(character.getCatchphrase());
+        }
+        if (character.getArtStyle() != null && !character.getArtStyle().isBlank()) {
+            builder.append(" | Art style: ").append(character.getArtStyle());
         }
 
         builder.append(" | Friendly children's book illustration, no speech bubbles or text overlays.");

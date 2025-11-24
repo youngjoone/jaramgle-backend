@@ -5,8 +5,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import com.fairylearn.backend.entity.CharacterScope;
-
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +41,12 @@ public class Character {
     @Column(name = "visual_description", columnDefinition = "TEXT")
     private String visualDescription;
 
+    @Column(name = "description_prompt", columnDefinition = "TEXT")
+    private String descriptionPrompt;
+
+    @Column(name = "art_style")
+    private String artStyle;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "modeling_status", nullable = false, length = 20)
     private CharacterModelingStatus modelingStatus = CharacterModelingStatus.PENDING;
@@ -50,6 +54,10 @@ public class Character {
     @Enumerated(EnumType.STRING)
     @Column(name = "scope", nullable = false, length = 20)
     private CharacterScope scope = CharacterScope.GLOBAL;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    private User owner;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

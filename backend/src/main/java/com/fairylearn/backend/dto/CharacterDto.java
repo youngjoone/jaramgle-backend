@@ -8,6 +8,10 @@ public record CharacterDto(
         String catchphrase,
         String promptKeywords,
         String imageUrl,
-        String visualDescription
+        String visualDescription,
+        String descriptionPrompt,
+        String modelingStatus,
+        String scope,
+        String artStyle
 ) {
 }

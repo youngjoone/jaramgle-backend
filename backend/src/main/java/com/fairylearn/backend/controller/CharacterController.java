@@ -1,9 +1,8 @@
 package com.fairylearn.backend.controller;
 
 import com.fairylearn.backend.dto.CharacterDto;
-import com.fairylearn.backend.entity.Character;
+import com.fairylearn.backend.dto.CharacterDtoMapper;
 import com.fairylearn.backend.service.CharacterService;
-import com.fairylearn.backend.util.AssetUrlResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,9 +20,8 @@ public class CharacterController {
 
     @GetMapping("/characters")
     public List<CharacterDto> getCharacters() {
-        List<Character> characters = characterService.findAll();
-        return characters.stream()
-                .map(this::toDto)
+        return characterService.findAllGlobal().stream()
+                .map(CharacterDtoMapper::fromEntity)
                 .toList();
     }
 
@@ -32,22 +30,8 @@ public class CharacterController {
         if (count < 1 || count > 2) {
             throw new IllegalArgumentException("Count must be 1 or 2.");
         }
-        List<Character> characters = characterService.findRandomGlobalCharacters(count);
-        return characters.stream()
-                .map(this::toDto)
+        return characterService.findRandomGlobalCharacters(count).stream()
+                .map(CharacterDtoMapper::fromEntity)
                 .toList();
-    }
-
-    private CharacterDto toDto(Character character) {
-        return new CharacterDto(
-                character.getId(),
-                character.getSlug(),
-                character.getName(),
-                character.getPersona(),
-                character.getCatchphrase(),
-                character.getPromptKeywords(),
-                AssetUrlResolver.toPublicUrl(character.getImageUrl()), // Changed from getImagePath()
-                character.getVisualDescription() // Added
-        );
     }
 }

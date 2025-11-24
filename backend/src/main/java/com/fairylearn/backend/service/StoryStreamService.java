@@ -26,7 +26,7 @@ public class StoryStreamService {
             storageQuotaService.ensureSlotAvailable(userId);
 
             // 2. Generate the story content by calling the refactored service method
-            StableStoryDto stableStory = storyService.generateStableStoryDto(request);
+            StableStoryDto stableStory = storyService.generateStableStoryDto(userId, request);
 
             // 3. Send events
             List<StableStoryPageDto> pages = stableStory.pages();
