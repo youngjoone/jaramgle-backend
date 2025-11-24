@@ -30,7 +30,7 @@ class Config:
     IMAGE_GENERATION_MAX_CONCURRENCY: int = int(os.getenv("IMAGE_GENERATION_MAX_CONCURRENCY", "3"))
     IMAGE_GENERATION_QUEUE_TIMEOUT_SECONDS: float = float(os.getenv("IMAGE_GENERATION_QUEUE_TIMEOUT_SECONDS", "5"))
     IMAGE_GENERATION_MAX_ATTEMPTS: int = int(os.getenv("IMAGE_GENERATION_MAX_ATTEMPTS", "3"))
-    IMAGE_GENERATION_BACKOFF_SECONDS: float = float(os.getenv("IMAGE_GENERATION_BACKOFF_SECONDS", "2"))
+    IMAGE_GENERATION_BACKOFF_SECONDS: float = float(os.getenv("IMAGE_GENERATION_BACKOFF_SECONDS", "8"))
     IMAGE_RESPONSE_SIZE: int = int(os.getenv("IMAGE_RESPONSE_SIZE", "500"))
 
     # Google Cloud project settings (for Vertex AI models like Imagen)

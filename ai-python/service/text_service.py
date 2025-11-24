@@ -60,10 +60,18 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
             detail_text = " | ".join(details) if details else "(추가 설명 없음)"
             slug_hint = f" ({character.slug})" if character.slug else ""
             character_lines.append(f"- {character.name}{slug_hint}: {detail_text}")
+    existing_character_count = len(req.characters or [])
+    max_total_characters = 3
+    additional_allowed = max(0, max_total_characters - existing_character_count)
+
     if character_lines:
         characters_section = "\n".join(character_lines)
     else:
         characters_section = "- (선택된 캐릭터 없음)"
+    if additional_allowed == 0:
+        additional_character_rule = "- 현재 인물 구성만 사용하며, 새로운 캐릭터는 추가하지 않는다."
+    else:
+        additional_character_rule = f"- 새로운 캐릭터는 최대 {additional_allowed}명까지만 추가하고, 꼭 필요할 때만 등장시킨다."
 
     goal_section = f"""
 - 주제 키워드: {topics_str or '자유 선택'}
@@ -101,6 +109,7 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 
     character_continuity_points = """
 - 각 캐릭터의 이름·역할·관계를 일관되게 유지하고, 페이지마다 성격이 잘 드러나도록 한다.
+- 동일한 이름을 가진 새로운 캐릭터를 추가하지 말고, 기존 캐릭터의 이름/slug를 그대로 사용한다.
 - 의상과 소품은 character_sheets 또는 요청 정보에서 제시한 분위기를 반영한다.
 - 새 캐릭터를 만들 때는 다양한 범주의 친구(예: 동물, 사람, 로봇, 요정, 악기, 자동차·비행기 등 의인화된 사물)를 고르게 조합하고, 특정 종이나 유형이 반복되지 않도록 한다.
 - 새로운 캐릭터를 도입할 경우 character_sheets에 이름, slug(케밥 케이스 권장), visual_description, voice_profile을 반드시 추가한다."""
@@ -126,7 +135,9 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 
 [주요 캐릭터]
 {characters_section}
-- 필요하다면 새 캐릭터를 도입해도 된다. 다만 등장한 캐릭터는 모두 `character_sheets`에 정의해야 한다.
+- 위 목록의 캐릭터는 이름과 slug를 그대로 사용하고, 동일 인물을 중복 생성하지 않는다.
+- 새로운 캐릭터가 정말 필요하다면 기존 이름·slug와 겹치지 않는 완전히 새로운 값을 사용하고, 반드시 `character_sheets`에 정의한다.
+{additional_character_rule}
 
 [필수 등장 요소]
 {required_elements_section}

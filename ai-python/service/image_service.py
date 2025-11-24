@@ -167,7 +167,7 @@ def _generate_image_bytes(
         if not should_retry:
             break
 
-        sleep_seconds = backoff_base * (2 ** (attempt - 1))
+        sleep_seconds = backoff_base * attempt
         if sleep_seconds > 0:
             logger.warning(
                 "Image provider throttled for request %s. Backing off %.1fs before retry.",
@@ -382,6 +382,8 @@ def generate_image(
 
 
         - Keep rendering style, line weight, and lighting consistent across all characters so the illustration looks like the same storybook page.
+        - Preserve each character's facial features (eyes, pupils, mouth), accessories, and costume details exactly as shown in the reference images.
+        - Do not add extra limbs or duplicate body parts; match the number and placement of arms, legs, hands, and props from the references.
 
 
     """).strip()
@@ -502,6 +504,7 @@ def generate_character_reference_image(
     request_id: str,
     description_prompt: Optional[str] = None,
     art_style: Optional[str] = None,
+    reference_images: Optional[List[bytes]] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     """
     Generates a single character reference illustration, focusing on a clean,
@@ -526,12 +529,17 @@ def generate_character_reference_image(
         """
     ).strip()
 
-    image_bytes, provider_used = _generate_image_bytes(prompt=prompt, request_id=request_id, reference_images=None)
+    image_bytes, provider_used = _generate_image_bytes(
+        prompt=prompt,
+        request_id=request_id,
+        reference_images=reference_images or None,
+    )
     encoded = _encode_png_base64(image_bytes)
 
     metadata: Dict[str, Any] = {
         "provider": provider_used,
         "prompt": prompt,
         "characterName": character_name,
+        "referenceCount": len(reference_images or []),
     }
     return encoded, metadata

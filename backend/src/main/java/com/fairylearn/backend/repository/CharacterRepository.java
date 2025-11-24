@@ -17,4 +17,8 @@ public interface CharacterRepository extends JpaRepository<Character, Long> {
     List<Character> findAllByScopeOrderByIdAsc(CharacterScope scope);
 
     Optional<Character> findBySlug(String slug);
+
+    List<Character> findAllByOwnerIdOrderByCreatedAtDesc(Long ownerId);
+
+    Optional<Character> findByIdAndOwnerId(Long id, Long ownerId);
 }

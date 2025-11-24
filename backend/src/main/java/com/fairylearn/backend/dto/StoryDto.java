@@ -53,16 +53,7 @@ public class StoryDto {
         dto.setPages(List.of());
         dto.setCharacters(story.getCharacters() != null
                 ? story.getCharacters().stream()
-                    .map(character -> new CharacterDto(
-                            character.getId(),
-                            character.getSlug(),
-                            character.getName(),
-                            character.getPersona(),
-                            character.getCatchphrase(),
-                            character.getPromptKeywords(),
-                            AssetUrlResolver.toPublicUrl(character.getImageUrl()), // Changed from getImagePath()
-                            character.getVisualDescription() // Added
-                    ))
+                    .map(CharacterDtoMapper::fromEntity)
                     .collect(Collectors.toList())
                 : new ArrayList<>());
         // Pages will be set separately for detail view

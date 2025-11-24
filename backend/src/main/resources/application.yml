@@ -6,6 +6,10 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: false
+  servlet:
+    multipart:
+      max-file-size: 6MB
+      max-request-size: 6MB
   cache:
     type: redis
   data:
@@ -29,4 +33,3 @@ app:
 ai:
   python:
     base-url: http://localhost:8000
-

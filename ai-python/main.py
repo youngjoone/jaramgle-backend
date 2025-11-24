@@ -12,11 +12,12 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 from textwrap import dedent
 from contextlib import asynccontextmanager
 
 # 2. FastAPI imports
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import FastAPI, Body, HTTPException, status, Request, Response, Query
 from fastapi.exceptions import RequestValidationError
@@ -215,6 +216,22 @@ async def create_character_reference_image_endpoint(
         slug_candidate = slug_candidate or "character"
         filename = f"{slug_candidate}-{uuid.uuid4().hex}.png"
 
+        reference_images_bytes: List[bytes] = []
+        if ref_req.existing_image_url:
+            parsed = urlparse(ref_req.existing_image_url)
+            if parsed.scheme == "file":
+                local_path = Path(parsed.path)
+                try:
+                    with open(local_path, "rb") as source_file:
+                        reference_images_bytes.append(source_file.read())
+                    logger.info("Using uploaded reference image: %s", local_path)
+                except FileNotFoundError:
+                    logger.warning("Reference image %s not found. Proceeding without it.", local_path)
+                except Exception as read_err:
+                    logger.warning("Failed to read reference image %s: %s", local_path, read_err)
+            else:
+                logger.warning("Unsupported reference image URL scheme for %s", ref_req.existing_image_url)
+
         async with _image_generation_slot():
             image_b64, metadata = await asyncio.to_thread(
                 generate_character_reference_image,
@@ -222,6 +239,7 @@ async def create_character_reference_image_endpoint(
                 request.state.request_id,
                 ref_req.description_prompt,
                 ref_req.art_style,
+                reference_images=reference_images_bytes or None,
             )
 
         image_data = base64.b64decode(image_b64)
