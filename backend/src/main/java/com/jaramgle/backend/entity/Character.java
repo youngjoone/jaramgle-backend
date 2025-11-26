@@ -1,0 +1,80 @@
+package com.jaramgle.backend.entity;
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+@Table(name = "characters")
+@Getter
+@Setter
+@NoArgsConstructor
+public class Character {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true, length = 64)
+    private String slug;
+
+    @Column(nullable = false, length = 128)
+    private String name;
+
+    @Column(columnDefinition = "TEXT")
+    private String persona;
+
+    @Column(columnDefinition = "TEXT")
+    private String catchphrase;
+
+    @Column(name = "prompt_keywords", columnDefinition = "TEXT")
+    private String promptKeywords;
+
+    @Column(name = "image_url")
+    private String imageUrl;
+
+    @Column(name = "visual_description", columnDefinition = "TEXT")
+    private String visualDescription;
+
+    @Column(name = "description_prompt", columnDefinition = "TEXT")
+    private String descriptionPrompt;
+
+    @Column(name = "art_style")
+    private String artStyle;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "modeling_status", nullable = false, length = 20)
+    private CharacterModelingStatus modelingStatus = CharacterModelingStatus.PENDING;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "scope", nullable = false, length = 20)
+    private CharacterScope scope = CharacterScope.GLOBAL;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    private User owner;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    @ManyToMany(mappedBy = "characters")
+    private List<Story> stories = new ArrayList<>();
+
+    @PrePersist
+    public void onPersist() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+        if (modelingStatus == null) {
+            modelingStatus = CharacterModelingStatus.PENDING;
+        }
+        if (scope == null) {
+            scope = CharacterScope.GLOBAL;
+        }
+    }
+}
