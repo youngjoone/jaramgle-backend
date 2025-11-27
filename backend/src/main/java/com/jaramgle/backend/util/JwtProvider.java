@@ -30,6 +30,7 @@ public class JwtProvider {
 
     @Value("${jwt.refresh-expiration-minutes}") // New property
     private long refreshExpirationMinutes; // New field
+    public long getExpirationMinutes() { return expirationMinutes; }
 
     private SecretKey getSigningKey() {
         byte[] keyBytes = Decoders.BASE64.decode(secret);

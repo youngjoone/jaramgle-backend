@@ -3,7 +3,7 @@ package com.jaramgle.backend.config;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import com.jaramgle.backend.auth.CustomOAuth2UserService;
 import com.jaramgle.backend.auth.CustomOidcUserService; // New import
-import com.jaramgle.backend.filter.JwtAuthFilter;
+import com.jaramgle.backend.filter.CookieJwtAuthFilter;
 import com.jaramgle.backend.filter.RequestIdFilter; // Import RequestIdFilter
 import com.jaramgle.backend.auth.OAuth2SuccessHandler;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired; // New import
 public class SecurityConfig {
 
     private OAuth2SuccessHandler oAuth2SuccessHandler; // No longer final
-    private final JwtAuthFilter jwtAuthFilter;
+    private final CookieJwtAuthFilter jwtAuthFilter;
     private final RequestIdFilter requestIdFilter; // Inject RequestIdFilter
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint; // Inject JwtAuthenticationEntryPoint
     private final CustomOAuth2UserService customOAuth2UserService; // Inject CustomOAuth2UserService
