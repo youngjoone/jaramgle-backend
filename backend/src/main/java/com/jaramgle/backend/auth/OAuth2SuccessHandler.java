@@ -67,13 +67,13 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         refreshTokenRepository.save(refreshTokenEntity);
 
         ResponseCookie refreshCookie = buildRefreshCookie(refreshToken, refreshTokenExpiresAt);
+        ResponseCookie accessCookie = buildAccessCookie(accessToken, Duration.ofMinutes(jwtProvider.getExpirationMinutes()));
         res.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+        res.addHeader(HttpHeaders.SET_COOKIE, accessCookie.toString());
 
-        // Build the redirect URL with only the access token as query parameter
+        // Redirect without exposing token in URL
         String redirectUrl = UriComponentsBuilder.fromUriString(frontendBaseUrl + "/auth/callback")
-                .queryParam("accessToken", accessToken)
                 .build().toUriString();
-
         res.sendRedirect(redirectUrl);
     }
 
@@ -81,8 +81,19 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         long maxAgeSeconds = Math.max(0, Duration.between(LocalDateTime.now(), expiresAt).getSeconds());
         return ResponseCookie.from("refresh_token", token)
                 .httpOnly(true)
-                .secure(true)
-                .sameSite("Strict")
+                .secure(false)
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(maxAgeSeconds)
+                .build();
+    }
+
+    private ResponseCookie buildAccessCookie(String token, Duration duration) {
+        long maxAgeSeconds = Math.max(0, duration.getSeconds());
+        return ResponseCookie.from("access_token", token)
+                .httpOnly(true)
+                .secure(false)
+                .sameSite("Lax")
                 .path("/")
                 .maxAge(maxAgeSeconds)
                 .build();

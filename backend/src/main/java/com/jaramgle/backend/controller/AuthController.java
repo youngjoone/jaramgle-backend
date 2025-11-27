@@ -55,6 +55,7 @@ public class AuthController {
 
         // Generate access token using the User object (which uses ID as subject)
         String accessToken = jwtProvider.generateToken(user);
+        ResponseCookie accessCookie = buildAccessCookie(accessToken, Duration.ofMinutes(jwtProvider.getExpirationMinutes()));
 
         // Generate refresh token using user ID as subject
         String refreshToken = jwtProvider.generateRefreshToken(String.valueOf(user.getId()));
@@ -73,14 +74,12 @@ public class AuthController {
         refreshTokenEntity.setExpiresAt(refreshTokenExpiresAt);
         refreshTokenRepository.save(refreshTokenEntity);
 
-        Map<String, String> responseBody = new HashMap<>();
-        responseBody.put("accessToken", accessToken);
-
         ResponseCookie refreshCookie = buildRefreshCookie(refreshToken, refreshTokenExpiresAt);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
-                .body(responseBody);
+                .header(HttpHeaders.SET_COOKIE, accessCookie.toString())
+                .build();
     }
 
     @PostMapping("/refresh")
@@ -140,23 +139,32 @@ public class AuthController {
         storedRefreshToken.setRevokedAt(LocalDateTime.now());
         refreshTokenRepository.save(storedRefreshToken);
 
-        // g) Send new refresh cookie + respond with new access token
-        Map<String, String> responseBody = new HashMap<>();
-        responseBody.put("accessToken", newAccessToken);
-
         ResponseCookie refreshCookie = buildRefreshCookie(newRefreshToken, newRefreshTokenExpiresAt);
+        ResponseCookie accessCookie = buildAccessCookie(newAccessToken, Duration.ofMinutes(jwtProvider.getExpirationMinutes()));
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
-                .body(responseBody);
+                .header(HttpHeaders.SET_COOKIE, accessCookie.toString())
+                .build();
     }
 
     private ResponseCookie buildRefreshCookie(String token, LocalDateTime expiresAt) {
         long maxAgeSeconds = Math.max(0, Duration.between(LocalDateTime.now(), expiresAt).getSeconds());
         return ResponseCookie.from(REFRESH_COOKIE_NAME, token)
                 .httpOnly(true)
-                .secure(true)
-                .sameSite("Strict")
+                .secure(false) // local dev
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(maxAgeSeconds)
+                .build();
+    }
+
+    private ResponseCookie buildAccessCookie(String token, Duration duration) {
+        long maxAgeSeconds = Math.max(0, duration.getSeconds());
+        return ResponseCookie.from("access_token", token)
+                .httpOnly(true)
+                .secure(false)
+                .sameSite("Lax")
                 .path("/")
                 .maxAge(maxAgeSeconds)
                 .build();
@@ -176,8 +184,8 @@ public class AuthController {
 
         ResponseCookie expiredCookie = ResponseCookie.from(REFRESH_COOKIE_NAME, "")
                 .httpOnly(true)
-                .secure(true)
-                .sameSite("Strict")
+                .secure(false)
+                .sameSite("None")
                 .path("/")
                 .maxAge(0)
                 .build();
