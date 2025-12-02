@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
@@ -33,7 +32,6 @@ public class StoryGenerateRequest {
     @NotEmpty
     private List<String> topics;
 
-    @NotEmpty
     private List<String> objectives;
 
     @NotNull
@@ -70,6 +68,17 @@ public class StoryGenerateRequest {
             return;
         }
         this.requiredElements = elements.stream()
+                .map(item -> item == null ? "" : item.trim())
+                .filter(item -> !item.isEmpty())
+                .collect(Collectors.toList());
+    }
+
+    public void setObjectives(List<String> objectives) {
+        if (objectives == null) {
+            this.objectives = java.util.Collections.emptyList();
+            return;
+        }
+        this.objectives = objectives.stream()
                 .map(item -> item == null ? "" : item.trim())
                 .filter(item -> !item.isEmpty())
                 .collect(Collectors.toList());

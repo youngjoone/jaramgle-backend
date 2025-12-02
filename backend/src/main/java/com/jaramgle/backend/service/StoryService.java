@@ -353,7 +353,8 @@ public class StoryService {
         ObjectNode promptPayload = objectMapper.createObjectNode();
         promptPayload.put("age_range", request.getAgeRange());
         promptPayload.putArray("topics").addAll(request.getTopics().stream().map(objectMapper.getNodeFactory()::textNode).collect(Collectors.toList()));
-        promptPayload.putArray("objectives").addAll(request.getObjectives().stream().map(objectMapper.getNodeFactory()::textNode).collect(Collectors.toList()));
+        List<String> objectives = request.getObjectives() == null ? java.util.Collections.emptyList() : request.getObjectives();
+        promptPayload.putArray("objectives").addAll(objectives.stream().map(objectMapper.getNodeFactory()::textNode).collect(Collectors.toList()));
         promptPayload.put("min_pages", request.getMinPages());
         promptPayload.put("language", request.getLanguage());
         if (request.getTitle() != null) {
