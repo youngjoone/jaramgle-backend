@@ -7,6 +7,7 @@ import com.jaramgle.backend.dto.StoryPageDto;
 import com.jaramgle.backend.dto.StorySaveRequest;
 import com.jaramgle.backend.dto.StoryGenerateRequest;
 import com.jaramgle.backend.dto.StorageQuotaDto;
+import com.jaramgle.backend.dto.SharedStorySummaryDto;
 import com.jaramgle.backend.entity.Story;
 import com.jaramgle.backend.dto.ShareStoryResponse;
 import com.jaramgle.backend.service.StoryService;
@@ -33,7 +34,8 @@ public class StoryController {
 
     @GetMapping("/storage/me")
     public ResponseEntity<StorageQuotaDto> getMyStorageQuota(@AuthenticationPrincipal AuthPrincipal principal) {
-        StorageQuotaDto quota = StorageQuotaDto.fromEntity(storageQuotaService.getQuotaInfo(String.valueOf(principal.id())));
+        StorageQuotaDto quota = StorageQuotaDto
+                .fromEntity(storageQuotaService.getQuotaInfo(String.valueOf(principal.id())));
         return ResponseEntity.ok(quota);
     }
 
@@ -52,7 +54,8 @@ public class StoryController {
     }
 
     @GetMapping("/stories/{id}")
-    public ResponseEntity<StoryDto> getStoryDetail(@PathVariable Long id, @AuthenticationPrincipal AuthPrincipal principal) {
+    public ResponseEntity<StoryDto> getStoryDetail(@PathVariable Long id,
+            @AuthenticationPrincipal AuthPrincipal principal) {
         return storyService.getStoryByIdAndUserId(id, String.valueOf(principal.id()))
                 .map(story -> {
                     List<StoryPageDto> pages = storyService.getStoryPagesByStoryId(story.getId()).stream()
@@ -67,7 +70,8 @@ public class StoryController {
     }
 
     @PostMapping("/stories")
-    public ResponseEntity<StoryDto> generateStory(@Valid @RequestBody StoryGenerateRequest request, @AuthenticationPrincipal AuthPrincipal principal) {
+    public ResponseEntity<StoryDto> generateStory(@Valid @RequestBody StoryGenerateRequest request,
+            @AuthenticationPrincipal AuthPrincipal principal) {
         Story newStory = storyService.generateAndSaveStory(String.valueOf(principal.id()), request);
         StoryDto dto = StoryDto.fromEntity(newStory);
         dto.setManageable(true);
@@ -75,7 +79,8 @@ public class StoryController {
     }
 
     @PostMapping("/stories/save")
-    public ResponseEntity<StoryDto> saveExistingStory(@Valid @RequestBody StorySaveRequest request, @AuthenticationPrincipal AuthPrincipal principal) {
+    public ResponseEntity<StoryDto> saveExistingStory(@Valid @RequestBody StorySaveRequest request,
+            @AuthenticationPrincipal AuthPrincipal principal) {
         Story newStory = storyService.saveNewStory(
                 String.valueOf(principal.id()),
                 request.getTitle(),
@@ -84,8 +89,7 @@ public class StoryController {
                 request.getLanguage(),
                 request.getLengthLevel(),
                 request.getPageTexts(),
-                request.getCharacterIds()
-        );
+                request.getCharacterIds());
         StoryDto dto = StoryDto.fromEntity(newStory);
         dto.setManageable(true);
         return new ResponseEntity<>(dto, HttpStatus.CREATED);
@@ -100,21 +104,28 @@ public class StoryController {
     @PostMapping("/stories/bulk-delete")
     public ResponseEntity<Void> bulkDeleteStories(
             @Valid @RequestBody StoryBulkDeleteRequest request,
-            @AuthenticationPrincipal AuthPrincipal principal
-    ) {
+            @AuthenticationPrincipal AuthPrincipal principal) {
         storyService.deleteStories(request.storyIds(), String.valueOf(principal.id()));
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/stories/{id}/audio")
-    public ResponseEntity<String> generateAudio(@PathVariable Long id, @AuthenticationPrincipal AuthPrincipal principal) {
+    public ResponseEntity<String> generateAudio(@PathVariable Long id,
+            @AuthenticationPrincipal AuthPrincipal principal) {
         String audioUrl = storyService.generateAudio(id, String.valueOf(principal.id()));
         return ResponseEntity.ok(audioUrl);
     }
 
     @PostMapping("/stories/{id}/share")
-    public ResponseEntity<ShareStoryResponse> shareStory(@PathVariable Long id, @AuthenticationPrincipal AuthPrincipal principal) {
+    public ResponseEntity<ShareStoryResponse> shareStory(@PathVariable Long id,
+            @AuthenticationPrincipal AuthPrincipal principal) {
         ShareStoryResponse response = storyShareService.shareStory(id, String.valueOf(principal.id()));
         return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/stories/{id}/share")
+    public ResponseEntity<Void> unshareStory(@PathVariable Long id, @AuthenticationPrincipal AuthPrincipal principal) {
+        storyShareService.unshareStory(id, String.valueOf(principal.id()));
+        return ResponseEntity.noContent().build();
     }
 }
