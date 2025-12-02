@@ -46,7 +46,8 @@ import java.util.stream.StreamSupport;
 @Slf4j
 public class StorybookService {
 
-    private static final String CHARACTER_IMAGE_DIR = System.getenv().getOrDefault("CHARACTER_IMAGE_DIR", "/Users/kyj/testchardir");
+    private static final String CHARACTER_IMAGE_DIR = System.getenv().getOrDefault("CHARACTER_IMAGE_DIR",
+            "/Users/kyj/testchardir");
 
     private final StoryRepository storyRepository;
     private final StorybookPageRepository storybookPageRepository;
@@ -57,19 +58,15 @@ public class StorybookService {
 
     private static final int STORYBOOK_IMAGE_MAX_CONCURRENCY = Math.max(
             1,
-            Integer.parseInt(System.getenv().getOrDefault("STORYBOOK_IMAGE_MAX_CONCURRENCY", "1"))
-    );
+            Integer.parseInt(System.getenv().getOrDefault("STORYBOOK_IMAGE_MAX_CONCURRENCY", "1")));
     private static final long STORYBOOK_IMAGE_QUEUE_TIMEOUT_MS = Math.max(
             1000L,
-            Long.parseLong(System.getenv().getOrDefault("STORYBOOK_IMAGE_QUEUE_TIMEOUT_MS", "5000"))
-    );
+            Long.parseLong(System.getenv().getOrDefault("STORYBOOK_IMAGE_QUEUE_TIMEOUT_MS", "5000")));
     private final Semaphore pageAssetSemaphore = new Semaphore(STORYBOOK_IMAGE_MAX_CONCURRENCY, true);
     private final ExecutorService pageAssetExecutor = Executors.newFixedThreadPool(
             Math.max(
                     1,
-                    Math.min(Runtime.getRuntime().availableProcessors(), STORYBOOK_IMAGE_MAX_CONCURRENCY)
-            )
-    );
+                    Math.min(Runtime.getRuntime().availableProcessors(), STORYBOOK_IMAGE_MAX_CONCURRENCY)));
 
     @Transactional
     public StorybookPage createStorybook(Long storyId) {
@@ -92,7 +89,8 @@ public class StorybookService {
         }
 
         StoryPage firstOriginalPage = originalPages.get(0);
-        StorybookPage firstStorybookPage = generateAndSaveStorybookPage(story, 1, firstOriginalPage.getText(), firstOriginalPage.getImagePrompt());
+        StorybookPage firstStorybookPage = generateAndSaveStorybookPage(story, 1, firstOriginalPage.getText(),
+                firstOriginalPage.getImagePrompt());
         log.info("createStorybook: First page generated and saved. ID: {}", firstStorybookPage.getId());
 
         if (originalPages.size() > 1) {
@@ -136,7 +134,8 @@ public class StorybookService {
 
                         Story transactionalStory = storyRepository.getReferenceById(storyId);
                         transactionalStory.getCharacters().size();
-                        generateAndSaveStorybookPage(transactionalStory, pageNumber, currentPage.getText(), currentPage.getImagePrompt());
+                        generateAndSaveStorybookPage(transactionalStory, pageNumber, currentPage.getText(),
+                                currentPage.getImagePrompt());
                         log.info("Completed generation for storyId {} page {} (worker={})",
                                 storyId, pageNumber, Thread.currentThread().getName());
                     } catch (Exception ex) {
@@ -155,7 +154,8 @@ public class StorybookService {
         log.info("Finished async generation for storyId: {}", storyId);
     }
 
-    private StorybookPage generateAndSaveStorybookPage(Story story, int pageNumber, String pageText, String imagePrompt) {
+    private StorybookPage generateAndSaveStorybookPage(Story story, int pageNumber, String pageText,
+            String imagePrompt) {
         log.info("Generating image for storyId: {}, pageNumber: {}", story.getId(), pageNumber);
 
         String artStyle = "A minimalistic watercolor style with a soft pastel palette."; // Default
@@ -174,8 +174,7 @@ public class StorybookService {
                                     node.path("slug").asText(""),
                                     node.path("visual_description").asText(),
                                     node.path("image_url").asText(""), // Added imageUrl, defaulting to empty string
-                                    node.path("modeling_status").asText("")
-                            ))
+                                    node.path("modeling_status").asText("")))
                             .collect(Collectors.toList());
                 }
             } catch (IOException e) {
@@ -218,7 +217,8 @@ public class StorybookService {
         characterVisuals.stream()
                 .filter(visual -> visual.getName() != null && !visual.getName().isBlank())
                 .filter(visual -> {
-                    String key = visual.getSlug() != null ? visual.getSlug().toLowerCase() : visual.getName().toLowerCase();
+                    String key = visual.getSlug() != null ? visual.getSlug().toLowerCase()
+                            : visual.getName().toLowerCase();
                     return !existingCharacterKeys.contains(key);
                 })
                 .forEach(visual -> {
@@ -251,8 +251,8 @@ public class StorybookService {
                     .bodyToMono(JsonNode.class)
                     .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
                             .filter(throwable -> throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable)
-                            .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
-                                    new RuntimeException("AI asset generation service unavailable after retries.", retrySignal.failure())))
+                            .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> new RuntimeException(
+                                    "AI asset generation service unavailable after retries.", retrySignal.failure())))
                     .block();
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
@@ -272,23 +272,129 @@ public class StorybookService {
             throw new RuntimeException("Image URL missing in AI response.");
         }
 
-        String webAccessibleUrl = String.format("http://localhost:8080%s", imagePath.startsWith("/") ? imagePath : ("/" + imagePath));
+        // Optimize Image (Resize & Convert to WebP)
+        String optimizedWebAccessibleUrl;
+        try {
+            optimizedWebAccessibleUrl = optimizeImage(imagePath);
+        } catch (IOException e) {
+            log.error("Failed to optimize image: {}. Using original.", imagePath, e);
+            optimizedWebAccessibleUrl = String.format("http://localhost:8080%s",
+                    imagePath.startsWith("/") ? imagePath : ("/" + imagePath));
+        }
 
         StorybookPage storybookPage = new StorybookPage();
         storybookPage.setStory(story);
         storybookPage.setPageNumber(pageNumber);
         storybookPage.setText(pageText);
-        storybookPage.setImageUrl(webAccessibleUrl);
+        storybookPage.setImageUrl(optimizedWebAccessibleUrl);
 
         StorybookPage savedPage = storybookPageRepository.save(storybookPage);
-        log.info("Saved storybook page {} for storyId: {}. Image URL: {}", pageNumber, story.getId(), webAccessibleUrl);
+        log.info("Saved storybook page {} for storyId: {}. Image URL: {}", pageNumber, story.getId(),
+                optimizedWebAccessibleUrl);
         return savedPage;
+    }
+
+    private String optimizeImage(String originalRelativePath) throws IOException {
+        // Resolve absolute path of the original image
+        // Try to handle various URL prefixes that might be returned by AI service
+        String sanitizedPath = originalRelativePath.startsWith("/") ? originalRelativePath.substring(1)
+                : originalRelativePath;
+
+        Path imageRoot = Paths.get("/Users/kyj/testimagedir/"); // Hardcoded based on WebConfig
+
+        // Try to strip common prefixes to find the actual file path relative to
+        // imageRoot
+        String candidatePath = sanitizedPath;
+
+        // Handle full URL
+        if (candidatePath.startsWith("http://") || candidatePath.startsWith("https://")) {
+            try {
+                java.net.URL url = new java.net.URL(candidatePath);
+                candidatePath = url.getPath();
+                if (candidatePath.startsWith("/")) {
+                    candidatePath = candidatePath.substring(1);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to parse URL: {}", candidatePath);
+            }
+        }
+
+        if (candidatePath.startsWith("images/")) {
+            candidatePath = candidatePath.substring("images/".length());
+        } else if (candidatePath.startsWith("api/image/")) {
+            candidatePath = candidatePath.substring("api/image/".length());
+        }
+
+        Path originalFile = imageRoot.resolve(candidatePath);
+
+        log.info("DEBUG: Optimization - Raw Path: '{}', Resolved Path: '{}'", originalRelativePath, originalFile);
+
+        // Fallback: If file doesn't exist at resolved path, try looking for the
+        // filename directly in root
+        if (!originalFile.toFile().exists()) {
+            log.warn("DEBUG: File not found at resolved path: {}", originalFile);
+
+            // List files in root to help debugging
+            try {
+                java.io.File rootDir = imageRoot.toFile();
+                if (rootDir.exists() && rootDir.isDirectory()) {
+                    String[] files = rootDir.list();
+                    log.info("DEBUG: Files in {}: {}", rootDir,
+                            files != null ? java.util.Arrays.toString(files) : "null");
+                } else {
+                    log.error("DEBUG: Image root directory does not exist: {}", rootDir);
+                }
+            } catch (Exception e) {
+                log.error("DEBUG: Failed to list directory", e);
+            }
+
+            String filename = Paths.get(originalRelativePath).getFileName().toString();
+            Path fallbackFile = imageRoot.resolve(filename);
+            if (fallbackFile.toFile().exists()) {
+                originalFile = fallbackFile;
+                log.info("Found original file via fallback (filename only): {}", originalFile);
+            } else {
+                log.warn("Original file not found at {} or {}. Skipping optimization.", originalFile, fallbackFile);
+                return String.format("http://localhost:8080%s",
+                        originalRelativePath.startsWith("/") ? originalRelativePath : ("/" + originalRelativePath));
+            }
+        }
+
+        // Create new filename with .jpg extension
+        String originalFilename = originalFile.getFileName().toString();
+        String baseName = originalFilename.substring(0, originalFilename.lastIndexOf('.'));
+        String newFilename = baseName + ".jpg";
+        Path newFile = originalFile.getParent().resolve(newFilename);
+
+        log.info("Optimizing image: {} -> {}", originalFile, newFile);
+
+        // Compress and Convert to JPG
+        net.coobird.thumbnailator.Thumbnails.of(originalFile.toFile())
+                .size(1024, 1024) // Resize to max 1024px
+                .outputFormat("jpg")
+                .outputQuality(0.8) // 80% quality
+                .toFile(newFile.toFile());
+
+        // Delete original file to save space
+        if (originalFile.toFile().delete()) {
+            log.info("Deleted original file: {}", originalFile);
+        } else {
+            log.warn("Failed to delete original file: {}", originalFile);
+        }
+
+        // Return new web accessible URL
+        // Reconstruct the relative path but with new filename
+        String parentPath = originalRelativePath.substring(0, originalRelativePath.lastIndexOf('/') + 1);
+        String newRelativePath = parentPath + newFilename;
+
+        return String.format("http://localhost:8080%s",
+                newRelativePath.startsWith("/") ? newRelativePath : ("/" + newRelativePath));
     }
 
     @Transactional
     public StorybookPage generatePageAudio(Long storyId,
-                                           Long pageId,
-                                           GenerateParagraphAudioRequestDto requestDto) {
+            Long pageId,
+            GenerateParagraphAudioRequestDto requestDto) {
         StorybookPage page = storybookPageRepository.findByIdAndStoryId(pageId, storyId)
                 .orElseThrow(() -> new IllegalArgumentException("Storybook page not found for this story."));
         if (page.getStory() != null && page.getStory().isDeleted()) {
@@ -349,10 +455,10 @@ public class StorybookService {
     }
 
     private String resolveImagePrompt(String rawPrompt,
-                                      String pageText,
-                                      String artStyle,
-                                      int pageNumber,
-                                      Long storyId) {
+            String pageText,
+            String artStyle,
+            int pageNumber,
+            Long storyId) {
         if (rawPrompt != null && !rawPrompt.isBlank()) {
             return rawPrompt;
         }
@@ -389,15 +495,18 @@ public class StorybookService {
             if (fallback.length() > 0) {
                 fallback.append(" | ");
             }
-            fallback.append("No speech bubbles or text overlays; convey dialogue through expressions, gestures, and atmosphere.");
+            fallback.append(
+                    "No speech bubbles or text overlays; convey dialogue through expressions, gestures, and atmosphere.");
         }
 
         if (fallback.indexOf("Use only the established story characters") < 0) {
-            fallback.append(" | Use only the established story characters (max three in frame); do not introduce random extra humans except distant silhouettes.");
+            fallback.append(
+                    " | Use only the established story characters (max three in frame); do not introduce random extra humans except distant silhouettes.");
         }
 
         if (fallback.indexOf("Keep clothing and time period consistent") < 0) {
-            fallback.append(" | Keep clothing and time period consistent with the story setting (default to modern casual unless explicitly historical).");
+            fallback.append(
+                    " | Keep clothing and time period consistent with the story setting (default to modern casual unless explicitly historical).");
         }
 
         log.warn("No image prompt found for storyId {}, page {}. Using fallback prompt.", storyId, pageNumber);
@@ -430,19 +539,22 @@ public class StorybookService {
                 visualDescription = String.format(
                         "%s | %s",
                         "Child-friendly illustration of " + name,
-                        String.join(" | ", descriptorParts)
-                );
+                        String.join(" | ", descriptorParts));
             } else {
-                visualDescription = "Child-friendly illustration of " + name + " with warm colors and inviting expression.";
+                visualDescription = "Child-friendly illustration of " + name
+                        + " with warm colors and inviting expression.";
             }
 
             log.warn("Character {} in storyId {} lacks visual description. Using derived fallback.", name, storyId);
         }
-        if (!visualDescription.toLowerCase().contains("speech") && !visualDescription.toLowerCase().contains("bubble")) {
-            visualDescription = visualDescription + " | Depict " + name + " actively engaging with the scene, showing emotion through body language. No speech bubbles or text overlays.";
+        if (!visualDescription.toLowerCase().contains("speech")
+                && !visualDescription.toLowerCase().contains("bubble")) {
+            visualDescription = visualDescription + " | Depict " + name
+                    + " actively engaging with the scene, showing emotion through body language. No speech bubbles or text overlays.";
         }
         if (!visualDescription.toLowerCase().contains("modern")) {
-            visualDescription = visualDescription + " | Modern casual outfit that matches the story's setting; avoid historical or anachronistic clothing unless explicitly defined.";
+            visualDescription = visualDescription
+                    + " | Modern casual outfit that matches the story's setting; avoid historical or anachronistic clothing unless explicitly defined.";
         }
 
         String resolvedImageUrl = resolveImageUrl(imageUrl);
