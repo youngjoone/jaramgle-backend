@@ -54,7 +54,10 @@ public class StoryShareService {
         }
 
         SharedStory sharedStory = sharedStoryRepository.findByStoryId(story.getId())
-                .map(existing -> updateTitleIfNeeded(existing, story.getTitle()))
+                .map(existing -> {
+                    existing.setHidden(false); // 재공유 시 노출
+                    return updateTitleIfNeeded(existing, story.getTitle());
+                })
                 .orElseGet(() -> createSharedStory(story));
 
         String shareUrl = String.format("%s/shared/%s", frontendBaseUrl, sharedStory.getShareSlug());
@@ -63,7 +66,21 @@ public class StoryShareService {
 
     @Transactional(readOnly = true)
     public Optional<String> findShareSlugForStory(Long storyId) {
-        return sharedStoryRepository.findByStoryId(storyId).map(SharedStory::getShareSlug);
+        return sharedStoryRepository.findByStoryId(storyId)
+                .filter(shared -> !shared.isHidden())
+                .map(SharedStory::getShareSlug);
+    }
+
+    @Transactional
+    public void unshareStory(Long storyId, String userId) {
+        Story story = storyRepository.findByIdAndUserIdAndDeletedFalse(storyId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Story not found or not owned by user."));
+
+        SharedStory sharedStory = sharedStoryRepository.findByStoryId(story.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Story is not shared."));
+
+        sharedStory.setHidden(true);
+        sharedStoryRepository.save(sharedStory);
     }
 
     @Transactional(readOnly = true)
@@ -78,10 +95,12 @@ public class StoryShareService {
                 .collect(Collectors.toList());
 
         Map<Long, Long> likeCounts = toCountMap(sharedStoryLikeRepository.countBySharedStoryIds(sharedStoryIds));
-        Map<Long, Long> commentCounts = toCountMap(sharedStoryCommentRepository.countActiveCommentsBySharedStoryIds(sharedStoryIds));
+        Map<Long, Long> commentCounts = toCountMap(
+                sharedStoryCommentRepository.countActiveCommentsBySharedStoryIds(sharedStoryIds));
 
         return sharedStories.stream()
-                .filter(shared -> shared.getStory() != null && !shared.getStory().isDeleted() && !shared.getStory().isHidden())
+                .filter(shared -> shared.getStory() != null && !shared.getStory().isDeleted()
+                        && !shared.getStory().isHidden())
                 .map(shared -> new SharedStorySummaryDto(
                         shared.getShareSlug(),
                         shared.getSharedTitle(),
@@ -89,8 +108,7 @@ public class StoryShareService {
                         buildPreview(shared.getStory()),
                         likeCounts.getOrDefault(shared.getId(), 0L),
                         commentCounts.getOrDefault(shared.getId(), 0L),
-                        shared.getStory().getCoverImageUrl()
-                ))
+                        shared.getStory().getCoverImageUrl()))
                 .collect(Collectors.toList());
     }
 
@@ -118,7 +136,13 @@ public class StoryShareService {
         Long viewerNumericId = parseUserId(viewerUserId);
         long likeCount = sharedStoryLikeRepository.countBySharedStory_Id(sharedStory.getId());
         long commentCount = sharedStoryCommentRepository.countBySharedStory_IdAndDeletedFalse(sharedStory.getId());
-        boolean likedByViewer = viewerNumericId != null && sharedStoryLikeRepository.existsBySharedStory_IdAndUser_Id(sharedStory.getId(), viewerNumericId);
+        boolean likedByViewer = viewerNumericId != null
+                && sharedStoryLikeRepository.existsBySharedStory_IdAndUser_Id(sharedStory.getId(), viewerNumericId);
+
+        List<StorybookPage> sbPages = storybookService.getStorybookPages(story.getId());
+        List<StorybookPageDto> sbDtos = sbPages.stream()
+                .map(StorybookPageDto::fromEntity)
+                .collect(Collectors.toList());
 
         return new SharedStoryDetailDto(
                 sharedStory.getShareSlug(),
@@ -128,8 +152,8 @@ public class StoryShareService {
                 likeCount,
                 likedByViewer,
                 commentCount,
-                storyDto
-        );
+                storyDto,
+                sbDtos);
     }
 
     private SharedStory updateTitleIfNeeded(SharedStory sharedStory, String latestTitle) {

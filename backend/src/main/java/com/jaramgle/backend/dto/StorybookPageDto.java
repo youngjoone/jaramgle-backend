@@ -1,6 +1,7 @@
 package com.jaramgle.backend.dto;
 
 import com.jaramgle.backend.entity.StorybookPage;
+import com.jaramgle.backend.util.AssetUrlResolver;
 import lombok.Data;
 
 @Data
@@ -16,7 +17,7 @@ public class StorybookPageDto {
         dto.setId(entity.getId());
         dto.setPageNumber(entity.getPageNumber());
         dto.setText(entity.getText());
-        dto.setImageUrl(entity.getImageUrl());
+        dto.setImageUrl(AssetUrlResolver.toPublicUrl(entity.getImageUrl()));
         dto.setAudioUrl(entity.getAudioUrl());
         return dto;
     }
