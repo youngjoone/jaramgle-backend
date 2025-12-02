@@ -2,6 +2,7 @@ package com.jaramgle.backend.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.jaramgle.backend.entity.StoryPage;
+import com.jaramgle.backend.util.AssetUrlResolver;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,13 +16,17 @@ public class StoryPageDto {
     private Integer pageNo;
     private String text;
     private String imagePrompt;
+    private String imageUrl;
+    private String audioUrl;
 
     public static StoryPageDto fromEntity(StoryPage storyPage) {
         return new StoryPageDto(
                 storyPage.getId(),
                 storyPage.getPageNo(),
                 storyPage.getText(),
-                storyPage.getImagePrompt()
+                storyPage.getImagePrompt(),
+                AssetUrlResolver.toPublicUrl(storyPage.getImageUrl()),
+                storyPage.getAudioUrl()
         );
     }
 }
