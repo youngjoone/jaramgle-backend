@@ -61,7 +61,8 @@ public class UserController {
                 user.getEmail(),
                 user.getName(),
                 user.getProvider(),
-                user.getRoleKey()
+                user.getRoleKey(),
+                user.getCreatedAt()
         );
     }
 }
