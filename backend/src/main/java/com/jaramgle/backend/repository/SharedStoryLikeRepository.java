@@ -18,4 +18,8 @@ public interface SharedStoryLikeRepository extends JpaRepository<SharedStoryLike
 
     @Query("select l.sharedStory.id as sharedStoryId, count(l.id) as likeCount from SharedStoryLike l where l.sharedStory.id in :sharedStoryIds group by l.sharedStory.id")
     List<Object[]> countBySharedStoryIds(@Param("sharedStoryIds") List<Long> sharedStoryIds);
+
+    @Query("select l.sharedStory.id from SharedStoryLike l where l.sharedStory.id in :sharedStoryIds and l.user.id = :userId")
+    List<Long> findLikedSharedStoryIdsByUser(@Param("sharedStoryIds") List<Long> sharedStoryIds,
+                                             @Param("userId") Long userId);
 }

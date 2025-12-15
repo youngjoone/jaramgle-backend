@@ -23,9 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -84,7 +86,7 @@ public class StoryShareService {
     }
 
     @Transactional(readOnly = true)
-    public List<SharedStorySummaryDto> getSharedStories() {
+    public List<SharedStorySummaryDto> getSharedStories(String viewerUserId) {
         List<SharedStory> sharedStories = sharedStoryRepository.findAllByHiddenFalseOrderByCreatedAtDesc();
         if (sharedStories.isEmpty()) {
             return List.of();
@@ -97,6 +99,10 @@ public class StoryShareService {
         Map<Long, Long> likeCounts = toCountMap(sharedStoryLikeRepository.countBySharedStoryIds(sharedStoryIds));
         Map<Long, Long> commentCounts = toCountMap(
                 sharedStoryCommentRepository.countActiveCommentsBySharedStoryIds(sharedStoryIds));
+        Long viewerNumericId = parseUserId(viewerUserId);
+        Set<Long> likedIds = (viewerNumericId != null)
+                ? new HashSet<>(sharedStoryLikeRepository.findLikedSharedStoryIdsByUser(sharedStoryIds, viewerNumericId))
+                : Set.of();
 
         return sharedStories.stream()
                 .filter(shared -> shared.getStory() != null && !shared.getStory().isDeleted()
@@ -107,6 +113,7 @@ public class StoryShareService {
                         shared.getCreatedAt(),
                         buildPreview(shared.getStory()),
                         likeCounts.getOrDefault(shared.getId(), 0L),
+                        likedIds.contains(shared.getId()),
                         commentCounts.getOrDefault(shared.getId(), 0L),
                         shared.getStory().getCoverImageUrl()))
                 .collect(Collectors.toList());

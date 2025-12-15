@@ -38,8 +38,9 @@ public class SharedStoryPublicController {
     private final SharedStoryInteractionService sharedStoryInteractionService;
 
     @GetMapping("/shared-stories")
-    public ResponseEntity<List<SharedStorySummaryDto>> listSharedStories() {
-        return ResponseEntity.ok(storyShareService.getSharedStories());
+    public ResponseEntity<List<SharedStorySummaryDto>> listSharedStories(@AuthenticationPrincipal AuthPrincipal principal) {
+        String viewerId = principal != null ? String.valueOf(principal.id()) : null;
+        return ResponseEntity.ok(storyShareService.getSharedStories(viewerId));
     }
 
     @GetMapping("/shared-stories/{slug}")

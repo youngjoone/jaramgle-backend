@@ -15,7 +15,8 @@ public class StorageQuotaService {
 
     private final StorageQuotaRepository storageQuotaRepository;
 
-    private static final int DEFAULT_LIMIT = 10;
+    private static final int DEFAULT_LIMIT = Integer.parseInt(
+            System.getenv().getOrDefault("STORAGE_LIMIT_DEFAULT", "10"));
 
     @Transactional(readOnly = true)
     public StorageQuota getQuotaInfo(String userId) {
@@ -26,6 +27,7 @@ public class StorageQuotaService {
     @Transactional
     public void ensureSlotAvailable(String userId) {
         StorageQuota quota = getQuotaInfo(userId);
+        maybeUpgradeLimit(quota);
         if (quota.getUsedCnt() >= quota.getLimitCnt()) {
             throw new IllegalStateException("Storage limit exceeded for user: " + userId);
         }
@@ -52,5 +54,17 @@ public class StorageQuotaService {
     private StorageQuota createDefaultQuota(String userId) {
         StorageQuota defaultQuota = new StorageQuota(userId, DEFAULT_LIMIT, 0, LocalDateTime.now());
         return storageQuotaRepository.save(defaultQuota);
+    }
+
+    /**
+     * If the saved limit is lower than the current default, bump it up.
+     * This helps when the default limit is increased for dev/local without manually updating rows.
+     */
+    private void maybeUpgradeLimit(StorageQuota quota) {
+        if (quota.getLimitCnt() < DEFAULT_LIMIT) {
+            quota.setLimitCnt(DEFAULT_LIMIT);
+            quota.setUpdatedAt(LocalDateTime.now());
+            storageQuotaRepository.save(quota);
+        }
     }
 }

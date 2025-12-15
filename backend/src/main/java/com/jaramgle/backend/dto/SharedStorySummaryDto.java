@@ -13,6 +13,7 @@ public class SharedStorySummaryDto {
     private LocalDateTime sharedAt;
     private String preview;
     private long likeCount;
+    private boolean likedByCurrentUser;
     private long commentCount;
     private String coverImageUrl;
 }
