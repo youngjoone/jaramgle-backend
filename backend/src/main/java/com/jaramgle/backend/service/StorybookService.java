@@ -98,7 +98,29 @@ public class StorybookService {
             generateRemainingImages(story.getId(), remainingPages);
         }
 
+        // Async audio generation for all pages (including first)
+        generateAudioForAllPagesAsync(story.getId());
+
         return firstStorybookPage;
+    }
+
+    @Async
+    public void generateAudioForAllPagesAsync(Long storyId) {
+        try {
+            List<StorybookPage> pages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
+            for (StorybookPage page : pages) {
+                try {
+                    GenerateParagraphAudioRequestDto req = new GenerateParagraphAudioRequestDto();
+                    req.setForceRegenerate(false);
+                    generatePageAudio(storyId, page.getId(), req);
+                } catch (Exception ex) {
+                    log.warn("Failed to generate audio for storyId={}, pageId={}: {}", storyId, page.getId(), ex.getMessage());
+                }
+            }
+            log.info("Completed async audio generation for storyId={}", storyId);
+        } catch (Exception ex) {
+            log.warn("Async audio generation failed for storyId={}: {}", storyId, ex.getMessage());
+        }
     }
 
     @Transactional(readOnly = true)

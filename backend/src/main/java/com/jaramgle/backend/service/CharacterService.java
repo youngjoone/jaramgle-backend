@@ -10,6 +10,7 @@ import com.jaramgle.backend.repository.CharacterRepository;
 import com.jaramgle.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.coobird.thumbnailator.Thumbnails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -35,6 +36,8 @@ public class CharacterService {
             System.getenv().getOrDefault("CHARACTER_IMAGE_DIR", "/Users/kyj/testchardir");
     private static final String USER_PICTURE_DIR =
             System.getenv().getOrDefault("USER_PICTURE_DIR", "/Users/kyj/testpicturedir");
+    private static final int OPTIMIZE_MAX_SIZE = 1024;
+    private static final double OPTIMIZE_QUALITY = 0.8; // 80%
     private static final long MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
     private final CharacterRepository characterRepository;
@@ -221,10 +224,34 @@ public class CharacterService {
             String filename = "upload-" + UUID.randomUUID() + "." + safeExtension;
             Path target = Paths.get(USER_PICTURE_DIR, filename).toAbsolutePath().normalize();
             photo.transferTo(target.toFile());
-            return target;
+            return optimizeImage(target);
         } catch (IOException ex) {
             throw new IllegalStateException("이미지 업로드에 실패했습니다.", ex);
         }
+    }
+
+    private Path optimizeImage(Path originalFile) throws IOException {
+        if (originalFile == null || !Files.exists(originalFile)) {
+            return originalFile;
+        }
+        String originalFilename = originalFile.getFileName().toString();
+        int dot = originalFilename.lastIndexOf('.');
+        String baseName = dot > 0 ? originalFilename.substring(0, dot) : originalFilename;
+        Path optimizedFile = originalFile.getParent().resolve(baseName + ".jpg");
+
+        Thumbnails.of(originalFile.toFile())
+                .size(OPTIMIZE_MAX_SIZE, OPTIMIZE_MAX_SIZE)
+                .outputFormat("jpg")
+                .outputQuality(OPTIMIZE_QUALITY)
+                .toFile(optimizedFile.toFile());
+
+        // 원본 삭제
+        try {
+            Files.deleteIfExists(originalFile);
+        } catch (Exception ex) {
+            log.warn("Failed to delete original character upload {}: {}", originalFile, ex.getMessage());
+        }
+        return optimizedFile;
     }
 
     private void deleteTempFile(Path path) {
