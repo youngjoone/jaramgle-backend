@@ -1,6 +1,9 @@
 package com.jaramgle.backend.filter;
 
 import com.jaramgle.backend.auth.AuthPrincipal;
+import com.jaramgle.backend.entity.User;
+import com.jaramgle.backend.entity.UserStatus;
+import com.jaramgle.backend.repository.UserRepository;
 import com.jaramgle.backend.util.JwtProvider;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -26,6 +29,7 @@ import java.util.Optional;
 public class CookieJwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtProvider jwtProvider;
+    private final UserRepository userRepository;
 
     private Optional<String> resolveToken(HttpServletRequest request) {
         if (request.getCookies() == null) {
@@ -52,14 +56,19 @@ public class CookieJwtAuthFilter extends OncePerRequestFilter {
             try {
                 Claims claims = jwtProvider.parse(token);
                 Long userId = Long.valueOf(claims.getSubject());
-                String email = claims.get("email", String.class);
-                String role = claims.get("roles", String.class);
-
-                if (userId != null && email != null && role != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                    var authorities = List.of(new SimpleGrantedAuthority(role));
-                    var principal = new AuthPrincipal(userId, email, authorities);
-                    var auth = new UsernamePasswordAuthenticationToken(principal, null, authorities);
-                    SecurityContextHolder.getContext().setAuthentication(auth);
+                if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                    Optional<User> userOpt = userRepository.findById(userId);
+                    if (userOpt.isPresent()) {
+                        User user = userOpt.get();
+                        if (!user.isDeleted() && user.getStatus() == UserStatus.ACTIVE) {
+                            String role = user.getRoleKey() != null ? user.getRoleKey() : "ROLE_USER";
+                            String email = user.getEmail();
+                            var authorities = List.of(new SimpleGrantedAuthority(role));
+                            var principal = new AuthPrincipal(userId, email, authorities);
+                            var auth = new UsernamePasswordAuthenticationToken(principal, null, authorities);
+                            SecurityContextHolder.getContext().setAuthentication(auth);
+                        }
+                    }
                 }
             } catch (Exception e) {
                 log.debug("JWT parsing failed: {}", e.getMessage());
