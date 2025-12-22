@@ -4,13 +4,13 @@ import com.jaramgle.backend.entity.RefreshTokenEntity;
 import com.jaramgle.backend.entity.User;
 import com.jaramgle.backend.repository.RefreshTokenRepository;
 import com.jaramgle.backend.service.AuthService;
+import com.jaramgle.backend.util.CookieUtil;
 import com.jaramgle.backend.util.JwtProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseCookie;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -54,6 +54,13 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
                 attributes.getName()
         );
 
+        // Single-session: revoke existing refresh tokens for this user
+        refreshTokenRepository.findAllByUserId(String.valueOf(user.getId()))
+                .forEach(token -> {
+                    token.setRevokedAt(LocalDateTime.now());
+                    refreshTokenRepository.save(token);
+                });
+
         // Generate both access and refresh tokens
         String accessToken = jwtProvider.generateToken(user);
         String refreshToken = jwtProvider.generateRefreshToken(String.valueOf(user.getId()));
@@ -66,8 +73,8 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         refreshTokenEntity.setExpiresAt(refreshTokenExpiresAt);
         refreshTokenRepository.save(refreshTokenEntity);
 
-        ResponseCookie refreshCookie = buildRefreshCookie(refreshToken, refreshTokenExpiresAt);
-        ResponseCookie accessCookie = buildAccessCookie(accessToken, Duration.ofMinutes(jwtProvider.getExpirationMinutes()));
+        var refreshCookie = CookieUtil.buildRefreshCookie(refreshToken, refreshTokenExpiresAt);
+        var accessCookie = CookieUtil.buildAccessCookie(accessToken, Duration.ofMinutes(jwtProvider.getExpirationMinutes()));
         res.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
         res.addHeader(HttpHeaders.SET_COOKIE, accessCookie.toString());
 
@@ -77,25 +84,4 @@ public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
         res.sendRedirect(redirectUrl);
     }
 
-    private ResponseCookie buildRefreshCookie(String token, LocalDateTime expiresAt) {
-        long maxAgeSeconds = Math.max(0, Duration.between(LocalDateTime.now(), expiresAt).getSeconds());
-        return ResponseCookie.from("refresh_token", token)
-                .httpOnly(true)
-                .secure(false)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(maxAgeSeconds)
-                .build();
-    }
-
-    private ResponseCookie buildAccessCookie(String token, Duration duration) {
-        long maxAgeSeconds = Math.max(0, duration.getSeconds());
-        return ResponseCookie.from("access_token", token)
-                .httpOnly(true)
-                .secure(false)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(maxAgeSeconds)
-                .build();
-    }
 }

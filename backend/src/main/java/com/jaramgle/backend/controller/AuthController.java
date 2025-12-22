@@ -5,6 +5,7 @@ import com.jaramgle.backend.service.AuthService;
 import com.jaramgle.backend.dto.LoginRequest;
 import com.jaramgle.backend.dto.SignupRequest;
 import com.jaramgle.backend.entity.User;
+import com.jaramgle.backend.util.CookieUtil;
 import com.jaramgle.backend.util.JwtProvider;
 import com.jaramgle.backend.entity.RefreshTokenEntity;
 import com.jaramgle.backend.repository.RefreshTokenRepository;
@@ -53,31 +54,20 @@ public class AuthController {
     ) {
         User user = authService.login(loginRequest);
 
+        revokeAllRefreshTokens(String.valueOf(user.getId()));
+
         // Generate access token using the User object (which uses ID as subject)
         String accessToken = jwtProvider.generateToken(user);
-        ResponseCookie accessCookie = buildAccessCookie(accessToken, Duration.ofMinutes(jwtProvider.getExpirationMinutes()));
+        ResponseCookie accessCookie = CookieUtil.buildAccessCookie(accessToken, Duration.ofMinutes(jwtProvider.getExpirationMinutes()));
 
         // Generate refresh token using user ID as subject
         String refreshToken = jwtProvider.generateRefreshToken(String.valueOf(user.getId()));
         LocalDateTime refreshTokenExpiresAt = jwtProvider.extractExpiration(refreshToken).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
 
-        // Save refresh token to DB using user ID
-        refreshTokenRepository.findByUserId(String.valueOf(user.getId()))
-                .ifPresent(existing -> {
-                    existing.setRevokedAt(LocalDateTime.now());
-                    refreshTokenRepository.save(existing);
-                });
-
-        RefreshTokenEntity refreshTokenEntity = new RefreshTokenEntity();
-        refreshTokenEntity.setUserId(String.valueOf(user.getId())); // Use user's ID as userId
-        refreshTokenEntity.setToken(refreshToken);
-        refreshTokenEntity.setExpiresAt(refreshTokenExpiresAt);
-        refreshTokenRepository.save(refreshTokenEntity);
-
-        ResponseCookie refreshCookie = buildRefreshCookie(refreshToken, refreshTokenExpiresAt);
+        saveRefreshToken(String.valueOf(user.getId()), refreshToken, refreshTokenExpiresAt);
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
+                .header(HttpHeaders.SET_COOKIE, CookieUtil.buildRefreshCookie(refreshToken, refreshTokenExpiresAt).toString())
                 .header(HttpHeaders.SET_COOKIE, accessCookie.toString())
                 .build();
     }
@@ -125,48 +115,19 @@ public class AuthController {
         // d) Generate new access token with all claims
         String newAccessToken = jwtProvider.generateToken(user);
 
-        // e) (Rotation) Generate new refresh token and save to DB
+        // e) (Rotation) Revoke existing refresh tokens and generate new one
+        revokeAllRefreshTokens(userIdStr);
         String newRefreshToken = jwtProvider.generateRefreshToken(userIdStr);
         LocalDateTime newRefreshTokenExpiresAt = jwtProvider.extractExpiration(newRefreshToken).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
 
-        RefreshTokenEntity newRefreshTokenEntity = new RefreshTokenEntity();
-        newRefreshTokenEntity.setUserId(userIdStr);
-        newRefreshTokenEntity.setToken(newRefreshToken);
-        newRefreshTokenEntity.setExpiresAt(newRefreshTokenExpiresAt);
-        refreshTokenRepository.save(newRefreshTokenEntity);
+        saveRefreshToken(userIdStr, newRefreshToken, newRefreshTokenExpiresAt);
 
-        // f) Revoke old refresh token
-        storedRefreshToken.setRevokedAt(LocalDateTime.now());
-        refreshTokenRepository.save(storedRefreshToken);
-
-        ResponseCookie refreshCookie = buildRefreshCookie(newRefreshToken, newRefreshTokenExpiresAt);
-        ResponseCookie accessCookie = buildAccessCookie(newAccessToken, Duration.ofMinutes(jwtProvider.getExpirationMinutes()));
+        ResponseCookie refreshCookie = CookieUtil.buildRefreshCookie(newRefreshToken, newRefreshTokenExpiresAt);
+        ResponseCookie accessCookie = CookieUtil.buildAccessCookie(newAccessToken, Duration.ofMinutes(jwtProvider.getExpirationMinutes()));
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshCookie.toString())
                 .header(HttpHeaders.SET_COOKIE, accessCookie.toString())
-                .build();
-    }
-
-    private ResponseCookie buildRefreshCookie(String token, LocalDateTime expiresAt) {
-        long maxAgeSeconds = Math.max(0, Duration.between(LocalDateTime.now(), expiresAt).getSeconds());
-        return ResponseCookie.from(REFRESH_COOKIE_NAME, token)
-                .httpOnly(true)
-                .secure(false) // local dev
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(maxAgeSeconds)
-                .build();
-    }
-
-    private ResponseCookie buildAccessCookie(String token, Duration duration) {
-        long maxAgeSeconds = Math.max(0, duration.getSeconds());
-        return ResponseCookie.from("access_token", token)
-                .httpOnly(true)
-                .secure(false)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(maxAgeSeconds)
                 .build();
     }
 
@@ -182,16 +143,25 @@ public class AuthController {
                     });
         }
 
-        ResponseCookie expiredCookie = ResponseCookie.from(REFRESH_COOKIE_NAME, "")
-                .httpOnly(true)
-                .secure(false)
-                .sameSite("None")
-                .path("/")
-                .maxAge(0)
-                .build();
-
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, expiredCookie.toString())
+                .header(HttpHeaders.SET_COOKIE, CookieUtil.buildExpiredCookie("refresh_token").toString())
+                .header(HttpHeaders.SET_COOKIE, CookieUtil.buildExpiredCookie("access_token").toString())
                 .body(Collections.singletonMap("message", "LOGGED_OUT"));
+    }
+
+    private void saveRefreshToken(String userId, String token, LocalDateTime expiresAt) {
+        RefreshTokenEntity refreshTokenEntity = new RefreshTokenEntity();
+        refreshTokenEntity.setUserId(userId);
+        refreshTokenEntity.setToken(token);
+        refreshTokenEntity.setExpiresAt(expiresAt);
+        refreshTokenRepository.save(refreshTokenEntity);
+    }
+
+    private void revokeAllRefreshTokens(String userId) {
+        refreshTokenRepository.findAllByUserId(userId)
+                .forEach(token -> {
+                    token.setRevokedAt(LocalDateTime.now());
+                    refreshTokenRepository.save(token);
+                });
     }
 }

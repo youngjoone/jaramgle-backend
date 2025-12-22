@@ -7,6 +7,7 @@ import com.jaramgle.backend.dto.WithdrawRequest;
 import com.jaramgle.backend.entity.User;
 import com.jaramgle.backend.repository.UserRepository;
 import com.jaramgle.backend.service.AccountService;
+import com.jaramgle.backend.util.CookieUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
@@ -74,8 +75,8 @@ public class UserController {
 
         accountService.withdraw(principal.id());
 
-        ResponseCookie accessCookie = buildExpiredCookie("access_token");
-        ResponseCookie refreshCookie = buildExpiredCookie("refresh_token");
+        ResponseCookie accessCookie = CookieUtil.buildExpiredCookie("access_token");
+        ResponseCookie refreshCookie = CookieUtil.buildExpiredCookie("refresh_token");
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, accessCookie.toString())
@@ -97,15 +98,5 @@ public class UserController {
                 user.getRoleKey(),
                 user.getCreatedAt()
         );
-    }
-
-    private ResponseCookie buildExpiredCookie(String name) {
-        return ResponseCookie.from(name, "")
-                .httpOnly(true)
-                .secure(false)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(0)
-                .build();
     }
 }
