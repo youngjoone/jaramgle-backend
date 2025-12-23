@@ -101,6 +101,9 @@ public class StoryShareService {
         Map<Long, Long> commentCounts = toCountMap(
                 sharedStoryCommentRepository.countActiveCommentsBySharedStoryIds(sharedStoryIds));
         Long viewerNumericId = parseUserId(viewerUserId);
+        System.out.println(
+                "DEBUG: getSharedStories called with viewerUserId=" + viewerUserId + ", numeric=" + viewerNumericId);
+
         Set<Long> likedIds = (viewerNumericId != null)
                 ? new HashSet<>(
                         sharedStoryLikeRepository.findLikedSharedStoryIdsByUser(sharedStoryIds, viewerNumericId))
@@ -108,8 +111,15 @@ public class StoryShareService {
 
         Set<Long> bookmarkedIds = new HashSet<>();
         if (viewerNumericId != null) {
-            sharedStoryBookmarkRepository.findByUserId(viewerNumericId)
-                    .forEach(b -> bookmarkedIds.add(b.getSharedStory().getId()));
+            List<com.jaramgle.backend.entity.SharedStoryBookmark> bookmarks = sharedStoryBookmarkRepository
+                    .findByUserId(viewerNumericId);
+            System.out.println("DEBUG: Found " + bookmarks.size() + " bookmarks for user " + viewerNumericId);
+            bookmarks.forEach(b -> {
+                System.out.println("DEBUG: Bookmark for story ID " + b.getSharedStory().getId());
+                bookmarkedIds.add(b.getSharedStory().getId());
+            });
+        } else {
+            System.out.println("DEBUG: viewerNumericId is null, skipping bookmark lookup");
         }
 
         return sharedStories.stream()
@@ -284,13 +294,15 @@ public class StoryShareService {
                 .orElseThrow(() -> new IllegalArgumentException("Shared story not found"));
 
         if (sharedStoryBookmarkRepository.existsByUserIdAndSharedStoryId(numericUserId, sharedStory.getId())) {
+            System.out.println("DEBUG: Already bookmarked story " + sharedStory.getId() + " for user " + numericUserId);
             return; // Already bookmarked
         }
 
         com.jaramgle.backend.entity.SharedStoryBookmark bookmark = new com.jaramgle.backend.entity.SharedStoryBookmark();
         bookmark.setUserId(numericUserId);
         bookmark.setSharedStory(sharedStory);
-        sharedStoryBookmarkRepository.save(bookmark);
+        sharedStoryBookmarkRepository.saveAndFlush(bookmark);
+        System.out.println("DEBUG: Saved bookmark for story " + sharedStory.getId() + " user " + numericUserId);
     }
 
     @Transactional
@@ -303,5 +315,7 @@ public class StoryShareService {
                 .orElseThrow(() -> new IllegalArgumentException("Shared story not found"));
 
         sharedStoryBookmarkRepository.deleteByUserIdAndSharedStoryId(numericUserId, sharedStory.getId());
+        sharedStoryBookmarkRepository.flush();
+        System.out.println("DEBUG: Deleted bookmark for story " + sharedStory.getId() + " user " + numericUserId);
     }
 }

@@ -16,5 +16,6 @@ public class SharedStorySummaryDto {
     private boolean likedByCurrentUser;
     private long commentCount;
     private String coverImageUrl;
+    @com.fasterxml.jackson.annotation.JsonProperty("isBookmarked")
     private boolean isBookmarked; // Added field
 }
