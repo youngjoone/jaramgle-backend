@@ -40,6 +40,7 @@ public class StoryShareService {
     private final SharedStoryRepository sharedStoryRepository;
     private final SharedStoryLikeRepository sharedStoryLikeRepository;
     private final SharedStoryCommentRepository sharedStoryCommentRepository;
+    private final com.jaramgle.backend.repository.SharedStoryBookmarkRepository sharedStoryBookmarkRepository; // Added
     private final StoryService storyService;
     private final StorybookService storybookService;
     private final UserRepository userRepository;
@@ -101,8 +102,15 @@ public class StoryShareService {
                 sharedStoryCommentRepository.countActiveCommentsBySharedStoryIds(sharedStoryIds));
         Long viewerNumericId = parseUserId(viewerUserId);
         Set<Long> likedIds = (viewerNumericId != null)
-                ? new HashSet<>(sharedStoryLikeRepository.findLikedSharedStoryIdsByUser(sharedStoryIds, viewerNumericId))
+                ? new HashSet<>(
+                        sharedStoryLikeRepository.findLikedSharedStoryIdsByUser(sharedStoryIds, viewerNumericId))
                 : Set.of();
+
+        Set<Long> bookmarkedIds = new HashSet<>();
+        if (viewerNumericId != null) {
+            sharedStoryBookmarkRepository.findByUserId(viewerNumericId)
+                    .forEach(b -> bookmarkedIds.add(b.getSharedStory().getId()));
+        }
 
         return sharedStories.stream()
                 .filter(shared -> shared.getStory() != null && !shared.getStory().isDeleted()
@@ -115,7 +123,8 @@ public class StoryShareService {
                         likeCounts.getOrDefault(shared.getId(), 0L),
                         likedIds.contains(shared.getId()),
                         commentCounts.getOrDefault(shared.getId(), 0L),
-                        shared.getStory().getCoverImageUrl()))
+                        shared.getStory().getCoverImageUrl(),
+                        bookmarkedIds.contains(shared.getId()))) // Added isBookmarked
                 .collect(Collectors.toList());
     }
 
@@ -263,5 +272,36 @@ public class StoryShareService {
         return pages.stream()
                 .map(StorybookPageDto::fromEntity)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public void bookmarkStory(String slug, String userId) {
+        Long numericUserId = parseUserId(userId);
+        if (numericUserId == null) {
+            throw new IllegalArgumentException("User ID is required for bookmarking.");
+        }
+        SharedStory sharedStory = sharedStoryRepository.findByShareSlugAndHiddenFalse(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Shared story not found"));
+
+        if (sharedStoryBookmarkRepository.existsByUserIdAndSharedStoryId(numericUserId, sharedStory.getId())) {
+            return; // Already bookmarked
+        }
+
+        com.jaramgle.backend.entity.SharedStoryBookmark bookmark = new com.jaramgle.backend.entity.SharedStoryBookmark();
+        bookmark.setUserId(numericUserId);
+        bookmark.setSharedStory(sharedStory);
+        sharedStoryBookmarkRepository.save(bookmark);
+    }
+
+    @Transactional
+    public void unbookmarkStory(String slug, String userId) {
+        Long numericUserId = parseUserId(userId);
+        if (numericUserId == null) {
+            throw new IllegalArgumentException("User ID is required for unbookmarking.");
+        }
+        SharedStory sharedStory = sharedStoryRepository.findByShareSlugAndHiddenFalse(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Shared story not found"));
+
+        sharedStoryBookmarkRepository.deleteByUserIdAndSharedStoryId(numericUserId, sharedStory.getId());
     }
 }

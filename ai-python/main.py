@@ -321,6 +321,7 @@ def generate_page_audio_endpoint(
             speaker_slug=audio_req.speaker_slug,
             emotion=audio_req.emotion,
             style_hint=audio_req.style_hint,
+            language=audio_req.language,
             request_id=request.state.request_id,
         )
 

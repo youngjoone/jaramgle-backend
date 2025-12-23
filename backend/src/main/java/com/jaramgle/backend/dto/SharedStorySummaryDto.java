@@ -16,4 +16,5 @@ public class SharedStorySummaryDto {
     private boolean likedByCurrentUser;
     private long commentCount;
     private String coverImageUrl;
+    private boolean isBookmarked; // Added field
 }

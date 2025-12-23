@@ -36,10 +36,21 @@ def _normalize_and_validate_story(story: StoryOutput, req: GenerateRequest) -> S
 
 def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     """Gemini에 전달할 동화 생성 전용 프롬프트를 생성합니다."""
-    is_ko = str(req.language).upper() == "KO"
+    # Language mapping
+    lang_map = {
+        "KO": "한국어",
+        "EN": "영어",
+        "JA": "일본어",
+        "FR": "프랑스어",
+        "ES": "스페인어",
+        "DE": "독일어",
+        "ZH": "중국어",
+    }
+    lang_code = str(req.language).upper()
+    lang_label = lang_map.get(lang_code, "한국어") # Default to Korean if unknown
+
     topics_str = ", ".join(req.topics)
     objectives_str = ", ".join(req.objectives)
-    lang_label = "한국어" if is_ko else "영어"
     title_line = f'[제목] "{req.title}" (고정)' if req.title else "[제목] 미정(직접 생성)"
     min_pages = req.min_pages or 10
     moral_line = (req.moral or "").strip()
@@ -47,8 +58,14 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     required_items = [item.strip() for item in req.required_elements if item.strip()]
 
     character_lines = []
+    user_selected_names = []
+
     if req.characters:
         for character in req.characters:
+            # 사용자가 선택한 캐릭터는 모두 주인공급으로 대우
+            role_desc = "**(주요 인물 - 사용자가 선택함, 이야기의 중심)**"
+            user_selected_names.append(character.name)
+
             details = []
             if character.persona:
                 details.append(f"성격: {character.persona}")
@@ -57,9 +74,11 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
             prompt_keywords = getattr(character, "prompt_keywords", None)
             if prompt_keywords:
                 details.append(f"시각 키워드: {prompt_keywords}")
+            
             detail_text = " | ".join(details) if details else "(추가 설명 없음)"
             slug_hint = f" ({character.slug})" if character.slug else ""
-            character_lines.append(f"- {character.name}{slug_hint}: {detail_text}")
+            character_lines.append(f"- {character.name}{slug_hint} {role_desc}: {detail_text}")
+
     existing_character_count = len(req.characters or [])
     max_total_characters = 3
     additional_allowed = max(0, max_total_characters - existing_character_count)
@@ -67,11 +86,15 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     if character_lines:
         characters_section = "\n".join(character_lines)
     else:
-        characters_section = "- (선택된 캐릭터 없음)"
+        characters_section = "- (선택된 캐릭터 없음, AI가 주인공을 새로 창조해야 함)"
+
     if additional_allowed == 0:
         additional_character_rule = "- 현재 인물 구성만 사용하며, 새로운 캐릭터는 추가하지 않는다."
     else:
-        additional_character_rule = f"- 새로운 캐릭터는 최대 {additional_allowed}명까지만 추가하고, 꼭 필요할 때만 등장시킨다."
+        additional_character_rule = (
+            f"- 새로운 캐릭터는 최대 {additional_allowed}명까지만 추가할 수 있다.\n"
+            "- **중요**: 새로 추가된 캐릭터는 절대 '주요 인물'의 비중을 넘을 수 없으며, 단순히 그들을 돕거나 스쳐가는 '단역/조연'에 머물러야 한다."
+        )
 
     goal_section = f"""
 - 주제 키워드: {topics_str or '자유 선택'}
@@ -107,7 +130,9 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 - 반복적인 정적 장면을 피하고, 이야기 흐름이 자연스럽게 이어지도록 장면 간 변화를 설계한다.
 - 아래 필수 요소(있다면)는 이야기 텍스트와 image_prompt 양쪽에 자연스럽게 등장시킨다."""
 
-    character_continuity_points = """
+    character_continuity_points = f"""
+- **이야기의 핵심은 '사용자가 선택한 주요 캐릭터들({", ".join(user_selected_names) if user_selected_names else "없음"})'이 이끌어가야 한다.**
+- AI가 임의로 생성한 추가 캐릭터가 이야기의 해결사가 되거나 주인공보다 더 큰 비중을 차지해서는 안 된다.
 - 각 캐릭터의 이름·역할·관계를 일관되게 유지하고, 페이지마다 성격이 잘 드러나도록 한다.
 - 동일한 이름을 가진 새로운 캐릭터를 추가하지 말고, 기존 캐릭터의 이름/slug를 그대로 사용한다.
 - 의상과 소품은 character_sheets 또는 요청 정보에서 제시한 분위기를 반영한다.
@@ -119,6 +144,8 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
     else:
         required_elements_section = "- (명시된 필수 요소 없음. 이야기 전개에 자연스럽게 필요한 소재를 활용한다.)"
 
+    logger.info(f"Building prompt for language: {lang_code} -> {lang_label}")
+
     full_prompt = f"""
 너는 4~8세 아동용 그림책 작가이자 아트 디렉터다.
 - 글과 그림 아이디어를 동시에 고려하여 JSON 하나로 결과를 만든다.
@@ -129,6 +156,10 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 - 연령대: {req.age_range}세
 - 언어: {lang_label}
 - {title_line}
+
+[언어 규칙 (중요)]
+- **이야기 본문(story.pages.text), 제목(story.title), 퀴즈(story.quiz)는 반드시 '{lang_label}'로 작성한다.**
+- 프롬프트의 지시어가 한국어라 하더라도, 최종 결과물(JSON 값)은 반드시 요청된 언어('{lang_label}')로만 작성해야 한다.
 
 [목표 & 톤]
 {goal_section}
@@ -164,10 +195,10 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
   }},
   "story_outline": [{{ ... }}],
   "story": {{
-    "title": "string",
+    "title": "string (Must be in {lang_label})",
     "pages": [{{
       "page": 1,
-      "text": "string",
+      "text": "string (Must be in {lang_label})",
       "image_prompt": "string (1~2 sentence illustration brief: layout, key characters, background, lighting, consistent art style)."
     }}],
     "quiz": [{{ "q": "string", "options": ["string","string","string"], "a": 0}}]
@@ -176,9 +207,10 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 
 # 작성 지침
 1. `creative_concept`, `story_outline`, `story`, `quiz`가 모두 채워져 있고 pages 배열 길이가 정확히 {min_pages}인지 확인한다.
-2. 각 page.text는 한 단락·20단어 이상이며, page.image_prompt는 1~2문장으로 텍스트 오버레이 없이 장면을 묘사하는지 점검한다.
-3. 등장한 모든 캐릭터가 `character_sheets`에 name, slug, visual_description, voice_profile과 함께 정의되어 있는지 확인한다.
-4. 최종 출력은 JSON 한 개뿐인지 다시 점검한다.
+2. **가장 중요**: story.title과 story.pages.text가 요청된 언어('{lang_label}')로 작성되었는지 확인한다.
+3. 각 page.text는 한 단락·20단어 이상이며, page.image_prompt는 1~2문장으로 텍스트 오버레이 없이 장면을 묘사하는지 점검한다.
+4. 등장한 모든 캐릭터가 `character_sheets`에 name, slug, visual_description, voice_profile과 함께 정의되어 있는지 확인한다.
+5. 최종 출력은 JSON 한 개뿐인지 다시 점검한다.
 """
     return dedent(full_prompt).strip()
 
