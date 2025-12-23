@@ -191,6 +191,7 @@ public class SharedStoryPublicController {
     @PostMapping("/shared-stories/{slug}/bookmarks")
     public ResponseEntity<?> bookmarkStory(@PathVariable String slug,
             @AuthenticationPrincipal AuthPrincipal principal) {
+        log.info("Bookmark request for slug: {}, principal: {}", slug, principal);
         if (principal == null) {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
@@ -198,6 +199,7 @@ public class SharedStoryPublicController {
             storyShareService.bookmarkStory(slug, String.valueOf(principal.id()));
             return ResponseEntity.ok(Map.of("message", "북마크 되었습니다.", "bookmarked", true));
         } catch (IllegalArgumentException ex) {
+            log.error("Bookmark failed: {}", ex.getMessage());
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         } catch (Exception ex) {
             log.error("Unexpected error while bookmarking story {}", slug, ex);
@@ -208,6 +210,7 @@ public class SharedStoryPublicController {
     @DeleteMapping("/shared-stories/{slug}/bookmarks")
     public ResponseEntity<?> unbookmarkStory(@PathVariable String slug,
             @AuthenticationPrincipal AuthPrincipal principal) {
+        log.info("Unbookmark request for slug: {}, principal: {}", slug, principal);
         if (principal == null) {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
@@ -215,6 +218,7 @@ public class SharedStoryPublicController {
             storyShareService.unbookmarkStory(slug, String.valueOf(principal.id()));
             return ResponseEntity.ok(Map.of("message", "북마크가 해제되었습니다.", "bookmarked", false));
         } catch (IllegalArgumentException ex) {
+            log.error("Unbookmark failed: {}", ex.getMessage());
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         } catch (Exception ex) {
             log.error("Unexpected error while unbookmarking story {}", slug, ex);
