@@ -16,7 +16,7 @@ public class StorageQuotaService {
     private final StorageQuotaRepository storageQuotaRepository;
 
     private static final int DEFAULT_LIMIT = Integer.parseInt(
-            System.getenv().getOrDefault("STORAGE_LIMIT_DEFAULT", "10"));
+            System.getenv().getOrDefault("STORAGE_LIMIT_DEFAULT", "30"));
 
     @Transactional(readOnly = true)
     public StorageQuota getQuotaInfo(String userId) {
