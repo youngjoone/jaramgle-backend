@@ -38,14 +38,15 @@ public class SharedStoryPublicController {
     private final SharedStoryInteractionService sharedStoryInteractionService;
 
     @GetMapping("/shared-stories")
-    public ResponseEntity<List<SharedStorySummaryDto>> listSharedStories(@AuthenticationPrincipal AuthPrincipal principal) {
+    public ResponseEntity<List<SharedStorySummaryDto>> listSharedStories(
+            @AuthenticationPrincipal AuthPrincipal principal) {
         String viewerId = principal != null ? String.valueOf(principal.id()) : null;
         return ResponseEntity.ok(storyShareService.getSharedStories(viewerId));
     }
 
     @GetMapping("/shared-stories/{slug}")
     public ResponseEntity<SharedStoryDetailDto> getSharedStory(@PathVariable String slug,
-                                                              @AuthenticationPrincipal AuthPrincipal principal) {
+            @AuthenticationPrincipal AuthPrincipal principal) {
         try {
             String viewerId = principal != null ? String.valueOf(principal.id()) : null;
             return ResponseEntity.ok(storyShareService.getSharedStoryBySlug(slug, viewerId));
@@ -85,7 +86,7 @@ public class SharedStoryPublicController {
 
     @PostMapping("/shared-stories/{slug}/likes")
     public ResponseEntity<?> toggleStoryLike(@PathVariable String slug,
-                                             @AuthenticationPrincipal AuthPrincipal principal) {
+            @AuthenticationPrincipal AuthPrincipal principal) {
         if (principal == null) {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
@@ -105,7 +106,7 @@ public class SharedStoryPublicController {
 
     @GetMapping("/shared-stories/{slug}/comments")
     public ResponseEntity<List<SharedStoryCommentDto>> getComments(@PathVariable String slug,
-                                                                   @AuthenticationPrincipal AuthPrincipal principal) {
+            @AuthenticationPrincipal AuthPrincipal principal) {
         Long userId = principal != null ? principal.id() : null;
         List<SharedStoryCommentDto> comments = sharedStoryInteractionService.getComments(slug, userId);
         return ResponseEntity.ok(comments);
@@ -113,8 +114,8 @@ public class SharedStoryPublicController {
 
     @PostMapping("/shared-stories/{slug}/comments")
     public ResponseEntity<?> createComment(@PathVariable String slug,
-                                           @AuthenticationPrincipal AuthPrincipal principal,
-                                           @RequestBody @Valid CreateSharedStoryCommentRequest request) {
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestBody @Valid CreateSharedStoryCommentRequest request) {
         if (principal == null) {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
@@ -134,9 +135,9 @@ public class SharedStoryPublicController {
 
     @PatchMapping("/shared-stories/{slug}/comments/{commentId}")
     public ResponseEntity<?> updateComment(@PathVariable String slug,
-                                           @PathVariable Long commentId,
-                                           @AuthenticationPrincipal AuthPrincipal principal,
-                                           @RequestBody @Valid UpdateSharedStoryCommentRequest request) {
+            @PathVariable Long commentId,
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestBody @Valid UpdateSharedStoryCommentRequest request) {
         if (principal == null) {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
@@ -153,8 +154,8 @@ public class SharedStoryPublicController {
 
     @DeleteMapping("/shared-stories/{slug}/comments/{commentId}")
     public ResponseEntity<?> deleteComment(@PathVariable String slug,
-                                           @PathVariable Long commentId,
-                                           @AuthenticationPrincipal AuthPrincipal principal) {
+            @PathVariable Long commentId,
+            @AuthenticationPrincipal AuthPrincipal principal) {
         if (principal == null) {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
@@ -171,8 +172,8 @@ public class SharedStoryPublicController {
 
     @PostMapping("/shared-stories/{slug}/comments/{commentId}/likes")
     public ResponseEntity<?> toggleCommentLike(@PathVariable String slug,
-                                               @PathVariable Long commentId,
-                                               @AuthenticationPrincipal AuthPrincipal principal) {
+            @PathVariable Long commentId,
+            @AuthenticationPrincipal AuthPrincipal principal) {
         if (principal == null) {
             return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
         }
@@ -183,6 +184,40 @@ public class SharedStoryPublicController {
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
         } catch (Exception ex) {
             log.error("Unexpected error while toggling comment like {}", commentId, ex);
+            return ResponseEntity.status(500).body(Map.of("message", "알 수 없는 오류가 발생했습니다."));
+        }
+    }
+
+    @PostMapping("/shared-stories/{slug}/bookmarks")
+    public ResponseEntity<?> bookmarkStory(@PathVariable String slug,
+            @AuthenticationPrincipal AuthPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
+        }
+        try {
+            storyShareService.bookmarkStory(slug, String.valueOf(principal.id()));
+            return ResponseEntity.ok(Map.of("message", "북마크 되었습니다.", "bookmarked", true));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
+        } catch (Exception ex) {
+            log.error("Unexpected error while bookmarking story {}", slug, ex);
+            return ResponseEntity.status(500).body(Map.of("message", "알 수 없는 오류가 발생했습니다."));
+        }
+    }
+
+    @DeleteMapping("/shared-stories/{slug}/bookmarks")
+    public ResponseEntity<?> unbookmarkStory(@PathVariable String slug,
+            @AuthenticationPrincipal AuthPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
+        }
+        try {
+            storyShareService.unbookmarkStory(slug, String.valueOf(principal.id()));
+            return ResponseEntity.ok(Map.of("message", "북마크가 해제되었습니다.", "bookmarked", false));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
+        } catch (Exception ex) {
+            log.error("Unexpected error while unbookmarking story {}", slug, ex);
             return ResponseEntity.status(500).body(Map.of("message", "알 수 없는 오류가 발생했습니다."));
         }
     }

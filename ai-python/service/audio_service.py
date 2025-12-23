@@ -429,6 +429,7 @@ def create_gemini_tts(
     voice_name: Optional[str] = None,
     speaker_slug: Optional[str] = None,
     emotion: Optional[str] = None,
+    language_code: Optional[str] = None,
 ) -> bytes:
     """Generates TTS audio using the Gemini TTS preview models."""
     if _gemini_tts_client is None:
@@ -436,11 +437,12 @@ def create_gemini_tts(
     cleaned = _clean_text_for_tts(text)
     prompt = _build_gemini_tts_prompt(style_hint, speaker_slug, emotion)
     voice_for_log = voice_name or Config.GEMINI_TTS_VOICE
-    logger.info("Generating Gemini TTS chunk (%s): %s...", voice_for_log, cleaned[:40])
+    logger.info("Generating Gemini TTS chunk (%s, lang=%s): %s...", voice_for_log, language_code, cleaned[:40])
     return _gemini_tts_client.synthesize(
         text=cleaned,
         prompt=prompt,
         voice_name=voice_name,
+        language_code=language_code,
     )
 
 def get_gemini_tts_extension() -> str:
@@ -452,6 +454,7 @@ def generate_paragraph_audio(
     speaker_slug: Optional[str],
     emotion: Optional[str],
     style_hint: Optional[str],
+    language: Optional[str],
     request_id: str,
 ) -> Tuple[bytes, str]:
     """Generate audio for a single paragraph using Gemini TTS."""
@@ -495,7 +498,8 @@ def generate_paragraph_audio(
                 chunk, 
                 style_hint=resolved_style, 
                 speaker_slug=speaker_slug, 
-                emotion=emotion
+                emotion=emotion,
+                language_code=language
             )
         )
 
