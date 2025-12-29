@@ -30,6 +30,7 @@ public class AudioGenerationService {
                 try {
                     GenerateParagraphAudioRequestDto req = new GenerateParagraphAudioRequestDto();
                     req.setForceRegenerate(false);
+                    req.setVoicePreset(null);
                     generatePageAudio(storyId, page.getId(), req);
                 } catch (Exception ex) {
                     log.warn("Failed to generate audio for storyId={}, pageId={}: {}", storyId, page.getId(),

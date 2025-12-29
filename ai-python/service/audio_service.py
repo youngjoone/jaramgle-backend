@@ -448,6 +448,15 @@ def create_gemini_tts(
 def get_gemini_tts_extension() -> str:
     return _resolve_gemini_extension()
 
+VOICE_PRESET_STYLES: Dict[str, str] = {
+    "male": "따뜻하고 안정적인 성인 남성 내레이션 톤, 또박또박 전달",
+    "female": "부드럽고 친근한 성인 여성 내레이션 톤, 차분하고 명료",
+    "child": "높고 밝은 어린이 목소리 톤, 명확하게 또박또박 읽기",
+    "grandpa": "낮고 느긋한 할아버지 톤, 천천히 안정적으로 전달",
+    "grandma": "따뜻하고 상냥한 할머니 톤, 부드럽게 천천히 전달",
+}
+
+
 def generate_paragraph_audio(
     text: str,
     *,
@@ -455,6 +464,7 @@ def generate_paragraph_audio(
     emotion: Optional[str],
     style_hint: Optional[str],
     language: Optional[str],
+    voice_preset: Optional[str],
     request_id: str,
 ) -> Tuple[bytes, str]:
     """Generate audio for a single paragraph using Gemini TTS."""
@@ -468,7 +478,16 @@ def generate_paragraph_audio(
     segment_type = "dialogue" if speaker_slug else "narration"
     preset = _resolve_voice(segment_type, speaker_slug or "narrator")
 
-    resolved_style = style_hint or preset.get("style")
+    preset_style = preset.get("style")
+    resolved_style = style_hint or preset_style
+    # voice_preset가 주어지면 스타일을 덮어써서 음색을 유도
+    if voice_preset:
+        vp_key = voice_preset.strip().lower()
+        vp_style = VOICE_PRESET_STYLES.get(vp_key)
+        if vp_style:
+            resolved_style = vp_style
+        else:
+            logger.warning("Unknown voice_preset '%s'; falling back to default style", voice_preset)
     if not style_hint and emotion:
         inferred = _map_emotion_to_style(emotion)
         if inferred:
@@ -496,8 +515,8 @@ def generate_paragraph_audio(
         audio_segments.append(
             create_gemini_tts(
                 chunk, 
-                style_hint=resolved_style, 
-                speaker_slug=speaker_slug, 
+                style_hint=resolved_style,
+                speaker_slug=speaker_slug,
                 emotion=emotion,
                 language_code=language
             )

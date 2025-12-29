@@ -20,13 +20,26 @@ def _normalize_and_validate_story(story: StoryOutput, req: GenerateRequest) -> S
     if page_count < min_pages:
         raise ValueError(f"LLM generated {page_count} pages but at least {min_pages} pages are required.")
 
+    # 언어별 최소 길이 기준: 공백 토크나이징이 어려운 CJK는 문자 수로 검증
+    lang_code = str(req.language).upper()
     min_words_per_page = 20
+    min_chars_per_page = 40  # KO/JA/ZH일 때 적용
+
+    def _length_score(text: str) -> tuple[int, str]:
+        if lang_code in {"KO", "JA", "ZH"}:
+            chars = len("".join(text.split()))
+            return chars, "chars"
+        return len(text.split()), "words"
+
     for idx, page in enumerate(story.pages, start=1):
         clean_text = " ".join(page.text.split())
         page.text = clean_text
-        word_count = len(clean_text.split())
-        if word_count < min_words_per_page:
-            raise ValueError(f"Page {idx} has {word_count} words; at least {min_words_per_page} words are required per page.")
+        length, unit = _length_score(clean_text)
+        threshold = min_chars_per_page if unit == "chars" else min_words_per_page
+        if length < threshold:
+            raise ValueError(
+                f"Page {idx} has {length} {unit}; at least {threshold} {unit} are required per page."
+            )
         if not getattr(page, "image_prompt", None):
             summary = clean_text[:140].rstrip()
             page.image_prompt = summary + ("..." if len(clean_text) > 140 else "")
