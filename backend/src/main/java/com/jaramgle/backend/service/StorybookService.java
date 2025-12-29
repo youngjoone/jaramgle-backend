@@ -532,6 +532,11 @@ public class StorybookService {
                     " | Use only the established story characters (max three in frame); do not introduce random extra humans except distant silhouettes.");
         }
 
+        if (fallback.indexOf("Each character appears only once") < 0) {
+            fallback.append(
+                    " | Each character appears only once in the frame; do not duplicate or clone the same character in a single image.");
+        }
+
         if (fallback.indexOf("Keep clothing and time period consistent") < 0) {
             fallback.append(
                     " | Keep clothing and time period consistent with the story setting (default to modern casual unless explicitly historical).");
