@@ -287,6 +287,8 @@ def generate_page_audio_endpoint(
             name_parts.append(_slugify_component(str(audio_req.paragraph_id), "paragraph"))
         if audio_req.speaker_slug:
             name_parts.append(_slugify_component(audio_req.speaker_slug, "speaker"))
+        if audio_req.voice_preset:
+            name_parts.append(_slugify_component(audio_req.voice_preset, "voice"))
 
         name_parts.append(_hash_text_payload(audio_req.text))
         base_name = "-".join(part for part in name_parts if part) or f"segment-{_hash_text_payload(audio_req.text)}"
@@ -322,6 +324,7 @@ def generate_page_audio_endpoint(
             emotion=audio_req.emotion,
             style_hint=audio_req.style_hint,
             language=audio_req.language,
+            voice_preset=audio_req.voice_preset,
             request_id=request.state.request_id,
         )
 

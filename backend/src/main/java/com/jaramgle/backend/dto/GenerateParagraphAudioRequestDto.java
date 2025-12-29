@@ -29,6 +29,9 @@ public class GenerateParagraphAudioRequestDto {
     @JsonProperty("styleHint")
     private String styleHint;
 
+    @JsonProperty("voicePreset")
+    private String voicePreset;
+
     private String language;
 
     @JsonProperty("forceRegenerate")

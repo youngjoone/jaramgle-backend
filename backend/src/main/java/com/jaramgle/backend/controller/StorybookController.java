@@ -1,6 +1,7 @@
 package com.jaramgle.backend.controller;
 
 import com.jaramgle.backend.dto.GenerateParagraphAudioRequestDto;
+import com.jaramgle.backend.dto.StorybookCreateRequest;
 import com.jaramgle.backend.dto.StorybookPageDto;
 import com.jaramgle.backend.entity.StorybookPage;
 import com.jaramgle.backend.service.StorybookService;
@@ -20,8 +21,12 @@ public class StorybookController {
     private final StorybookService storybookService;
 
     @PostMapping("/stories/{id}/storybook")
-    public ResponseEntity<StorybookPageDto> createStorybook(@PathVariable Long id) {
-        StorybookPage firstPage = storybookService.createStorybook(id);
+    public ResponseEntity<StorybookPageDto> createStorybook(
+            @PathVariable Long id,
+            @RequestBody(required = false) StorybookCreateRequest request
+    ) {
+        StorybookPage firstPage = storybookService.createStorybook(id,
+                request != null ? request.getVoicePreset() : null);
         return new ResponseEntity<>(StorybookPageDto.fromEntity(firstPage), HttpStatus.CREATED);
     }
 

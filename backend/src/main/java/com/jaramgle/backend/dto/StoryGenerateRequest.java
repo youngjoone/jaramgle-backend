@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Pattern;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -44,6 +45,7 @@ public class StoryGenerateRequest {
 
     @NotBlank
     @Size(max = 10)
+    @Pattern(regexp = "^(KO|EN|JA|FR|ES|DE|ZH)$", message = "지원하지 않는 언어 코드입니다.")
     private String language;
 
     @JsonProperty("character_ids")

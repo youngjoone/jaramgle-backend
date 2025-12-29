@@ -70,6 +70,10 @@ public class StorybookService {
 
     @Transactional
     public StorybookPage createStorybook(Long storyId) {
+        return createStorybook(storyId, null);
+    }
+
+    public StorybookPage createStorybook(Long storyId, String voicePreset) {
         List<StorybookPage> existingPages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
         if (!existingPages.isEmpty()) {
             log.info("Storybook pages already exist for storyId: {}. Returning first page.", storyId);
@@ -99,19 +103,20 @@ public class StorybookService {
         }
 
         // Async audio generation for all pages (including first)
-        generateAudioForAllPagesAsync(story.getId());
+        generateAudioForAllPagesAsync(story.getId(), voicePreset);
 
         return firstStorybookPage;
     }
 
     @Async
-    public void generateAudioForAllPagesAsync(Long storyId) {
+    public void generateAudioForAllPagesAsync(Long storyId, String voicePreset) {
         try {
             List<StorybookPage> pages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
             for (StorybookPage page : pages) {
                 try {
                     GenerateParagraphAudioRequestDto req = new GenerateParagraphAudioRequestDto();
                     req.setForceRegenerate(false);
+                    req.setVoicePreset(voicePreset);
                     generatePageAudio(storyId, page.getId(), req);
                 } catch (Exception ex) {
                     log.warn("Failed to generate audio for storyId={}, pageId={}: {}", storyId, page.getId(), ex.getMessage());
@@ -441,6 +446,7 @@ public class StorybookService {
         outbound.setEmotion(requestDto.getEmotion());
         outbound.setStyleHint(requestDto.getStyleHint());
         outbound.setLanguage(requestDto.getLanguage());
+        outbound.setVoicePreset(requestDto.getVoicePreset());
         outbound.setForceRegenerate(requestDto.isForceRegenerate());
         outbound.setText(resolvedText);
 
