@@ -43,9 +43,10 @@ class Config:
     USE_AZURE_TTS: bool = os.getenv("USE_AZURE_TTS", "false").lower() in {"1", "true", "yes", "on"}
     AZURE_TTS_OUTPUT_FORMAT: str = os.getenv("AZURE_TTS_OUTPUT_FORMAT", "riff-24khz-16bit-mono-pcm")
     USE_GEMINI_TTS: bool = _env_flag("USE_GEMINI_TTS", default=True)
-    GEMINI_TTS_MODEL: str = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
-    GEMINI_TTS_VOICE: str = os.getenv("GEMINI_TTS_VOICE", "Charon")
-    GEMINI_TTS_LANGUAGE: str = os.getenv("GEMINI_TTS_LANGUAGE", "en-US")
+    # Gemini TTS 기본값을 최신 모델/한국어 중심으로 조정
+    GEMINI_TTS_MODEL: str = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-tts")
+    GEMINI_TTS_VOICE: str = os.getenv("GEMINI_TTS_VOICE", "Kore")
+    GEMINI_TTS_LANGUAGE: str = os.getenv("GEMINI_TTS_LANGUAGE", "ko-KR")
     GEMINI_TTS_AUDIO_ENCODING: str = os.getenv("GEMINI_TTS_AUDIO_ENCODING", "LINEAR16")
     GEMINI_TTS_PROMPT_TEMPLATE: str = os.getenv(
         "GEMINI_TTS_PROMPT_TEMPLATE",

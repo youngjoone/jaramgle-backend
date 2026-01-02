@@ -456,6 +456,38 @@ VOICE_PRESET_STYLES: Dict[str, str] = {
     "grandma": "따뜻하고 상냥한 할머니 톤, 부드럽게 천천히 전달",
 }
 
+VOICE_PRESET_VOICES: Dict[str, str] = {
+    # Gemini TTS 프리빌트 음성 이름 매핑
+    "male": "Achird",
+    "female": "Kore",
+    "child": "Puck",
+    "grandpa": "Rasalgethi",
+    "grandma": "Pulcherrima",
+}
+
+
+def _normalize_locale(lang: Optional[str]) -> str:
+    """BCP-47 코드로 언어값을 정규화."""
+    if not lang:
+        return "ko-KR"
+    normalized = lang.strip().replace("_", "-")
+    upper = normalized.upper()
+    if upper in {"KO", "KO-KR"}:
+        return "ko-KR"
+    if upper in {"EN", "EN-US", "EN-GB"}:
+        return "en-US"
+    if upper in {"JA", "JA-JP"}:
+        return "ja-JP"
+    if upper in {"ES", "ES-ES", "ES-MX", "ES-419"}:
+        return "es-ES"
+    if upper in {"FR", "FR-FR"}:
+        return "fr-FR"
+    if upper in {"DE", "DE-DE"}:
+        return "de-DE"
+    if upper in {"ZH", "ZH-CN", "CMN-CN"}:
+        return "zh-CN"
+    return normalized
+
 
 def generate_paragraph_audio(
     text: str,
@@ -480,18 +512,22 @@ def generate_paragraph_audio(
 
     preset_style = preset.get("style")
     resolved_style = style_hint or preset_style
-    # voice_preset가 주어지면 스타일을 덮어써서 음색을 유도
+    resolved_voice: Optional[str] = None
+    # voice_preset가 주어지면 스타일/음성을 덮어써서 음색을 유도
     if voice_preset:
         vp_key = voice_preset.strip().lower()
         vp_style = VOICE_PRESET_STYLES.get(vp_key)
+        resolved_voice = VOICE_PRESET_VOICES.get(vp_key)
         if vp_style:
             resolved_style = vp_style
         else:
-            logger.warning("Unknown voice_preset '%s'; falling back to default style", voice_preset)
+            logger.warning("Unknown voice_preset '%s'; falling back to default style/voice", voice_preset)
     if not style_hint and emotion:
         inferred = _map_emotion_to_style(emotion)
         if inferred:
             resolved_style = inferred
+    if not resolved_voice:
+        resolved_voice = Config.GEMINI_TTS_VOICE
 
     chunks = _chunk_script_lines([cleaned])
     if not chunks:
@@ -518,7 +554,8 @@ def generate_paragraph_audio(
                 style_hint=resolved_style,
                 speaker_slug=speaker_slug,
                 emotion=emotion,
-                language_code=language
+                language_code=_normalize_locale(language or Config.GEMINI_TTS_LANGUAGE),
+                voice_name=resolved_voice,
             )
         )
 
