@@ -32,6 +32,7 @@ public class StoryDto {
     private String coverImageUrl;
     private Long authorId;
     private String authorNickname;
+    private String voicePreset;
 
     public static StoryDto fromEntity(Story story) {
         StoryDto dto = new StoryDto();
@@ -51,6 +52,7 @@ public class StoryDto {
         dto.setAuthorId(null);
         dto.setAuthorNickname(null);
         dto.setPages(List.of());
+        dto.setVoicePreset(story.getVoicePreset());
         dto.setCharacters(story.getCharacters() != null
                 ? story.getCharacters().stream()
                     .map(CharacterDtoMapper::fromEntity)

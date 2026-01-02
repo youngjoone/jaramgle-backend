@@ -61,6 +61,9 @@ public class Story {
     @Column(name = "is_deleted", nullable = false)
     private boolean deleted;
 
+    @Column(name = "voice_preset")
+    private String voicePreset;
+
     @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<StorybookPage> storybookPages = new ArrayList<>();
 

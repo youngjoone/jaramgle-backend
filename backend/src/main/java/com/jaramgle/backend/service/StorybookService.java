@@ -85,6 +85,10 @@ public class StorybookService {
         if (story.isDeleted()) {
             throw new IllegalArgumentException("Deleted stories cannot create storybooks.");
         }
+        if (StringUtils.hasText(voicePreset)) {
+            story.setVoicePreset(voicePreset);
+            storyRepository.save(story);
+        }
         story.getCharacters().size();
 
         List<StoryPage> originalPages = storyService.getStoryPagesByStoryId(storyId);
@@ -110,13 +114,23 @@ public class StorybookService {
 
     @Async
     public void generateAudioForAllPagesAsync(Long storyId, String voicePreset) {
+        String resolvedVoicePreset = voicePreset;
+        String resolvedLanguage = null;
+        Story story = storyRepository.findById(storyId).orElse(null);
+        if (story != null) {
+            if (!StringUtils.hasText(resolvedVoicePreset)) {
+                resolvedVoicePreset = story.getVoicePreset();
+            }
+            resolvedLanguage = story.getLanguage();
+        }
         try {
             List<StorybookPage> pages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
             for (StorybookPage page : pages) {
                 try {
                     GenerateParagraphAudioRequestDto req = new GenerateParagraphAudioRequestDto();
                     req.setForceRegenerate(false);
-                    req.setVoicePreset(voicePreset);
+                    req.setVoicePreset(resolvedVoicePreset);
+                    req.setLanguage(resolvedLanguage);
                     generatePageAudio(storyId, page.getId(), req);
                 } catch (Exception ex) {
                     log.warn("Failed to generate audio for storyId={}, pageId={}: {}", storyId, page.getId(), ex.getMessage());
@@ -428,6 +442,8 @@ public class StorybookService {
             throw new IllegalArgumentException("Deleted stories cannot generate audio.");
         }
 
+        Story story = page.getStory();
+
         if (!requestDto.isForceRegenerate() && StringUtils.hasText(page.getAudioUrl())) {
             log.info("Audio already exists for storyId={}, pageId={}; returning cached audio.", storyId, pageId);
             return page;
@@ -445,8 +461,14 @@ public class StorybookService {
         outbound.setSpeakerSlug(requestDto.getSpeakerSlug());
         outbound.setEmotion(requestDto.getEmotion());
         outbound.setStyleHint(requestDto.getStyleHint());
-        outbound.setLanguage(requestDto.getLanguage());
-        outbound.setVoicePreset(requestDto.getVoicePreset());
+        String resolvedLanguage = StringUtils.hasText(requestDto.getLanguage())
+                ? requestDto.getLanguage()
+                : (story != null ? story.getLanguage() : null);
+        outbound.setLanguage(resolvedLanguage);
+        String resolvedVoicePreset = StringUtils.hasText(requestDto.getVoicePreset())
+                ? requestDto.getVoicePreset()
+                : (story != null ? story.getVoicePreset() : null);
+        outbound.setVoicePreset(resolvedVoicePreset);
         outbound.setForceRegenerate(requestDto.isForceRegenerate());
         outbound.setText(resolvedText);
 
