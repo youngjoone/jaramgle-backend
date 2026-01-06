@@ -5,6 +5,8 @@ import com.jaramgle.backend.util.AssetUrlResolver;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList; // Added
@@ -33,6 +35,24 @@ public class StoryDto {
     private Long authorId;
     private String authorNickname;
     private String voicePreset;
+    private String translationLanguage;
+    private TranslationDto translation;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TranslationDto {
+        private String title;
+        private List<TranslatedPageDto> pages;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TranslatedPageDto {
+        private Integer page;
+        private String text;
+    }
 
     public static StoryDto fromEntity(Story story) {
         StoryDto dto = new StoryDto();
@@ -53,6 +73,8 @@ public class StoryDto {
         dto.setAuthorNickname(null);
         dto.setPages(List.of());
         dto.setVoicePreset(story.getVoicePreset());
+        dto.setTranslationLanguage(story.getTranslationLanguage());
+        dto.setTranslation(parseTranslation(story.getTranslations()));
         dto.setCharacters(story.getCharacters() != null
                 ? story.getCharacters().stream()
                     .map(CharacterDtoMapper::fromEntity)
@@ -66,5 +88,37 @@ public class StoryDto {
         StoryDto dto = fromEntity(story);
         dto.setPages(pages);
         return dto;
+    }
+
+    private static TranslationDto parseTranslation(String translationsJson) {
+        if (translationsJson == null || translationsJson.isBlank()) {
+            return null;
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            var root = mapper.readTree(translationsJson);
+            if (root == null || root.isMissingNode() || root.isNull()) {
+                return null;
+            }
+            String tTitle = root.path("title").asText(null);
+            List<TranslatedPageDto> pages = new ArrayList<>();
+            if (root.has("pages") && root.get("pages").isArray()) {
+                for (var node : root.get("pages")) {
+                    int pageNo = node.path("page").asInt(
+                            node.path("pageNo").asInt(node.path("page_no").asInt(-1))
+                    );
+                    String text = node.path("text").asText(null);
+                    if (pageNo > 0 && text != null && !text.isBlank()) {
+                        pages.add(new TranslatedPageDto(pageNo, text));
+                    }
+                }
+            }
+            if (pages.isEmpty()) {
+                return null;
+            }
+            return new TranslationDto(tTitle, pages);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

@@ -9,7 +9,14 @@ import google.generativeai as genai
 from openai import OpenAI
 
 from config import Config
-from schemas import GenerateRequest, GenerateResponse, StoryOutput, CreativeConcept, Moderation
+from schemas import (
+    GenerateRequest,
+    GenerateResponse,
+    StoryOutput,
+    CreativeConcept,
+    Moderation,
+    TranslationOutput,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +206,15 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 [캐릭터 일관성]
 {character_continuity_points}
 
+[퀴즈 제작]
+- 퀴즈는 **정확히 3개** 생성한다.
+  1) 스토리 이해형: 누가/무엇을/어디서/왜/어떻게 등 이야기 내용에 대한 사실 확인 질문.
+  2) 어휘 의미형: 이야기 속에 실제로 등장한 단어·표현의 의미나 역할을 묻는 질문(정답·오답 보기 모두 이야기에서 나온 요소만 사용).
+  3) 메시지/감상형: 교훈, 인물의 선택 이유, 다음 행동 예측 등 이야기의 메시지나 감정에 대한 질문.
+- 각 문항은 3지선다이며, 보기 3개 모두 스토리 맥락과 일치해야 하고 서로 중복되면 안 된다.
+- 정답 인덱스(a)는 0~2 중 하나이며, 3개 문항 모두 다른 정답 위치를 섞어 배치한다.
+- 질문과 보기 표현은 요청 언어('{lang_label}')로, 연령대에 맞게 짧고 쉬운 어휘를 사용한다.
+
 # 출력 스키마 (키 고정, 추가 키 금지)
 {{
   "creative_concept": {{
@@ -255,6 +271,55 @@ def _call_openai(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
     # 임시로 빈 리스트 반환
     return {"story": {"title": "temp", "pages": [], "quiz": []}, "reading_plan": []}
 
+
+def _translate_story(story: StoryOutput, source_lang: str, target_lang: str, request_id: str) -> Optional[TranslationOutput]:
+    """
+    Translate story.title and pages.text into target language using Gemini.
+    """
+    source = str(source_lang).upper()
+    target = str(target_lang).upper()
+    if not target or source == target:
+        return None
+
+    lang_map = {
+        "KO": "한국어",
+        "EN": "영어",
+        "JA": "일본어",
+        "FR": "프랑스어",
+        "ES": "스페인어",
+        "DE": "독일어",
+        "ZH": "중국어",
+    }
+    source_label = lang_map.get(source, source)
+    target_label = lang_map.get(target, target)
+
+    pages_block = "\n".join([f"- Page {p.page_no}: {p.text}" for p in story.pages])
+    prompt = dedent(f"""
+    You are a professional translator for children's storybooks.
+    Translate the given story from {source_label} to {target_label}.
+    Keep sentences warm, clear, and age-appropriate (4-8 years old).
+    Do not add explanations.
+    Return ONLY JSON with keys: "title" and "pages" (array of objects: "page", "text").
+
+    Original story (title then pages):
+    [Title] {story.title}
+    {pages_block}
+    """).strip()
+
+    client = genai.GenerativeModel(
+        model_name="models/gemini-2.5-flash",
+        generation_config={"response_mime_type": "application/json"}
+    )
+    logger.info(f"Translating story for request {request_id}: {source}->{target}")
+    response = client.generate_content(
+        prompt,
+        generation_config=genai.types.GenerationConfig(temperature=0.4),
+    )
+    raw_json_text = response.text
+    logger.info(f"Translation raw response for {request_id}: {raw_json_text}")
+    data = json.loads(raw_json_text)
+    return TranslationOutput(**data)
+
 def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
     """
     설정에 따라 적절한 LLM을 호출하여 스토리를 생성합니다.
@@ -262,6 +327,7 @@ def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
     provider = Config.LLM_PROVIDER.lower()
     max_attempts = 2  # 최초 1회 + 재시도 1회
     last_error: Optional[Exception] = None
+    translation: Optional[TranslationOutput] = None
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -278,10 +344,19 @@ def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
             concept = CreativeConcept(**concept_data) if concept_data else None
             raw_json = json.dumps(story_data, ensure_ascii=False)
 
+            # Optional translation
+            if req.translation_language:
+                try:
+                    translation = _translate_story(story, req.language, req.translation_language, request_id)
+                except Exception as translate_err:
+                    logger.warning("Translation failed for request %s: %s", request_id, translate_err)
+                    translation = None
+
             return GenerateResponse(
                 story=story,
                 creative_concept=concept,
                 reading_plan=[],
+                translation=translation,
                 raw_json=raw_json,
                 moderation=Moderation(safe=True)
             )

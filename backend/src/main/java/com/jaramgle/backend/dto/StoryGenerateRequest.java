@@ -65,6 +65,12 @@ public class StoryGenerateRequest {
     @Size(max = 80)
     private String artStyle;
 
+    @JsonProperty("translation_language")
+    @JsonAlias({"translationLanguage", "translation_language"})
+    @Size(max = 10)
+    @Pattern(regexp = "^(KO|EN|JA|FR|ES|DE|ZH|NONE)?$", message = "지원하지 않는 번역 언어 코드입니다.")
+    private String translationLanguage;
+
     public void setRequiredElements(List<String> elements) {
         if (elements == null) {
             this.requiredElements = null;

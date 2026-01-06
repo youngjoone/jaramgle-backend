@@ -80,7 +80,7 @@ public class StoryService {
     private static final int HEART_COST_PER_STORY = 1;
 
     // Helper record to return multiple values from generation
-    public record GenerationResult(StableStoryDto story, JsonNode concept) {}
+    public record GenerationResult(StableStoryDto story, JsonNode concept, JsonNode translation) {}
 
     @Transactional(readOnly = true)
     public List<Story> getStoriesByUserId(String userId) {
@@ -250,7 +250,7 @@ public class StoryService {
         storageQuotaService.ensureSlotAvailable(userId);
         validateCharacterAccess(request.getCharacterIds(), numericUserId);
         GenerationResult generationResult = generateAiStory(request);
-        return saveGeneratedStory(userId, request, generationResult.story(), generationResult.concept());
+        return saveGeneratedStory(userId, request, generationResult.story(), generationResult.concept(), generationResult.translation());
     }
 
     // Overloaded method for backward compatibility with StoryStreamService
@@ -261,15 +261,24 @@ public class StoryService {
 
     @Transactional
     public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept) {
+        return saveGeneratedStory(userId, request, stableStoryDto, creativeConcept, null);
+    }
+
+    @Transactional
+    public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept, JsonNode translation) {
         Long numericUserId = parseUserId(userId);
         heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
         validateCharacterAccess(request.getCharacterIds(), numericUserId);
         String quizJson;
         String creativeConceptJson = null;
+        String translationJson = null;
         try {
             quizJson = objectMapper.writeValueAsString(stableStoryDto.quiz());
             if (creativeConcept != null) {
                 creativeConceptJson = objectMapper.writeValueAsString(creativeConcept);
+            }
+            if (translation != null && !translation.isNull()) {
+                translationJson = objectMapper.writeValueAsString(translation);
             }
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize quiz or concept data.", e);
@@ -288,6 +297,8 @@ public class StoryService {
         story.setCreativeConcept(creativeConceptJson);
         story.setHidden(false);
         story.setDeleted(false);
+        story.setTranslationLanguage(resolveTranslationLanguage(request.getTranslationLanguage(), request.getLanguage()));
+        story.setTranslations(translationJson);
         story.setStorybookPages(new ArrayList<>());
         story.setCharacters(new LinkedHashSet<>());
         story = storyRepository.save(story);
@@ -373,6 +384,11 @@ public class StoryService {
         if (request.getArtStyle() != null && !request.getArtStyle().isBlank()) {
             promptPayload.put("art_style", request.getArtStyle().trim());
         }
+        String translationLang = resolveTranslationLanguage(request.getTranslationLanguage(), request.getLanguage());
+        if (translationLang != null) {
+            promptPayload.put("translation_language", translationLang);
+            log.info("Translation requested to {} for story generation", translationLang);
+        }
 
         if (request.getCharacterIds() != null && !request.getCharacterIds().isEmpty()) {
             List<Character> characters = characterRepository.findByIdIn(request.getCharacterIds());
@@ -417,9 +433,10 @@ public class StoryService {
 
             AiStory aiStory = objectMapper.treeToValue(aiResponse.get("story"), AiStory.class);
             JsonNode creativeConcept = aiResponse.get("creative_concept");
+            JsonNode translation = aiResponse.get("translation");
 
             StableStoryDto stableStory = storyAssembler.assemble(aiStory, request.getMinPages());
-            return new GenerationResult(stableStory, creativeConcept); // 결과에 reading_plan 추가
+            return new GenerationResult(stableStory, creativeConcept, translation); // 결과에 reading_plan 추가
 
         } catch (WebClientResponseException ex) {
             log.error("LLM service returned an error response: {}", ex.getMessage(), ex);
@@ -428,6 +445,24 @@ public class StoryService {
             log.error("Failed to generate story from LLM service.", e);
             throw new StoryGenerationException("동화 생성에 실패했어요. 잠시 후 다시 시도해 주세요.", e);
         }
+    }
+
+    private String resolveTranslationLanguage(String translationLanguage, String sourceLanguage) {
+        if (translationLanguage == null || translationLanguage.isBlank()) {
+            return null;
+        }
+        String normalized = translationLanguage.trim().toUpperCase(Locale.ROOT);
+        if ("NONE".equals(normalized)) {
+            return null;
+        }
+        if (sourceLanguage != null && normalized.equalsIgnoreCase(sourceLanguage.trim())) {
+            return null;
+        }
+        Set<String> allowed = Set.of("KO", "EN", "JA", "FR", "ES", "DE", "ZH");
+        if (!allowed.contains(normalized)) {
+            return null;
+        }
+        return normalized;
     }
 
     private void applyCharacterMetadata(Story story, StoryGenerateRequest request, JsonNode creativeConcept) {
