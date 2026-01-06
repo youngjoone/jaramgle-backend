@@ -64,6 +64,12 @@ public class Story {
     @Column(name = "voice_preset")
     private String voicePreset;
 
+    @Column(name = "translation_language")
+    private String translationLanguage;
+
+    @Column(name = "translations", columnDefinition = "TEXT")
+    private String translations;
+
     @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<StorybookPage> storybookPages = new ArrayList<>();
 

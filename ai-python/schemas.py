@@ -33,6 +33,7 @@ class GenerateRequest(BaseModel):
     moral: Optional[str] = None
     required_elements: List[str] = Field(default_factory=list)
     art_style: Optional[str] = Field(default=None, alias="artStyle")
+    translation_language: Optional[str] = Field(default=None, alias="translation_language")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -111,6 +112,32 @@ class GenerateRequest(BaseModel):
             return v or None
         return value
 
+    @field_validator("translation_language", mode="before")
+    def _normalize_translation_lang(cls, v, values):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            u = v.strip().upper()
+            if u in {"NONE", ""}:
+                return None
+            synonym_map = {
+                "KO": "KO", "KOREAN": "KO", "KR": "KO", "KO-KR": "KO", "KO_KR": "KO",
+                "EN": "EN", "ENG": "EN", "EN-US": "EN", "EN_GB": "EN", "EN-GB": "EN",
+                "JA": "JA", "JAPANESE": "JA", "JP": "JA", "JA-JP": "JA",
+                "FR": "FR", "FRENCH": "FR", "FR-FR": "FR",
+                "ES": "ES", "SPANISH": "ES", "ES-ES": "ES",
+                "DE": "DE", "GERMAN": "DE", "DE-DE": "DE",
+                "ZH": "ZH", "CN": "ZH", "ZH-CN": "ZH", "ZH_CN": "ZH", "CHINESE": "ZH",
+            }
+            normalized = synonym_map.get(u)
+            if normalized is None:
+                raise ValueError(f"Unsupported translation language code: {v}")
+            source_lang = values.data.get("language")
+            if source_lang and str(source_lang).upper() == normalized:
+                return None
+            return normalized
+        return v
+
 # -------- Story / Quiz / Concept (NEW) --------
 class StoryPage(BaseModel):
     page_no: int = Field(..., alias="page")
@@ -145,6 +172,14 @@ class StoryOutput(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+class TranslatedPage(BaseModel):
+    page: int
+    text: str
+
+class TranslationOutput(BaseModel):
+    title: str
+    pages: List[TranslatedPage]
+
 # -------- Moderation / Response --------
 class Moderation(BaseModel):
     safe: bool = True
@@ -154,6 +189,7 @@ class GenerateResponse(BaseModel):
     story: StoryOutput
     creative_concept: Optional[CreativeConcept] = None # ADDED
     reading_plan: List[dict] = Field(default_factory=list, alias="readingPlan")
+    translation: Optional[TranslationOutput] = None
     raw_json: str
     moderation: Moderation = Field(default_factory=Moderation)
 
