@@ -35,6 +35,7 @@ public class StoryDto {
     private Long authorId;
     private String authorNickname;
     private String voicePreset;
+    private List<QuizItemDto> quiz;
     private String translationLanguage;
     private TranslationDto translation;
 
@@ -52,6 +53,15 @@ public class StoryDto {
     public static class TranslatedPageDto {
         private Integer page;
         private String text;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class QuizItemDto {
+        private String question;
+        private List<String> options;
+        private Integer answer;
     }
 
     public static StoryDto fromEntity(Story story) {
@@ -73,12 +83,13 @@ public class StoryDto {
         dto.setAuthorNickname(null);
         dto.setPages(List.of());
         dto.setVoicePreset(story.getVoicePreset());
+        dto.setQuiz(parseQuiz(story.getQuiz()));
         dto.setTranslationLanguage(story.getTranslationLanguage());
         dto.setTranslation(parseTranslation(story.getTranslations()));
         dto.setCharacters(story.getCharacters() != null
                 ? story.getCharacters().stream()
-                    .map(CharacterDtoMapper::fromEntity)
-                    .collect(Collectors.toList())
+                        .map(CharacterDtoMapper::fromEntity)
+                        .collect(Collectors.toList())
                 : new ArrayList<>());
         // Pages will be set separately for detail view
         return dto;
@@ -105,8 +116,7 @@ public class StoryDto {
             if (root.has("pages") && root.get("pages").isArray()) {
                 for (var node : root.get("pages")) {
                     int pageNo = node.path("page").asInt(
-                            node.path("pageNo").asInt(node.path("page_no").asInt(-1))
-                    );
+                            node.path("pageNo").asInt(node.path("page_no").asInt(-1)));
                     String text = node.path("text").asText(null);
                     if (pageNo > 0 && text != null && !text.isBlank()) {
                         pages.add(new TranslatedPageDto(pageNo, text));
@@ -119,6 +129,51 @@ public class StoryDto {
             return new TranslationDto(tTitle, pages);
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private static List<QuizItemDto> parseQuiz(String quizJson) {
+        if (quizJson == null || quizJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            var root = mapper.readTree(quizJson);
+            if (root == null || root.isMissingNode()) {
+                return List.of();
+            }
+            List<QuizItemDto> result = new ArrayList<>();
+            if (root.isArray()) {
+                for (var node : root) {
+                    String q = node.path("question").asText(
+                            node.path("q").asText(
+                                    node.path("quiz_text").asText(null)));
+                    List<String> options = new ArrayList<>();
+                    if (node.has("options") && node.get("options").isArray()) {
+                        for (var opt : node.get("options")) {
+                            String val = opt.asText(null);
+                            if (val != null)
+                                options.add(val);
+                        }
+                    }
+                    Integer a = null;
+                    if (node.has("answer") && node.get("answer").isInt()) {
+                        a = node.get("answer").asInt();
+                    } else if (node.has("a") && node.get("a").isInt()) {
+                        a = node.get("a").asInt();
+                    } else if (node.has("answerIndex") && node.get("answerIndex").isInt()) {
+                        a = node.get("answerIndex").asInt();
+                    } else if (node.has("correct_choice") && node.get("correct_choice").isInt()) {
+                        a = node.get("correct_choice").asInt();
+                    }
+                    if (q != null && !q.isBlank() && options.size() >= 2 && a != null) {
+                        result.add(new QuizItemDto(q, options, a));
+                    }
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            return List.of();
         }
     }
 }

@@ -49,17 +49,23 @@ public class StoryAssembler {
                     .collect(Collectors.toList());
         }
 
-        // 4. 퀴즈 검수 및 보정 (이제 리스트를 처리)
+        // 4. 퀴즈 검수 및 보정 (3문항 모두 사용)
         List<AiQuiz> finalQuizzes = new ArrayList<>();
         if (aiStory.quiz() != null && !aiStory.quiz().isEmpty()) {
-            // 리스트의 첫 번째 퀴즈만 검증하고 사용
-            AiQuiz firstQuiz = aiStory.quiz().get(0);
             List<String> pageTexts = pagesToUse.stream().map(StableStoryPageDto::text).toList();
-            AiQuiz validatedQuiz = quizFixer.ensureValid(firstQuiz, pageTexts);
-            if (validatedQuiz != null) {
-                finalQuizzes.add(validatedQuiz);
+            for (AiQuiz quiz : aiStory.quiz()) {
+                AiQuiz validatedQuiz = quizFixer.ensureValid(quiz, pageTexts);
+                if (validatedQuiz != null) {
+                    finalQuizzes.add(validatedQuiz);
+                }
             }
         }
+
+        if (finalQuizzes.size() < 3) {
+            throw new IllegalStateException("Quiz generation failed: expected 3 valid quizzes.");
+        }
+        // 최대 3개까지만 사용
+        finalQuizzes = finalQuizzes.subList(0, Math.min(3, finalQuizzes.size()));
         
         // 5. 최종 결과 조합
         String title = (aiStory.title() != null && !aiStory.title().isBlank()) ? aiStory.title() : "새로운 동화";

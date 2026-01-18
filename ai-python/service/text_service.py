@@ -27,6 +27,21 @@ def _normalize_and_validate_story(story: StoryOutput, req: GenerateRequest) -> S
     if page_count < min_pages:
         raise ValueError(f"LLM generated {page_count} pages but at least {min_pages} pages are required.")
 
+    # Validate quiz: must have exactly 3 items, each with 3 options and a valid answer index
+    quizzes = getattr(story, "quiz", []) or []
+    if len(quizzes) != 3:
+        raise ValueError(f"LLM returned {len(quizzes)} quizzes; exactly 3 are required.")
+    for idx, quiz in enumerate(quizzes, start=1):
+        # QA model exposes `question`/`answer` (aliases q/a). Use canonical names.
+        if not quiz.question or not quiz.options or quiz.answer is None:
+            raise ValueError(f"Quiz {idx} is missing required fields.")
+        if len(quiz.options) != 3:
+            raise ValueError(f"Quiz {idx} has {len(quiz.options)} options; exactly 3 options required.")
+        if any(not opt for opt in quiz.options):
+            raise ValueError(f"Quiz {idx} contains empty options.")
+        if quiz.answer < 0 or quiz.answer >= len(quiz.options):
+            raise ValueError(f"Quiz {idx} has invalid answer index {quiz.answer}.")
+
     # 언어별 최소 길이 기준: 공백 토크나이징이 어려운 CJK는 문자 수로 검증
     lang_code = str(req.language).upper()
     min_words_per_page = 20
@@ -230,7 +245,7 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
       "text": "string (Must be in {lang_label})",
       "image_prompt": "string (1~2 sentence illustration brief: layout, key characters, background, lighting, consistent art style)."
     }}],
-    "quiz": [{{ "q": "string", "options": ["string","string","string"], "a": 0}}]
+    "quiz": [{{ "question": "string", "options": ["string","string","string"], "answer": 0}}]
   }}
 }}
 

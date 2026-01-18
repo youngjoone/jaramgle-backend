@@ -6,6 +6,7 @@ import com.jaramgle.backend.dto.GenerateParagraphAudioResponseDto;
 import com.jaramgle.backend.entity.Story;
 import com.jaramgle.backend.entity.StoryPage;
 import com.jaramgle.backend.entity.StorybookPage;
+import com.jaramgle.backend.exception.StoryGenerationException;
 import com.jaramgle.backend.repository.StoryRepository;
 import com.jaramgle.backend.repository.StorybookPageRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,22 +19,30 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.util.retry.Retry;
 
+import java.io.File;
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -48,6 +57,7 @@ public class StorybookService {
 
     private static final String CHARACTER_IMAGE_DIR = System.getenv().getOrDefault("CHARACTER_IMAGE_DIR",
             "/Users/kyj/testchardir");
+    private static final int HEART_COST_PER_STORY = 1;
 
     private final StoryRepository storyRepository;
     private final StorybookPageRepository storybookPageRepository;
@@ -55,6 +65,7 @@ public class StorybookService {
     private final WebClient webClient;
     private final ObjectMapper objectMapper; // ADDED
     private final PlatformTransactionManager transactionManager;
+    private final HeartWalletService heartWalletService;
 
     private static final int STORYBOOK_IMAGE_MAX_CONCURRENCY = Math.max(
             1,
@@ -96,20 +107,28 @@ public class StorybookService {
             throw new IllegalStateException("Story has no pages to create a storybook from.");
         }
 
-        StoryPage firstOriginalPage = originalPages.get(0);
-        StorybookPage firstStorybookPage = generateAndSaveStorybookPage(story, 1, firstOriginalPage.getText(),
-                firstOriginalPage.getImagePrompt());
-        log.info("createStorybook: First page generated and saved. ID: {}", firstStorybookPage.getId());
+        StorybookPage firstStorybookPage = null;
+        try {
+            StoryPage firstOriginalPage = originalPages.get(0);
+            firstStorybookPage = generateAndSaveStorybookPage(story, 1, firstOriginalPage.getText(),
+                    firstOriginalPage.getImagePrompt());
+            log.info("createStorybook: First page generated and saved. ID: {}", firstStorybookPage.getId());
 
-        if (originalPages.size() > 1) {
-            List<StoryPage> remainingPages = originalPages.subList(1, originalPages.size());
-            generateRemainingImages(story.getId(), remainingPages);
+            if (originalPages.size() > 1) {
+                List<StoryPage> remainingPages = originalPages.subList(1, originalPages.size());
+                generateRemainingImages(story.getId(), remainingPages);
+            }
+
+            // Async audio generation for all pages (including first)
+            generateAudioForAllPagesAsync(story.getId(), voicePreset);
+
+            return firstStorybookPage;
+        } catch (Exception ex) {
+            log.error("Storybook creation failed for storyId={}. Rolling back pages and refunding heart.", storyId, ex);
+            cleanupStorybookArtifacts(storyId);
+            refundHeart(story.getUserId());
+            throw new StoryGenerationException("스토리북 생성에 실패했어요. 잠시 후 다시 시도해 주세요.", ex);
         }
-
-        // Async audio generation for all pages (including first)
-        generateAudioForAllPagesAsync(story.getId(), voicePreset);
-
-        return firstStorybookPage;
     }
 
     @Async
@@ -155,7 +174,6 @@ public class StorybookService {
         pageAssetExecutor.shutdown();
     }
 
-    @Async
     public void generateRemainingImages(Long storyId, List<StoryPage> remainingPages) {
         log.info("Starting async generation for {} remaining pages for storyId: {}", remainingPages.size(), storyId);
         List<CompletableFuture<Void>> tasks = new ArrayList<>();
@@ -183,15 +201,17 @@ public class StorybookService {
                         throw new RuntimeException(ex);
                     }
                 });
-            }, pageAssetExecutor).exceptionally(ex -> {
-                log.error("Async: Failed to generate image for storyId: {}, pageNumber: {}", storyId, pageNumber, ex);
-                return null;
-            });
+            }, pageAssetExecutor);
 
             tasks.add(task);
         }
 
-        CompletableFuture.allOf(tasks.toArray(new CompletableFuture[0])).join();
+        try {
+            CompletableFuture.allOf(tasks.toArray(new CompletableFuture[0])).join();
+        } catch (CompletionException ce) {
+            throw new RuntimeException("Failed to generate remaining storybook pages for storyId=" + storyId,
+                    ce.getCause() != null ? ce.getCause() : ce);
+        }
         log.info("Finished async generation for storyId: {}", storyId);
     }
 
@@ -491,6 +511,83 @@ public class StorybookService {
         StorybookPage saved = storybookPageRepository.save(page);
         log.info("Saved audio for storyId={}, pageId={} at {}", storyId, pageId, audioUrl);
         return saved;
+    }
+
+    private void cleanupStorybookArtifacts(Long storyId) {
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        txTemplate.executeWithoutResult(status -> {
+            List<StorybookPage> pages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
+            for (StorybookPage page : pages) {
+                deleteFileFromUrl(page.getImageUrl());
+                deleteFileFromUrl(page.getAudioUrl());
+            }
+            if (!pages.isEmpty()) {
+                storybookPageRepository.deleteAll(pages);
+            }
+        });
+    }
+
+    private void deleteFileFromUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        try {
+            if (url.startsWith("file://")) {
+                Path path = Paths.get(URI.create(url));
+                Files.deleteIfExists(path);
+                return;
+            }
+            String pathStr;
+            if (url.startsWith("http")) {
+                pathStr = new URL(url).getPath();
+            } else {
+                pathStr = url;
+            }
+
+            File fileToDelete = null;
+            if (pathStr.contains("/api/image/")) {
+                String filename = pathStr.substring(pathStr.lastIndexOf('/') + 1);
+                fileToDelete = new File("/Users/kyj/testimagedir", filename);
+            } else if (pathStr.contains("/api/audio/")) {
+                String relativePath = pathStr.substring("/api/audio/".length());
+                fileToDelete = new File("/Users/kyj/testaudiodir", relativePath);
+            }
+
+            if (fileToDelete != null && fileToDelete.exists()) {
+                if (!fileToDelete.delete()) {
+                    log.warn("Failed to delete file: {}", fileToDelete.getAbsolutePath());
+                } else {
+                    log.info("Deleted file: {}", fileToDelete.getAbsolutePath());
+                }
+            }
+        } catch (MalformedURLException e) {
+            log.warn("Invalid URL, cannot delete file: {}", url);
+        } catch (IOException e) {
+            log.warn("Failed to delete file for url {}: {}", url, e.getMessage());
+        }
+    }
+
+    private void refundHeart(String userId) {
+        try {
+            Long numericUserId = parseUserId(userId);
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("context", "storybook_generation_failed");
+            TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+            txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            txTemplate.executeWithoutResult(status -> heartWalletService.adjustHearts(
+                    null, numericUserId, HEART_COST_PER_STORY, "스토리북 생성 실패 환불", metadata));
+        } catch (Exception ex) {
+            log.warn("Failed to refund heart for user {}: {}", userId, ex.getMessage());
+        }
+    }
+
+    private Long parseUserId(String userId) {
+        try {
+            return Long.parseLong(userId);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Invalid user id for heart wallet operations: " + userId, ex);
+        }
     }
 
     private String toWebAccessibleUrl(String providedUrl) {
