@@ -11,27 +11,18 @@ public class QuizFixer {
         if (isValid(aiQuiz)) {
             return aiQuiz;
         }
-        return generateRuleBasedQuiz(pages);
+        return null;
     }
 
     private boolean isValid(AiQuiz quiz) {
         if (quiz == null || quiz.question() == null || quiz.question().isBlank() ||
-            quiz.options() == null || quiz.options().size() < 2 ||
-            quiz.answerIndex() == null) {
+                quiz.options() == null || quiz.options().size() < 2 ||
+                quiz.answer() == null) {
             return false;
         }
         if (quiz.options().stream().anyMatch(o -> o == null || o.isBlank())) {
             return false;
         }
-        return quiz.answerIndex() >= 0 && quiz.answerIndex() < quiz.options().size();
-    }
-
-    private AiQuiz generateRuleBasedQuiz(List<String> pages) {
-        // Failsafe quiz
-        return new AiQuiz(
-            "주인공의 이름은 무엇이었을까요?",
-            List.of("토끼", "거북이"),
-            0
-        );
+        return quiz.answer() >= 0 && quiz.answer() < quiz.options().size();
     }
 }

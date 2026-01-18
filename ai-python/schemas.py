@@ -148,9 +148,9 @@ class StoryPage(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
 class QA(BaseModel):
-    question: str = Field(..., alias="q")
+    question: str
     options: List[str]
-    answer: int = Field(..., alias="a")
+    answer: int
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 

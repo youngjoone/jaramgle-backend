@@ -269,6 +269,11 @@ public class StoryService {
         Long numericUserId = parseUserId(userId);
         heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
         validateCharacterAccess(request.getCharacterIds(), numericUserId);
+
+        if (stableStoryDto.quiz() == null || stableStoryDto.quiz().size() != 3) {
+            throw new StoryGenerationException("퀴즈 생성에 실패했어요. 잠시 후 다시 시도해 주세요.");
+        }
+
         String quizJson;
         String creativeConceptJson = null;
         String translationJson = null;
