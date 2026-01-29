@@ -84,6 +84,7 @@ public class StorybookService {
         return createStorybook(storyId, null);
     }
 
+    @Transactional
     public StorybookPage createStorybook(Long storyId, String voicePreset) {
         List<StorybookPage> existingPages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
         if (!existingPages.isEmpty()) {
@@ -118,6 +119,8 @@ public class StorybookService {
                 List<StoryPage> remainingPages = originalPages.subList(1, originalPages.size());
                 generateRemainingImages(story.getId(), remainingPages);
             }
+
+            chargeHeartsIfNeeded(story);
 
             // Async audio generation for all pages (including first)
             generateAudioForAllPagesAsync(story.getId(), voicePreset);
@@ -526,6 +529,19 @@ public class StorybookService {
                 storybookPageRepository.deleteAll(pages);
             }
         });
+    }
+
+    private void chargeHeartsIfNeeded(Story story) {
+        try {
+            Long numericUserId = parseUserId(story.getUserId());
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("context", "storybook");
+            metadata.put("title", story.getTitle());
+            heartWalletService.spendHearts(numericUserId, HEART_COST_PER_STORY, "동화 생성", metadata);
+        } catch (Exception ex) {
+            log.warn("Failed to charge hearts for story {}: {}", story.getId(), ex.getMessage());
+            throw ex;
+        }
     }
 
     private void deleteFileFromUrl(String url) {

@@ -127,7 +127,6 @@ public class StoryService {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("context", "manual");
         metadata.put("title", title);
-        heartWalletService.spendHearts(numericUserId, HEART_COST_PER_STORY, "동화 생성", metadata);
         return story;
     }
 
@@ -331,7 +330,6 @@ public class StoryService {
         if (stableStoryDto.title() != null) {
             metadata.put("title", stableStoryDto.title());
         }
-        heartWalletService.spendHearts(numericUserId, HEART_COST_PER_STORY, "동화 생성", metadata);
         return story;
     }
 
