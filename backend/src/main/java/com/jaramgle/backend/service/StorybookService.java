@@ -26,6 +26,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.util.retry.Retry;
 
+import com.jaramgle.backend.util.AssetUrlResolver;
+
 import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
@@ -55,9 +57,10 @@ import java.util.stream.StreamSupport;
 @Slf4j
 public class StorybookService {
 
-    private static final String CHARACTER_IMAGE_DIR = System.getenv().getOrDefault("CHARACTER_IMAGE_DIR",
-            "/Users/kyj/testchardir");
     private static final int HEART_COST_PER_STORY = 1;
+    private static final String IMAGE_BASE_DIR = AssetUrlResolver.getImageBaseDir();
+    private static final String AUDIO_BASE_DIR = AssetUrlResolver.getAudioBaseDir();
+    private static final String CHARACTER_IMAGE_DIR = AssetUrlResolver.getCharacterImageDir();
 
     private final StoryRepository storyRepository;
     private final StorybookPageRepository storybookPageRepository;
@@ -364,7 +367,7 @@ public class StorybookService {
         String sanitizedPath = originalRelativePath.startsWith("/") ? originalRelativePath.substring(1)
                 : originalRelativePath;
 
-        Path imageRoot = Paths.get("/Users/kyj/testimagedir/"); // Hardcoded based on WebConfig
+        Path imageRoot = Paths.get(IMAGE_BASE_DIR);
 
         // Try to strip common prefixes to find the actual file path relative to
         // imageRoot
@@ -549,12 +552,12 @@ public class StorybookService {
             return;
         }
         try {
-            if (url.startsWith("file://")) {
-                Path path = Paths.get(URI.create(url));
-                Files.deleteIfExists(path);
-                return;
-            }
-            String pathStr;
+                if (url.startsWith("file://")) {
+                    Path path = Paths.get(URI.create(url));
+                    Files.deleteIfExists(path);
+                    return;
+                }
+                String pathStr;
             if (url.startsWith("http")) {
                 pathStr = new URL(url).getPath();
             } else {
@@ -564,10 +567,10 @@ public class StorybookService {
             File fileToDelete = null;
             if (pathStr.contains("/api/image/")) {
                 String filename = pathStr.substring(pathStr.lastIndexOf('/') + 1);
-                fileToDelete = new File("/Users/kyj/testimagedir", filename);
+                fileToDelete = new File(IMAGE_BASE_DIR, filename);
             } else if (pathStr.contains("/api/audio/")) {
                 String relativePath = pathStr.substring("/api/audio/".length());
-                fileToDelete = new File("/Users/kyj/testaudiodir", relativePath);
+                fileToDelete = new File(AUDIO_BASE_DIR, relativePath);
             }
 
             if (fileToDelete != null && fileToDelete.exists()) {

@@ -10,8 +10,22 @@ public final class AssetUrlResolver {
             System.getenv().getOrDefault("CHARACTER_IMAGE_DIR", "/Users/kyj/testchardir");
     private static final String IMAGE_BASE_DIR =
             System.getenv().getOrDefault("IMAGE_BASE_DIR", "/Users/kyj/testimagedir");
+    private static final String AUDIO_BASE_DIR =
+            System.getenv().getOrDefault("AUDIO_BASE_DIR", "/Users/kyj/testaudiodir");
 
     private AssetUrlResolver() {}
+
+    public static String getCharacterImageDir() {
+        return CHARACTER_IMAGE_DIR;
+    }
+
+    public static String getImageBaseDir() {
+        return IMAGE_BASE_DIR;
+    }
+
+    public static String getAudioBaseDir() {
+        return AUDIO_BASE_DIR;
+    }
 
     public static String toPublicUrl(String raw) {
         if (raw == null) {
@@ -54,6 +68,11 @@ public final class AssetUrlResolver {
             String relative = normalized.substring(normalized.indexOf(IMAGE_BASE_DIR) + IMAGE_BASE_DIR.length());
             relative = relative.replaceFirst("^/+", "");
             return "/api/image/" + relative;
+        }
+        if (normalized.contains(AUDIO_BASE_DIR)) {
+            String relative = normalized.substring(normalized.indexOf(AUDIO_BASE_DIR) + AUDIO_BASE_DIR.length());
+            relative = relative.replaceFirst("^/+", "");
+            return "/api/audio/" + relative;
         }
         return "/api/image/" + path.getFileName().toString();
     }
