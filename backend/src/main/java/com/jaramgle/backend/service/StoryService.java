@@ -56,6 +56,8 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.jaramgle.backend.util.AssetUrlResolver;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -75,7 +77,7 @@ public class StoryService {
     private final CharacterModelingService characterModelingService;
 
     private static final String CHARACTER_IMAGE_DIR =
-            System.getenv().getOrDefault("CHARACTER_IMAGE_DIR", "/Users/kyj/testchardir");
+            AssetUrlResolver.getCharacterImageDir();
 
     private static final int HEART_COST_PER_STORY = 1;
 
@@ -224,10 +226,10 @@ public class StoryService {
             java.io.File fileToDelete = null;
             if (path.contains("/api/image/")) {
                 String filename = path.substring(path.lastIndexOf('/') + 1);
-                fileToDelete = new java.io.File("/Users/kyj/testimagedir", filename);
+                fileToDelete = new java.io.File(AssetUrlResolver.getImageBaseDir(), filename);
             } else if (path.contains("/api/audio/")) {
                 String relativePath = path.substring("/api/audio/".length());
-                fileToDelete = new java.io.File("/Users/kyj/testaudiodir", relativePath);
+                fileToDelete = new java.io.File(AssetUrlResolver.getAudioBaseDir(), relativePath);
             }
 
             if (fileToDelete != null && fileToDelete.exists()) {

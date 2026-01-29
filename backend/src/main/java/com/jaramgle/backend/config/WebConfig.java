@@ -5,22 +5,33 @@ import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import com.jaramgle.backend.util.AssetUrlResolver;
+
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        String imageDir = AssetUrlResolver.getImageBaseDir();
+        String charDir = AssetUrlResolver.getCharacterImageDir();
+        String audioDir = AssetUrlResolver.getAudioBaseDir();
+
         registry.addResourceHandler("/images/**")
-                .addResourceLocations("file:///Users/kyj/testimagedir/");
+                .addResourceLocations("file://" + ensureTrailingSlash(imageDir));
 
         registry.addResourceHandler("/api/image/**")
-                .addResourceLocations("file:///Users/kyj/testimagedir/");
+                .addResourceLocations("file://" + ensureTrailingSlash(imageDir));
 
         registry.addResourceHandler("/characters/**")
-                .addResourceLocations("file:///Users/kyj/testchardir/");
+                .addResourceLocations("file://" + ensureTrailingSlash(charDir));
 
         registry.addResourceHandler("/api/audio/**")
-                .addResourceLocations("file:///Users/kyj/testaudiodir/");
+                .addResourceLocations("file://" + ensureTrailingSlash(audioDir));
+    }
+
+    private String ensureTrailingSlash(String path) {
+        if (path.endsWith("/")) return path;
+        return path + "/";
     }
 
     @Override

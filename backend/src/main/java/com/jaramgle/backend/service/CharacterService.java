@@ -27,13 +27,14 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.jaramgle.backend.util.AssetUrlResolver;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class CharacterService {
 
-    private static final String CHARACTER_IMAGE_DIR =
-            System.getenv().getOrDefault("CHARACTER_IMAGE_DIR", "/Users/kyj/testchardir");
+    private static final String CHARACTER_IMAGE_DIR = AssetUrlResolver.getCharacterImageDir();
     private static final String USER_PICTURE_DIR =
             System.getenv().getOrDefault("USER_PICTURE_DIR", "/Users/kyj/testpicturedir");
     private static final int OPTIMIZE_MAX_SIZE = 1024;
