@@ -441,6 +441,12 @@ public class StoryService {
             JsonNode translation = aiResponse.get("translation");
 
             StableStoryDto stableStory = storyAssembler.assemble(aiStory, request.getMinPages());
+
+            // Hard guard: 퀴즈가 비어 있으면 실패로 간주하여 사용자 크레딧이 차감되지 않도록 함
+            if (stableStory.quiz() == null || stableStory.quiz().isEmpty()) {
+                throw new StoryGenerationException("퀴즈 생성에 실패했어요. 잠시 후 다시 시도해 주세요.");
+            }
+
             return new GenerationResult(stableStory, creativeConcept, translation); // 결과에 reading_plan 추가
 
         } catch (WebClientResponseException ex) {
