@@ -36,7 +36,7 @@ public class CharacterService {
 
     private static final String CHARACTER_IMAGE_DIR = AssetUrlResolver.getCharacterImageDir();
     private static final String USER_PICTURE_DIR =
-            System.getenv().getOrDefault("USER_PICTURE_DIR", "/Users/kyj/testpicturedir");
+            System.getenv().getOrDefault("USER_PICTURE_DIR", "data/picture");
     private static final int OPTIMIZE_MAX_SIZE = 1024;
     private static final double OPTIMIZE_QUALITY = 0.8; // 80%
     private static final long MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
