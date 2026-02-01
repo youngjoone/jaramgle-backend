@@ -58,8 +58,8 @@ logger.info(f"Text generation will be handled by text_service with provider: {Co
 
 # --- Middleware ---
 
-_AUDIO_BASE_DIR = "/Users/kyj/testaudiodir"
-_IMAGE_BASE_DIR = "/Users/kyj/testimagedir"
+_AUDIO_BASE_DIR = Config.AUDIO_BASE_DIR
+_IMAGE_BASE_DIR = Config.IMAGE_BASE_DIR
 _IMAGE_SEMAPHORE = asyncio.Semaphore(max(1, Config.IMAGE_GENERATION_MAX_CONCURRENCY))
 _IMAGE_QUEUE_TIMEOUT = max(0.0, Config.IMAGE_GENERATION_QUEUE_TIMEOUT_SECONDS)
 

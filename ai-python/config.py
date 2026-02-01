@@ -16,7 +16,9 @@ class Config:
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-5-mini")  # Default to gpt-5-mini
     OPENAI_MAX_OUTPUT_TOKENS: int = int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "300"))
     OPENAI_TEMPERATURE: float = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
-    CHARACTER_IMAGE_DIR: str = os.getenv("CHARACTER_IMAGE_DIR", "/Users/kyj/testchardir")
+    CHARACTER_IMAGE_DIR: str = os.getenv("CHARACTER_IMAGE_DIR", "data/character")
+    IMAGE_BASE_DIR: str = os.getenv("IMAGE_BASE_DIR", "data/image")
+    AUDIO_BASE_DIR: str = os.getenv("AUDIO_BASE_DIR", "data/audio")
     OPENAI_IMAGE_MODEL: str = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
     OPENAI_IMAGE_SIZE: str = "1024x1024"
     OPENAI_IMAGE_QUALITY: str = os.getenv("OPENAI_IMAGE_QUALITY", "medium")

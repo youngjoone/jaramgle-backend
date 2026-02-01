@@ -7,11 +7,11 @@ import java.nio.file.Paths;
 public final class AssetUrlResolver {
 
     private static final String CHARACTER_IMAGE_DIR =
-            System.getenv().getOrDefault("CHARACTER_IMAGE_DIR", "/Users/kyj/testchardir");
+            System.getenv().getOrDefault("CHARACTER_IMAGE_DIR", "data/character");
     private static final String IMAGE_BASE_DIR =
-            System.getenv().getOrDefault("IMAGE_BASE_DIR", "/Users/kyj/testimagedir");
+            System.getenv().getOrDefault("IMAGE_BASE_DIR", "data/image");
     private static final String AUDIO_BASE_DIR =
-            System.getenv().getOrDefault("AUDIO_BASE_DIR", "/Users/kyj/testaudiodir");
+            System.getenv().getOrDefault("AUDIO_BASE_DIR", "data/audio");
 
     private AssetUrlResolver() {}
 
