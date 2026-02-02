@@ -1,0 +1,24 @@
+# Environment
+.env
+backend/.env
+
+# Local data/artifacts
+data/**
+backend/data/**
+!data/.gitkeep
+!backend/data/.gitkeep
+
+# Python
+ai-python/.venv/
+__pycache__/
+*.pyc
+
+# Java/Gradle
+backend/build/
+.gradle/
+
+# Node/Next.js
+backend/frontend/node_modules/
+node_modules/
+.next/
+

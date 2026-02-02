@@ -1,6 +1,7 @@
 package com.jaramgle.backend.util;
 
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -12,6 +13,17 @@ public final class AssetUrlResolver {
             System.getenv().getOrDefault("IMAGE_BASE_DIR", "data/image");
     private static final String AUDIO_BASE_DIR =
             System.getenv().getOrDefault("AUDIO_BASE_DIR", "data/audio");
+
+    static {
+        // Ensure base directories exist so that file writes do not fail when only the Java app is started.
+        try {
+            Files.createDirectories(Paths.get(CHARACTER_IMAGE_DIR));
+            Files.createDirectories(Paths.get(IMAGE_BASE_DIR));
+            Files.createDirectories(Paths.get(AUDIO_BASE_DIR));
+        } catch (Exception ignored) {
+            // If creation fails (e.g., read-only filesystem), we continue; callers should still handle IO errors.
+        }
+    }
 
     private AssetUrlResolver() {}
 
