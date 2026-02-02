@@ -148,11 +148,28 @@ class StoryPage(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
 class QA(BaseModel):
-    question: str
-    options: List[str]
-    answer: int
+    question: str = Field(
+        ...,
+        alias="question",
+        validation_alias=("question", "q", "quiz_text"),
+    )
+    options: List[str] = Field(
+        ...,
+        alias="options",
+        validation_alias=("options", "choices"),
+    )
+    answer: int = Field(
+        ...,
+        alias="answer",
+        validation_alias=("answer", "a", "correct_choice", "answer_index"),
+    )
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(
+        populate_by_name=True,
+        extra="ignore",
+        alias_generator=None,
+        protected_namespaces=(),
+    )
 
 class CharacterSheet(BaseModel):
     slug: Optional[str] = None
