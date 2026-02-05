@@ -4,6 +4,7 @@ import com.jaramgle.backend.dto.StoryGenerateRequest;
 import com.jaramgle.backend.entity.Story;
 import com.jaramgle.backend.repository.StoryRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @SpringBootTest
 @ActiveProfiles("local")
+@Disabled("LLM/WebClient 호출을 stub/mocking으로 대체하기 전까지는 실행하지 않음")
 class StoryFlowIntegrationTest {
 
     @Autowired
@@ -35,11 +37,9 @@ class StoryFlowIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // 테스트를 위한 하트 잔액 확보 (존재하지 않으면 0으로 간주)
-        if (!heartWalletService.existsByUserId(userId)) {
-            heartWalletService.createWallet(userId);
-        }
-        heartWalletService.setBalance(userId, 10);
+        // 테스트를 위한 하트 잔액 확보
+        heartWalletService.ensureWallet(userId);
+        heartWalletService.adjustHearts(null, userId, 10, "test setup", null);
     }
 
     @Test
@@ -73,7 +73,8 @@ class StoryFlowIntegrationTest {
     @Test
     @Transactional
     void 생성_실패시_하트차감되지_않는다() {
-        heartWalletService.setBalance(userId, 5);
+        heartWalletService.ensureWallet(userId);
+        heartWalletService.adjustHearts(null, userId, -heartWalletService.getBalance(userId) + 5, "test setup", null);
         int before = heartWalletService.getBalance(userId);
 
         assertThatThrownBy(() -> {
