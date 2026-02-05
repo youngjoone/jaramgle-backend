@@ -286,7 +286,6 @@ public class StoryShareService {
                 .orElseThrow(() -> new IllegalArgumentException("Shared story not found"));
 
         if (sharedStoryBookmarkRepository.existsByUserIdAndSharedStoryId(numericUserId, sharedStory.getId())) {
-            System.out.println("DEBUG: Already bookmarked story " + sharedStory.getId() + " for user " + numericUserId);
             return; // Already bookmarked
         }
 
@@ -294,7 +293,6 @@ public class StoryShareService {
         bookmark.setUserId(numericUserId);
         bookmark.setSharedStory(sharedStory);
         sharedStoryBookmarkRepository.saveAndFlush(bookmark);
-        System.out.println("DEBUG: Saved bookmark for story " + sharedStory.getId() + " user " + numericUserId);
     }
 
     @Transactional
@@ -308,6 +306,5 @@ public class StoryShareService {
 
         sharedStoryBookmarkRepository.deleteByUserIdAndSharedStoryId(numericUserId, sharedStory.getId());
         sharedStoryBookmarkRepository.flush();
-        System.out.println("DEBUG: Deleted bookmark for story " + sharedStory.getId() + " user " + numericUserId);
     }
 }
