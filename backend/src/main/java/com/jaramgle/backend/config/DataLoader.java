@@ -4,6 +4,7 @@ import com.jaramgle.backend.entity.User;
 import com.jaramgle.backend.entity.UserStatus;
 import com.jaramgle.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -12,6 +13,7 @@ import java.time.LocalDateTime;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class DataLoader implements CommandLineRunner {
 
     private final UserRepository userRepository;
@@ -35,7 +37,7 @@ public class DataLoader implements CommandLineRunner {
                 user.setName(name);
             }
             userRepository.save(user);
-            System.out.println("Admin user ensured: " + email);
+            log.info("Admin user ensured: {}", email);
         }, () -> {
             User adminUser = new User();
             adminUser.setEmail(email);
@@ -47,7 +49,7 @@ public class DataLoader implements CommandLineRunner {
             adminUser.setDeleted(false);
             adminUser.setCreatedAt(LocalDateTime.now());
             userRepository.save(adminUser);
-            System.out.println("Admin user created: " + email);
+            log.info("Admin user created: {}", email);
         });
     }
 }
