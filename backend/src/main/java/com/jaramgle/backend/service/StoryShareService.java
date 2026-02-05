@@ -101,8 +101,6 @@ public class StoryShareService {
         Map<Long, Long> commentCounts = toCountMap(
                 sharedStoryCommentRepository.countActiveCommentsBySharedStoryIds(sharedStoryIds));
         Long viewerNumericId = parseUserId(viewerUserId);
-        System.out.println(
-                "DEBUG: getSharedStories called with viewerUserId=" + viewerUserId + ", numeric=" + viewerNumericId);
 
         Set<Long> likedIds = (viewerNumericId != null)
                 ? new HashSet<>(
@@ -113,13 +111,7 @@ public class StoryShareService {
         if (viewerNumericId != null) {
             List<com.jaramgle.backend.entity.SharedStoryBookmark> bookmarks = sharedStoryBookmarkRepository
                     .findByUserId(viewerNumericId);
-            System.out.println("DEBUG: Found " + bookmarks.size() + " bookmarks for user " + viewerNumericId);
-            bookmarks.forEach(b -> {
-                System.out.println("DEBUG: Bookmark for story ID " + b.getSharedStory().getId());
-                bookmarkedIds.add(b.getSharedStory().getId());
-            });
-        } else {
-            System.out.println("DEBUG: viewerNumericId is null, skipping bookmark lookup");
+            bookmarks.forEach(b -> bookmarkedIds.add(b.getSharedStory().getId()));
         }
 
         return sharedStories.stream()
