@@ -275,7 +275,13 @@ def _call_gemini(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
     
     raw_json_text = response.text
     logger.info(f"Gemini raw response for {request_id}: {raw_json_text}")
-    return json.loads(raw_json_text)
+    try:
+        return json.loads(raw_json_text)
+    except json.JSONDecodeError:
+        from json_repair import repair_json
+        repaired = repair_json(raw_json_text)
+        logger.warning(f"Story JSON decode failed. Attempting repair for request {request_id}")
+        return json.loads(repaired)
 
 def _call_openai(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
     """OpenAI API를 호출하고 결과를 dict로 반환합니다."""
@@ -332,7 +338,13 @@ def _translate_story(story: StoryOutput, source_lang: str, target_lang: str, req
     )
     raw_json_text = response.text
     logger.info(f"Translation raw response for {request_id}: {raw_json_text}")
-    data = json.loads(raw_json_text)
+    try:
+        data = json.loads(raw_json_text)
+    except json.JSONDecodeError:
+        from json_repair import repair_json
+        repaired = repair_json(raw_json_text)
+        logger.warning(f"Translation JSON decode failed. Attempting repair for request {request_id}")
+        data = json.loads(repaired)
     return TranslationOutput(**data)
 
 def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:

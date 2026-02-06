@@ -16,7 +16,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -112,6 +111,7 @@ public class StorybookService {
         }
 
         StorybookPage firstStorybookPage = null;
+        boolean charged = false;
         try {
             StoryPage firstOriginalPage = originalPages.get(0);
             firstStorybookPage = generateAndSaveStorybookPage(story, 1, firstOriginalPage.getText(),
@@ -123,22 +123,27 @@ public class StorybookService {
                 generateRemainingImages(story.getId(), remainingPages);
             }
 
+            // Generate audio for all pages (sync). If any page fails, rollback & no heart charge.
+            generateAudioForAllPagesSync(story.getId(), voicePreset);
             chargeHeartsIfNeeded(story);
-
-            // Async audio generation for all pages (including first)
-            generateAudioForAllPagesAsync(story.getId(), voicePreset);
+            charged = true;
 
             return firstStorybookPage;
         } catch (Exception ex) {
             log.error("Storybook creation failed for storyId={}. Rolling back pages and refunding heart.", storyId, ex);
             cleanupStorybookArtifacts(storyId);
-            refundHeart(story.getUserId());
+            if (charged) {
+                refundHeart(story.getUserId());
+            }
             throw new StoryGenerationException("스토리북 생성에 실패했어요. 잠시 후 다시 시도해 주세요.", ex);
         }
     }
 
-    @Async
-    public void generateAudioForAllPagesAsync(Long storyId, String voicePreset) {
+    /**
+     * Generate audio for all pages synchronously.
+     * If any page fails, throw to trigger cleanup/refund in createStorybook.
+     */
+    public void generateAudioForAllPagesSync(Long storyId, String voicePreset) {
         String resolvedVoicePreset = voicePreset;
         String resolvedLanguage = null;
         Story story = storyRepository.findById(storyId).orElse(null);
@@ -148,23 +153,15 @@ public class StorybookService {
             }
             resolvedLanguage = story.getLanguage();
         }
-        try {
-            List<StorybookPage> pages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
-            for (StorybookPage page : pages) {
-                try {
-                    GenerateParagraphAudioRequestDto req = new GenerateParagraphAudioRequestDto();
-                    req.setForceRegenerate(false);
-                    req.setVoicePreset(resolvedVoicePreset);
-                    req.setLanguage(resolvedLanguage);
-                    generatePageAudio(storyId, page.getId(), req);
-                } catch (Exception ex) {
-                    log.warn("Failed to generate audio for storyId={}, pageId={}: {}", storyId, page.getId(), ex.getMessage());
-                }
-            }
-            log.info("Completed async audio generation for storyId={}", storyId);
-        } catch (Exception ex) {
-            log.warn("Async audio generation failed for storyId={}: {}", storyId, ex.getMessage());
+        List<StorybookPage> pages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
+        for (StorybookPage page : pages) {
+            GenerateParagraphAudioRequestDto req = new GenerateParagraphAudioRequestDto();
+            req.setForceRegenerate(false);
+            req.setVoicePreset(resolvedVoicePreset);
+            req.setLanguage(resolvedLanguage);
+            generatePageAudio(storyId, page.getId(), req);
         }
+        log.info("Completed audio generation for storyId={}", storyId);
     }
 
     @Transactional(readOnly = true)

@@ -7,6 +7,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import com.jaramgle.backend.util.AssetUrlResolver;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
@@ -17,21 +20,25 @@ public class WebConfig implements WebMvcConfigurer {
         String audioDir = AssetUrlResolver.getAudioBaseDir();
 
         registry.addResourceHandler("/images/**")
-                .addResourceLocations("file://" + ensureTrailingSlash(imageDir));
+                .addResourceLocations(toFileLocation(imageDir));
 
         registry.addResourceHandler("/api/image/**")
-                .addResourceLocations("file://" + ensureTrailingSlash(imageDir));
+                .addResourceLocations(toFileLocation(imageDir));
 
         registry.addResourceHandler("/characters/**")
-                .addResourceLocations("file://" + ensureTrailingSlash(charDir));
+                .addResourceLocations(toFileLocation(charDir));
 
         registry.addResourceHandler("/api/audio/**")
-                .addResourceLocations("file://" + ensureTrailingSlash(audioDir));
+                .addResourceLocations(toFileLocation(audioDir));
     }
 
-    private String ensureTrailingSlash(String path) {
-        if (path.endsWith("/")) return path;
-        return path + "/";
+    private String toFileLocation(String dir) {
+        Path path = Paths.get(dir).toAbsolutePath().normalize();
+        String uri = path.toUri().toString();
+        if (!uri.endsWith("/")) {
+            uri = uri + "/";
+        }
+        return uri;
     }
 
     @Override

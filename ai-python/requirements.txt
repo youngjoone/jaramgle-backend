@@ -8,3 +8,5 @@ pillow
 
 requests
 azure-cognitiveservices-speech
+json-repair>=0.17.0
+google-cloud-texttospeech>=2.23.0

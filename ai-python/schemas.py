@@ -1,6 +1,6 @@
 import re
 from typing import Any, Dict, List, Optional, Union, Literal
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, AliasChoices
 
 def to_camel(string: str) -> str:
     components = string.split('_')
@@ -148,20 +148,21 @@ class StoryPage(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
 class QA(BaseModel):
+    # Accept multiple incoming keys while normalizing to question/options/answer
     question: str = Field(
         ...,
         alias="question",
-        validation_alias=("question", "q", "quiz_text"),
+        validation_alias=AliasChoices("question", "q", "quiz_text"),
     )
     options: List[str] = Field(
         ...,
         alias="options",
-        validation_alias=("options", "choices"),
+        validation_alias=AliasChoices("options", "choices"),
     )
     answer: int = Field(
         ...,
         alias="answer",
-        validation_alias=("answer", "a", "correct_choice", "answer_index"),
+        validation_alias=AliasChoices("answer", "a", "correct_choice", "answer_index"),
     )
 
     model_config = ConfigDict(
