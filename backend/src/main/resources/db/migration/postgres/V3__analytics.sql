@@ -1,0 +1,10 @@
+CREATE TABLE analytics_events (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    event_name VARCHAR(64),
+    session_id VARCHAR(64),
+    payload JSONB,
+    ts TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_analytics_event_name ON analytics_events(event_name);
+CREATE INDEX idx_analytics_ts ON analytics_events(ts);

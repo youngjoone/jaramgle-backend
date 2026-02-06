@@ -1,0 +1,17 @@
+CREATE TABLE purchases (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT,
+    item_code VARCHAR(255) NOT NULL,
+    amount INT NOT NULL,
+    status VARCHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE entitlements (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    item_code VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, item_code)
+);

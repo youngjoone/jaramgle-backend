@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from openai import OpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, stop_never, wait_exponential, retry_if_exception_type
 from google.genai.errors import ClientError
 from google.api_core.exceptions import ResourceExhausted
 
@@ -368,7 +368,7 @@ class Gemini25FlashImageProvider(ImageProvider):
             ) from exc
 
     @retry(
-        stop=stop_after_attempt(max(1, Config.GEMINI_IMAGE_PER_LOCATION_ATTEMPTS)),
+        stop=stop_never,  # 테스트용: 성공할 때까지 재시도
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type(ClientError),
         before_sleep=lambda retry_state: logger.warning(
