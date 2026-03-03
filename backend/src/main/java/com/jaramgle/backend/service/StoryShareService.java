@@ -6,6 +6,7 @@ import com.jaramgle.backend.dto.SharedStorySummaryDto;
 import com.jaramgle.backend.dto.StoryDto;
 import com.jaramgle.backend.dto.StoryPageDto;
 import com.jaramgle.backend.dto.StorybookPageDto;
+import com.jaramgle.backend.dto.GenerateParagraphAudioRequestDto;
 import com.jaramgle.backend.entity.SharedStory;
 import com.jaramgle.backend.entity.Story;
 import com.jaramgle.backend.entity.StoryPage;
@@ -41,7 +42,6 @@ public class StoryShareService {
     private final SharedStoryLikeRepository sharedStoryLikeRepository;
     private final SharedStoryCommentRepository sharedStoryCommentRepository;
     private final com.jaramgle.backend.repository.SharedStoryBookmarkRepository sharedStoryBookmarkRepository; // Added
-    private final StoryService storyService;
     private final StorybookService storybookService;
     private final UserRepository userRepository;
 
@@ -241,17 +241,6 @@ public class StoryShareService {
     }
 
     @Transactional
-    public String generateAudioForSharedStory(String slug) {
-        SharedStory sharedStory = sharedStoryRepository.findByShareSlugAndHiddenFalse(slug)
-                .orElseThrow(() -> new IllegalArgumentException("Shared story not found"));
-        Story story = sharedStory.getStory();
-        if (story.isDeleted() || story.isHidden()) {
-            throw new IllegalArgumentException("Shared story not available");
-        }
-        return storyService.generateAudioForStory(story);
-    }
-
-    @Transactional
     public StorybookPageDto createStorybookForSharedStory(String slug) {
         SharedStory sharedStory = sharedStoryRepository.findByShareSlugAndHiddenFalse(slug)
                 .orElseThrow(() -> new IllegalArgumentException("Shared story not found"));
@@ -274,6 +263,23 @@ public class StoryShareService {
         return pages.stream()
                 .map(StorybookPageDto::fromEntity)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public StorybookPageDto generatePageAudioForSharedStory(String slug, Long pageId, GenerateParagraphAudioRequestDto requestDto) {
+        SharedStory sharedStory = sharedStoryRepository.findByShareSlugAndHiddenFalse(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Shared story not found"));
+        Story story = sharedStory.getStory();
+        if (story.isDeleted() || story.isHidden()) {
+            throw new IllegalArgumentException("Shared story not available");
+        }
+
+        GenerateParagraphAudioRequestDto payload = requestDto == null ? new GenerateParagraphAudioRequestDto() : requestDto;
+        payload.setStoryId(String.valueOf(story.getId()));
+        payload.setPageId(String.valueOf(pageId));
+
+        StorybookPage updatedPage = storybookService.generatePageAudio(story.getId(), pageId, payload);
+        return StorybookPageDto.fromEntity(updatedPage);
     }
 
     @Transactional

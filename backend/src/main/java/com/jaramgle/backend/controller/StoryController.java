@@ -7,7 +7,6 @@ import com.jaramgle.backend.dto.StoryPageDto;
 import com.jaramgle.backend.dto.StorySaveRequest;
 import com.jaramgle.backend.dto.StoryGenerateRequest;
 import com.jaramgle.backend.dto.StorageQuotaDto;
-import com.jaramgle.backend.dto.SharedStorySummaryDto;
 import com.jaramgle.backend.entity.Story;
 import com.jaramgle.backend.dto.ShareStoryResponse;
 import com.jaramgle.backend.service.StoryService;
@@ -107,13 +106,6 @@ public class StoryController {
             @AuthenticationPrincipal AuthPrincipal principal) {
         storyService.deleteStories(request.storyIds(), String.valueOf(principal.id()));
         return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/stories/{id}/audio")
-    public ResponseEntity<String> generateAudio(@PathVariable Long id,
-            @AuthenticationPrincipal AuthPrincipal principal) {
-        String audioUrl = storyService.generateAudio(id, String.valueOf(principal.id()));
-        return ResponseEntity.ok(audioUrl);
     }
 
     @PostMapping("/stories/{id}/share")

@@ -2,7 +2,6 @@ package com.jaramgle.backend.service;
 
 import com.jaramgle.backend.dto.AiQuiz;
 import com.jaramgle.backend.dto.AiStory;
-import com.jaramgle.backend.dto.GenerateAudioFromStoryRequestDto;
 
 import com.jaramgle.backend.dto.StableStoryDto;
 import com.jaramgle.backend.dto.StableStoryPageDto;
@@ -43,7 +42,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -782,66 +780,6 @@ public class StoryService {
         );
         AiQuiz quiz = new AiQuiz("토끼의 이름은 무엇이었나요?", List.of("토토", "코코", "모모"), 0);
         return new StableStoryDto(title, pages, List.of(quiz));
-    }
-
-    @Transactional
-    public String generateAudio(Long storyId, String userId) {
-        Story story = storyRepository.findByIdAndUserIdAndDeletedFalse(storyId, userId)
-                .orElseThrow(() -> new IllegalArgumentException("Story not found or not owned by user."));
-
-        return generateAudioForStory(story);
-    }
-
-    @Transactional
-    public String generateAudioForStory(Story story) {
-        if (story.isDeleted()) {
-            throw new IllegalArgumentException("Story not available");
-        }
-        // 1. Aggregate all page texts into a single string
-        String storyText = storyPageRepository.findByStoryIdOrderByPageNoAsc(story.getId()).stream()
-                .sorted(Comparator.comparing(StoryPage::getPageNo))
-                .map(StoryPage::getText)
-                .collect(Collectors.joining("\n\n"));
-
-        if (storyText.isEmpty()) {
-            throw new IllegalStateException("Story has no content to generate audio from.");
-        }
-
-        story.getCharacters().size(); // initialize lazy collection
-
-        List<GenerateAudioFromStoryRequestDto.CharacterProfileDto> characterDtos = story.getCharacters().stream()
-                .sorted(Comparator.comparing(Character::getId))
-                .map(character -> new GenerateAudioFromStoryRequestDto.CharacterProfileDto(
-                        character.getId(),
-                        character.getSlug(),
-                        character.getName(),
-                        character.getPersona(),
-                        character.getCatchphrase(),
-                        character.getPromptKeywords(),
-                        character.getImageUrl()
-                ))
-                .collect(Collectors.toList());
-
-        String language = Optional.ofNullable(story.getLanguage()).orElse("KO");
-
-        // 2. Create new DTO for the new AI service endpoint
-        GenerateAudioFromStoryRequestDto audioRequest = new GenerateAudioFromStoryRequestDto(
-                storyText,
-                characterDtos,
-                language
-        );
-
-        // 3. Call the AI service to generate audio
-        String audioFileName = webClient.post()
-                .uri("/ai/generate-audio")
-                .bodyValue(audioRequest)
-                .retrieve()
-                .bodyToMono(String.class)
-                .block();
-
-        String audioUrl = "/api/audio/" + audioFileName;
-
-        return audioUrl;
     }
 
     @Transactional

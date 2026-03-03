@@ -3,6 +3,7 @@ package com.jaramgle.backend.controller;
 import com.jaramgle.backend.auth.AuthPrincipal;
 import com.jaramgle.backend.dto.CommentLikeStatusDto;
 import com.jaramgle.backend.dto.CreateSharedStoryCommentRequest;
+import com.jaramgle.backend.dto.GenerateParagraphAudioRequestDto;
 import com.jaramgle.backend.dto.SharedStoryCommentDto;
 import com.jaramgle.backend.dto.SharedStoryDetailDto;
 import com.jaramgle.backend.dto.SharedStorySummaryDto;
@@ -55,16 +56,6 @@ public class SharedStoryPublicController {
         }
     }
 
-    @PostMapping("/shared-stories/{slug}/audio")
-    public ResponseEntity<String> generateSharedAudio(@PathVariable String slug) {
-        try {
-            String audioUrl = storyShareService.generateAudioForSharedStory(slug);
-            return ResponseEntity.ok(audioUrl);
-        } catch (IllegalArgumentException ex) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
     @PostMapping("/shared-stories/{slug}/storybook")
     public ResponseEntity<StorybookPageDto> createSharedStorybook(@PathVariable String slug) {
         try {
@@ -79,6 +70,21 @@ public class SharedStoryPublicController {
     public ResponseEntity<List<StorybookPageDto>> getSharedStorybookPages(@PathVariable String slug) {
         try {
             return ResponseEntity.ok(storyShareService.getStorybookPagesForSharedStory(slug));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @PostMapping("/shared-stories/{slug}/storybook/pages/{pageId}/audio")
+    public ResponseEntity<StorybookPageDto> generateSharedPageAudio(
+            @PathVariable String slug,
+            @PathVariable Long pageId,
+            @RequestBody(required = false) GenerateParagraphAudioRequestDto requestDto
+    ) {
+        try {
+            GenerateParagraphAudioRequestDto payload = requestDto == null ? new GenerateParagraphAudioRequestDto() : requestDto;
+            StorybookPageDto dto = storyShareService.generatePageAudioForSharedStory(slug, pageId, payload);
+            return ResponseEntity.ok(dto);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.notFound().build();
         }
