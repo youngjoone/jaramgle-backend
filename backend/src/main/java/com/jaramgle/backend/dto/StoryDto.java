@@ -38,6 +38,7 @@ public class StoryDto {
     private List<QuizItemDto> quiz;
     private String translationLanguage;
     private TranslationDto translation;
+    private String origin;
 
     @Data
     @NoArgsConstructor
@@ -86,6 +87,7 @@ public class StoryDto {
         dto.setQuiz(parseQuiz(story.getQuiz()));
         dto.setTranslationLanguage(story.getTranslationLanguage());
         dto.setTranslation(parseTranslation(story.getTranslations()));
+        dto.setOrigin(story.getOrigin() == null ? null : story.getOrigin().name());
         dto.setCharacters(story.getCharacters() != null
                 ? story.getCharacters().stream()
                         .map(CharacterDtoMapper::fromEntity)

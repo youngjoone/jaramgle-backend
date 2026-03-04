@@ -70,6 +70,10 @@ public class Story {
     @Column(name = "translations", columnDefinition = "TEXT")
     private String translations;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "origin", nullable = false)
+    private StoryOrigin origin = StoryOrigin.SINGLE;
+
     @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<StorybookPage> storybookPages = new ArrayList<>();
 
@@ -85,6 +89,9 @@ public class Story {
     public void onPersist() {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
+        }
+        if (origin == null) {
+            origin = StoryOrigin.SINGLE;
         }
     }
 }

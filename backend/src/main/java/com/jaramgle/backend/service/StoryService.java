@@ -12,6 +12,7 @@ import com.jaramgle.backend.entity.StorybookPage; // Import StorybookPage
 import com.jaramgle.backend.entity.Character;
 import com.jaramgle.backend.entity.CharacterModelingStatus;
 import com.jaramgle.backend.entity.CharacterScope;
+import com.jaramgle.backend.entity.StoryOrigin;
 import com.jaramgle.backend.exception.CharacterModelingException;
 import com.jaramgle.backend.exception.StoryGenerationException;
 import com.jaramgle.backend.repository.CharacterRepository;
@@ -265,8 +266,43 @@ public class StoryService {
 
     @Transactional
     public Story saveGeneratedStory(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept, JsonNode translation) {
+        return saveGeneratedStoryInternal(
+                userId,
+                request,
+                stableStoryDto,
+                creativeConcept,
+                translation,
+                true,
+                StoryOrigin.SINGLE
+        );
+    }
+
+    @Transactional
+    public Story saveGeneratedStoryForCurriculum(String userId, StoryGenerateRequest request, StableStoryDto stableStoryDto, JsonNode creativeConcept, JsonNode translation) {
+        return saveGeneratedStoryInternal(
+                userId,
+                request,
+                stableStoryDto,
+                creativeConcept,
+                translation,
+                false,
+                StoryOrigin.CURRICULUM
+        );
+    }
+
+    private Story saveGeneratedStoryInternal(
+            String userId,
+            StoryGenerateRequest request,
+            StableStoryDto stableStoryDto,
+            JsonNode creativeConcept,
+            JsonNode translation,
+            boolean enforceBalanceCheck,
+            StoryOrigin origin
+    ) {
         Long numericUserId = parseUserId(userId);
-        heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
+        if (enforceBalanceCheck) {
+            heartWalletService.assertSufficientBalance(numericUserId, HEART_COST_PER_STORY);
+        }
         validateCharacterAccess(request.getCharacterIds(), numericUserId);
 
         if (stableStoryDto.quiz() == null || stableStoryDto.quiz().size() != 3) {
@@ -303,6 +339,7 @@ public class StoryService {
         story.setDeleted(false);
         story.setTranslationLanguage(resolveTranslationLanguage(request.getTranslationLanguage(), request.getLanguage()));
         story.setTranslations(translationJson);
+        story.setOrigin(origin == null ? StoryOrigin.SINGLE : origin);
         story.setStorybookPages(new ArrayList<>());
         story.setCharacters(new LinkedHashSet<>());
         story = storyRepository.save(story);

@@ -86,6 +86,9 @@ public class StorybookService {
         return createStorybook(storyId, null);
     }
 
+    public record CurriculumStorybookResult(List<StorybookPage> pages, boolean audioFailed) {
+    }
+
     @Transactional
     public StorybookPage createStorybook(Long storyId, String voicePreset) {
         List<StorybookPage> existingPages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
@@ -137,6 +140,60 @@ public class StorybookService {
             }
             throw new StoryGenerationException("스토리북 생성에 실패했어요. 잠시 후 다시 시도해 주세요.", ex);
         }
+    }
+
+    @Transactional
+    public CurriculumStorybookResult createStorybookForCurriculum(Long storyId, String voicePreset) {
+        List<StorybookPage> existingPages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
+        if (!existingPages.isEmpty()) {
+            boolean audioFailed = false;
+            try {
+                generateAudioForAllPagesSync(storyId, voicePreset);
+            } catch (Exception ex) {
+                audioFailed = true;
+                log.warn("Audio generation failed for existing curriculum storybook pages. storyId={}", storyId, ex);
+            }
+            return new CurriculumStorybookResult(existingPages, audioFailed);
+        }
+
+        Story story = storyRepository.findById(storyId)
+                .orElseThrow(() -> new IllegalArgumentException("Story not found"));
+        if (story.isDeleted()) {
+            throw new IllegalArgumentException("Deleted stories cannot create storybooks.");
+        }
+        if (StringUtils.hasText(voicePreset)) {
+            story.setVoicePreset(voicePreset);
+            storyRepository.save(story);
+        }
+        story.getCharacters().size();
+
+        List<StoryPage> originalPages = storyService.getStoryPagesByStoryId(storyId);
+        if (originalPages.isEmpty()) {
+            throw new IllegalStateException("Story has no pages to create a storybook from.");
+        }
+
+        try {
+            StoryPage firstOriginalPage = originalPages.get(0);
+            generateAndSaveStorybookPage(story, 1, firstOriginalPage.getText(), firstOriginalPage.getImagePrompt());
+            if (originalPages.size() > 1) {
+                List<StoryPage> remainingPages = originalPages.subList(1, originalPages.size());
+                generateRemainingImages(story.getId(), remainingPages);
+            }
+        } catch (Exception ex) {
+            log.error("Curriculum storybook image generation failed for storyId={}. Rolling back pages.", storyId, ex);
+            cleanupStorybookArtifacts(storyId);
+            throw new StoryGenerationException("스토리북 이미지 생성에 실패했어요. 잠시 후 다시 시도해 주세요.", ex);
+        }
+
+        List<StorybookPage> pages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
+        boolean audioFailed = false;
+        try {
+            generateAudioForAllPagesSync(storyId, voicePreset);
+        } catch (Exception ex) {
+            audioFailed = true;
+            log.warn("Curriculum storybook audio generation failed for storyId={}", storyId, ex);
+        }
+        return new CurriculumStorybookResult(pages, audioFailed);
     }
 
     /**
