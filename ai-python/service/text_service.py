@@ -16,6 +16,9 @@ from schemas import (
     CreativeConcept,
     Moderation,
     TranslationOutput,
+    CurriculumGoalDraftRequest,
+    CurriculumGoalDraftResponse,
+    CurriculumWeekGoal,
 )
 
 logger = logging.getLogger(__name__)
@@ -415,3 +418,165 @@ def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
         raise last_error
 
     raise RuntimeError("Story generation failed for unknown reasons")
+
+
+def _build_curriculum_goal_prompt(req: CurriculumGoalDraftRequest) -> str:
+    lang_map = {
+        "KO": "한국어",
+        "EN": "영어",
+        "JA": "일본어",
+        "FR": "프랑스어",
+        "ES": "스페인어",
+        "DE": "독일어",
+        "ZH": "중국어",
+    }
+    language_label = lang_map.get(str(req.base_language).upper(), "한국어")
+    topic = req.sub_topic or req.category
+    age_label = req.age_range or "4-8"
+    title_line = req.title or "미정"
+
+    prompt = f"""
+너는 유아 교육 커리큘럼 기획자다.
+입력 조건에 맞춰 {req.weeks}주 학습 목표 초안을 JSON으로만 생성하라.
+
+[입력]
+- 커리큘럼 제목: {title_line}
+- 카테고리: {req.category}
+- 세부주제: {topic}
+- 연령대: {age_label}
+- 출력 언어: {language_label}
+
+[작성 규칙]
+1) goals 배열 길이는 정확히 {req.weeks}개.
+2) week_no는 1부터 {req.weeks}까지 순서대로.
+3) primary_goal은 주차 핵심 목표 1문장.
+4) sub_goals는 0~2개, 짧은 실행 포인트.
+5) 주차가 진행될수록 난이도/활동이 자연스럽게 확장되게 작성.
+6) 같은 표현 반복을 피하고, 서로 다른 목표를 제시.
+7) 모든 텍스트는 반드시 {language_label}로 작성.
+
+[출력 스키마]
+{{
+  "goals": [
+    {{
+      "week_no": 1,
+      "primary_goal": "string",
+      "sub_goals": ["string", "string"]
+    }}
+  ]
+}}
+
+반드시 JSON만 출력한다.
+"""
+    return dedent(prompt).strip()
+
+
+def _fallback_curriculum_goal(language: str, week_no: int, topic: str) -> CurriculumWeekGoal:
+    if language == "KO":
+        default_primary = [
+            f"{topic}의 핵심 개념 익히기",
+            f"{topic}를 생활 속 장면에 적용하기",
+            f"{topic}를 확장해 사고력 키우기",
+            f"{topic}를 스스로 설명하고 정리하기",
+        ]
+        default_sub = [
+            ["핵심 단어 2개 이해", "일상 예시 1개 연결"],
+            ["이전 개념과 연결", "간단한 문제 해결 시도"],
+            ["응용 질문 1개", "캐릭터 선택 이유 설명"],
+            ["주요 개념 복습", "실천 약속 1개 만들기"],
+        ]
+    else:
+        default_primary = [
+            f"Understand the core idea of {topic}",
+            f"Apply {topic} in daily situations",
+            f"Extend {topic} with deeper thinking",
+            f"Summarize and explain {topic} independently",
+        ]
+        default_sub = [
+            ["Learn two key terms", "Connect one daily-life example"],
+            ["Link with last week", "Try one small problem"],
+            ["Ask one extension question", "Explain one character choice"],
+            ["Review major ideas", "Set one practical habit"],
+        ]
+
+    idx = max(0, min(week_no - 1, len(default_primary) - 1))
+    return CurriculumWeekGoal(
+        week_no=week_no,
+        primary_goal=default_primary[idx],
+        sub_goals=default_sub[idx],
+    )
+
+
+def _normalize_curriculum_goals(raw_payload: Dict[str, Any], req: CurriculumGoalDraftRequest) -> CurriculumGoalDraftResponse:
+    raw_goals = raw_payload.get("goals")
+    if not isinstance(raw_goals, list):
+        raise ValueError("Invalid goal payload: goals array is missing")
+
+    by_week: Dict[int, CurriculumWeekGoal] = {}
+    for item in raw_goals:
+        if not isinstance(item, dict):
+            continue
+        week_raw = item.get("week_no", item.get("weekNo"))
+        try:
+            week_no = int(week_raw)
+        except (TypeError, ValueError):
+            continue
+        if week_no < 1 or week_no > req.weeks or week_no in by_week:
+            continue
+
+        primary_goal = str(item.get("primary_goal", item.get("primaryGoal", ""))).strip()
+        if not primary_goal:
+            continue
+
+        sub_goals_raw = item.get("sub_goals", item.get("subGoals", []))
+        sub_goals: List[str] = []
+        if isinstance(sub_goals_raw, list):
+            for sub in sub_goals_raw:
+                sub_text = str(sub).strip()
+                if sub_text:
+                    sub_goals.append(sub_text)
+                if len(sub_goals) == 2:
+                    break
+
+        by_week[week_no] = CurriculumWeekGoal(
+            week_no=week_no,
+            primary_goal=primary_goal,
+            sub_goals=sub_goals,
+        )
+
+    topic = req.sub_topic or req.category
+    normalized_language = str(req.base_language).upper()
+    goals: List[CurriculumWeekGoal] = []
+    for week_no in range(1, req.weeks + 1):
+        goal = by_week.get(week_no)
+        if goal is None:
+            goal = _fallback_curriculum_goal(normalized_language, week_no, topic)
+        goals.append(goal)
+
+    return CurriculumGoalDraftResponse(goals=goals)
+
+
+def generate_curriculum_goals(req: CurriculumGoalDraftRequest, request_id: str) -> CurriculumGoalDraftResponse:
+    client = genai.GenerativeModel(
+        model_name="models/gemini-2.5-flash",
+        generation_config={"response_mime_type": "application/json"},
+    )
+
+    prompt = _build_curriculum_goal_prompt(req)
+    logger.info("Generating curriculum goals for request %s", request_id)
+    response = client.generate_content(
+        prompt,
+        generation_config=genai.types.GenerationConfig(temperature=0.9),
+    )
+
+    raw_json_text = response.text
+    logger.info("Curriculum goal raw response for %s: %s", request_id, raw_json_text)
+    try:
+        payload = json.loads(raw_json_text)
+    except json.JSONDecodeError:
+        from json_repair import repair_json
+        repaired = repair_json(raw_json_text)
+        logger.warning("Curriculum goal JSON decode failed. Attempting repair for request %s", request_id)
+        payload = json.loads(repaired)
+
+    return _normalize_curriculum_goals(payload, req)

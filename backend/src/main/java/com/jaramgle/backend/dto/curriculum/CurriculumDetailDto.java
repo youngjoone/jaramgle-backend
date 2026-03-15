@@ -18,6 +18,7 @@ public class CurriculumDetailDto {
     private String subTopic;
     private String ageRange;
     private String baseLanguage;
+    private String translationLanguage;
     private Integer weeks;
     private String generationMode;
     private String scheduleRule;

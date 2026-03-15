@@ -138,6 +138,68 @@ class GenerateRequest(BaseModel):
             return normalized
         return v
 
+# -------- Curriculum Goal Draft --------
+class CurriculumGoalDraftRequest(BaseModel):
+    category: str
+    sub_topic: Optional[str] = Field(default=None, alias="subTopic")
+    age_range: Optional[str] = Field(default=None, alias="ageRange")
+    base_language: Union[Literal["KO", "EN", "JA", "FR", "ES", "DE", "ZH"], str] = Field(
+        default="KO",
+        alias="baseLanguage",
+    )
+    weeks: int = Field(ge=2, le=4)
+    title: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    @field_validator("category", mode="before")
+    def _normalize_category(cls, value):
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    @field_validator("sub_topic", "age_range", "title", mode="before")
+    def _strip_optional_text(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("base_language", mode="before")
+    def _normalize_base_language(cls, value):
+        if value is None:
+            return "KO"
+        if not isinstance(value, str):
+            return "KO"
+        normalized = value.strip().upper()
+        synonym_map = {
+            "KO": "KO", "KOREAN": "KO", "KR": "KO", "KO-KR": "KO", "KO_KR": "KO",
+            "EN": "EN", "ENG": "EN", "EN-US": "EN", "EN_GB": "EN", "EN-GB": "EN",
+            "JA": "JA", "JAPANESE": "JA", "JP": "JA", "JA-JP": "JA",
+            "FR": "FR", "FRENCH": "FR", "FR-FR": "FR",
+            "ES": "ES", "SPANISH": "ES", "ES-ES": "ES",
+            "DE": "DE", "GERMAN": "DE", "DE-DE": "DE",
+            "ZH": "ZH", "CN": "ZH", "ZH-CN": "ZH", "ZH_CN": "ZH", "CHINESE": "ZH",
+        }
+        mapped = synonym_map.get(normalized)
+        if mapped is None:
+            raise ValueError(f"Unsupported language code: {value}")
+        return mapped
+
+
+class CurriculumWeekGoal(BaseModel):
+    week_no: int = Field(..., alias="weekNo")
+    primary_goal: str = Field(..., alias="primaryGoal")
+    sub_goals: List[str] = Field(default_factory=list, alias="subGoals")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class CurriculumGoalDraftResponse(BaseModel):
+    goals: List[CurriculumWeekGoal]
+
+    model_config = ConfigDict(populate_by_name=True)
+
 # -------- Story / Quiz / Concept (NEW) --------
 class StoryPage(BaseModel):
     page_no: int = Field(..., alias="page")

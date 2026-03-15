@@ -33,6 +33,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -86,6 +87,7 @@ public class CurriculumJobProcessor {
     private final StorybookPageRepository storybookPageRepository;
     private final HeartWalletService heartWalletService;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<CurriculumJobProcessor> selfProvider;
 
     private final ExecutorService dispatchExecutor = Executors.newFixedThreadPool(
             Math.max(2, Runtime.getRuntime().availableProcessors() / 2));
@@ -108,28 +110,30 @@ public class CurriculumJobProcessor {
 
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
-        dispatchPendingOnStartup();
+        tx().recoverRunningJobsOnStartup();
+        tx().dispatchPendingOnStartup();
     }
 
     private void processJob(Long jobId) {
-        CurriculumJob snapshot = curriculumJobRepository.findById(jobId).orElse(null);
-        if (snapshot == null) {
-            return;
-        }
-
-        Long curriculumId = snapshot.getCurriculum().getId();
-        Object lock = curriculumLocks.computeIfAbsent(curriculumId, ignored -> new Object());
-
-        synchronized (lock) {
-            boolean started = startJob(jobId);
-            if (!started) {
+        Long curriculumId = null;
+        Long autoRetryJobId = null;
+        boolean started = false;
+        try {
+            CurriculumJob snapshot = curriculumJobRepository.findById(jobId).orElse(null);
+            if (snapshot == null) {
                 return;
             }
-        }
+            curriculumId = snapshot.getCurriculum().getId();
+            Object lock = curriculumLocks.computeIfAbsent(curriculumId, ignored -> new Object());
 
-        Long autoRetryJobId = null;
-        try {
-            ensureCharge(jobId);
+            synchronized (lock) {
+                started = tx().startJob(jobId);
+                if (!started) {
+                    return;
+                }
+            }
+
+            tx().ensureCharge(jobId);
 
             Future<GenerationExecutionResult> future = generationExecutor.submit(() -> executeGeneration(jobId));
             GenerationExecutionResult result;
@@ -140,20 +144,29 @@ public class CurriculumJobProcessor {
                 throw timeoutException;
             }
 
-            finishSuccess(jobId, result);
+            tx().finishSuccess(jobId, result);
         } catch (TimeoutException timeoutException) {
-            autoRetryJobId = finishFailure(jobId, true, "TIMEOUT", "주차 생성 타임아웃");
+            autoRetryJobId = tx().finishFailure(jobId, true, "TIMEOUT", "주차 생성 타임아웃");
         } catch (Exception ex) {
             log.error("Curriculum job {} failed", jobId, ex);
-            autoRetryJobId = finishFailure(jobId, false, "GENERATION_FAILED", summarizeError(ex));
+            autoRetryJobId = tx().finishFailure(jobId, false, "GENERATION_FAILED", summarizeError(ex));
+        } catch (Throwable throwable) {
+            log.error("Curriculum job {} fatal failure", jobId, throwable);
+            autoRetryJobId = tx().finishFailure(jobId, false, "FATAL_ERROR", summarizeError(throwable));
         } finally {
-            dispatchNextPending(curriculumId);
+            if (curriculumId != null) {
+                dispatchNextPending(curriculumId);
+            }
         }
 
         if (autoRetryJobId != null) {
             sleepBackoff();
             dispatch(autoRetryJobId);
         }
+    }
+
+    private CurriculumJobProcessor tx() {
+        return selfProvider.getObject();
     }
 
     @Transactional
@@ -165,6 +178,22 @@ public class CurriculumJobProcessor {
             if (seenCurriculum.add(curriculumId)) {
                 dispatch(job.getId());
             }
+        }
+    }
+
+    @Transactional
+    public void recoverRunningJobsOnStartup() {
+        List<CurriculumJob> runningJobs = curriculumJobRepository.findByStatusOrderByQueuedAtAsc(CurriculumJobStatus.RUNNING);
+        if (runningJobs.isEmpty()) {
+            return;
+        }
+        for (CurriculumJob runningJob : runningJobs) {
+            tx().finishFailure(
+                    runningJob.getId(),
+                    true,
+                    "RECOVERED_ON_RESTART",
+                    "앱 재기동으로 중단된 작업을 타임아웃 처리했습니다."
+            );
         }
     }
 
@@ -242,8 +271,12 @@ public class CurriculumJobProcessor {
     private GenerationExecutionResult executeGeneration(Long jobId) {
         CurriculumJob job = curriculumJobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found"));
-        Curriculum curriculum = job.getCurriculum();
-        CurriculumWeek week = job.getWeek();
+        Long curriculumId = job.getCurriculum().getId();
+        Long weekId = job.getWeek().getId();
+        Curriculum curriculum = curriculumRepository.findById(curriculumId)
+                .orElseThrow(() -> new EntityNotFoundException("Curriculum not found"));
+        CurriculumWeek week = curriculumWeekRepository.findById(weekId)
+                .orElseThrow(() -> new EntityNotFoundException("Curriculum week not found"));
 
         GenerationSnapshot snapshot = parseSnapshot(job.getRequestSnapshotJson());
         StoryGenerateRequest request = buildStoryRequest(curriculum, week, snapshot);
@@ -340,7 +373,11 @@ public class CurriculumJobProcessor {
 
         String artStyle = StringUtils.hasText(snapshot.artStyle()) ? snapshot.artStyle() : curriculum.getDefaultArtStyle();
         request.setArtStyle(artStyle);
-        request.setTranslationLanguage(null);
+        request.setTranslationLanguage(resolveTranslationLanguage(
+                snapshot.translationLanguage(),
+                curriculum.getTranslationLanguage(),
+                request.getLanguage()
+        ));
 
         return request;
     }
@@ -535,7 +572,7 @@ public class CurriculumJobProcessor {
 
     private GenerationSnapshot parseSnapshot(String snapshotJson) {
         if (!StringUtils.hasText(snapshotJson)) {
-            return new GenerationSnapshot(null, List.of(), null, null, null, null, null, null, List.of());
+            return new GenerationSnapshot(null, List.of(), null, null, null, null, null, null, null, List.of());
         }
         try {
             Map<String, Object> root = objectMapper.readValue(snapshotJson, new TypeReference<>() {});
@@ -546,6 +583,7 @@ public class CurriculumJobProcessor {
                     asString(root.get("subTopic")),
                     asString(root.get("ageRange")),
                     asString(root.get("baseLanguage")),
+                    asString(root.get("translationLanguage")),
                     asString(root.get("artStyle")),
                     asString(root.get("voicePreset")),
                     parseLongList(root.get("characterIds"))
@@ -569,6 +607,24 @@ public class CurriculumJobProcessor {
             return normalized;
         }
         return "KO";
+    }
+
+    private String resolveTranslationLanguage(String fromSnapshot, String fromCurriculum, String sourceLanguage) {
+        String candidate = StringUtils.hasText(fromSnapshot) ? fromSnapshot : fromCurriculum;
+        if (!StringUtils.hasText(candidate)) {
+            return null;
+        }
+        String normalized = candidate.trim().toUpperCase(Locale.ROOT);
+        if ("NONE".equals(normalized)) {
+            return null;
+        }
+        if (StringUtils.hasText(sourceLanguage) && normalized.equals(sourceLanguage.trim().toUpperCase(Locale.ROOT))) {
+            return null;
+        }
+        if (Set.of("KO", "EN", "JA", "FR", "ES", "DE", "ZH").contains(normalized)) {
+            return normalized;
+        }
+        return null;
     }
 
     private String buildCharacterStateJson(Story story, Integer weekNo) {
@@ -634,7 +690,7 @@ public class CurriculumJobProcessor {
         return normalized.substring(0, Math.max(0, maxLength)).trim() + "...";
     }
 
-    private String summarizeError(Exception ex) {
+    private String summarizeError(Throwable ex) {
         String message = ex.getMessage();
         if (!StringUtils.hasText(message)) {
             return ex.getClass().getSimpleName();
@@ -749,6 +805,7 @@ public class CurriculumJobProcessor {
             String subTopic,
             String ageRange,
             String baseLanguage,
+            String translationLanguage,
             String artStyle,
             String voicePreset,
             List<Long> characterIds

@@ -55,6 +55,9 @@ public class Curriculum {
     @Column(name = "base_language", nullable = false, length = 10)
     private String baseLanguage;
 
+    @Column(name = "translation_language", length = 10)
+    private String translationLanguage;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "generation_mode", nullable = false, length = 20)
     private CurriculumGenerationMode generationMode = CurriculumGenerationMode.ON_DEMAND;

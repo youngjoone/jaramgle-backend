@@ -82,6 +82,7 @@ public class CurriculumService {
                     curriculum.getSubTopic(),
                     curriculum.getAgeRange(),
                     curriculum.getBaseLanguage(),
+                    curriculum.getTranslationLanguage(),
                     curriculum.getWeeks(),
                     completed,
                     curriculum.getStatus() == null ? CurriculumStatus.DRAFT.name() : curriculum.getStatus().name(),
@@ -103,6 +104,7 @@ public class CurriculumService {
     public CurriculumDetailDto createCurriculum(String userId, CreateCurriculumRequest request) {
         validateWeeks(request.getWeeks());
         validateLanguage(request.getBaseLanguage());
+        validateTranslationLanguage(request.getTranslationLanguage(), request.getBaseLanguage());
         validateCharacterIds(request.getDefaultCharacterIds());
 
         Map<Integer, CreateCurriculumRequest.WeekGoalRequest> goalsByWeek = normalizeAndValidateGoals(request.getWeekGoals(), request.getWeeks());
@@ -114,7 +116,9 @@ public class CurriculumService {
         curriculum.setCategory(request.getCategory().trim());
         curriculum.setSubTopic(normalizeNullable(request.getSubTopic()));
         curriculum.setAgeRange(normalizeNullable(request.getAgeRange()));
-        curriculum.setBaseLanguage(request.getBaseLanguage().trim().toUpperCase(Locale.ROOT));
+        String normalizedBaseLanguage = normalizeLanguage(request.getBaseLanguage());
+        curriculum.setBaseLanguage(normalizedBaseLanguage);
+        curriculum.setTranslationLanguage(resolveTranslationLanguage(request.getTranslationLanguage(), normalizedBaseLanguage));
         curriculum.setGenerationMode(parseGenerationMode(request.getGenerationMode()));
         curriculum.setScheduleRule(normalizeNullable(request.getScheduleRule()));
         curriculum.setNextRunAt(request.getNextRunAt());
@@ -383,6 +387,7 @@ public class CurriculumService {
         snapshot.put("subTopic", curriculum.getSubTopic());
         snapshot.put("ageRange", curriculum.getAgeRange());
         snapshot.put("baseLanguage", curriculum.getBaseLanguage());
+        snapshot.put("translationLanguage", curriculum.getTranslationLanguage());
         snapshot.put("characterIds", characterIds);
         snapshot.put("artStyle", StringUtils.hasText(safeRequest.getArtStyle())
                 ? safeRequest.getArtStyle().trim()
@@ -439,6 +444,7 @@ public class CurriculumService {
                 curriculum.getSubTopic(),
                 curriculum.getAgeRange(),
                 curriculum.getBaseLanguage(),
+                curriculum.getTranslationLanguage(),
                 curriculum.getWeeks(),
                 curriculum.getGenerationMode() == null ? CurriculumGenerationMode.ON_DEMAND.name() : curriculum.getGenerationMode().name(),
                 curriculum.getScheduleRule(),
@@ -513,10 +519,37 @@ public class CurriculumService {
         if (!StringUtils.hasText(baseLanguage)) {
             throw new IllegalArgumentException("baseLanguage는 필수입니다.");
         }
-        String normalized = baseLanguage.trim().toUpperCase(Locale.ROOT);
+        normalizeLanguage(baseLanguage);
+    }
+
+    private String normalizeLanguage(String value) {
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
         if (!SUPPORTED_LANGUAGES.contains(normalized)) {
             throw new IllegalArgumentException("지원하지 않는 언어 코드입니다: " + normalized);
         }
+        return normalized;
+    }
+
+    private void validateTranslationLanguage(String translationLanguage, String sourceLanguage) {
+        resolveTranslationLanguage(translationLanguage, sourceLanguage);
+    }
+
+    private String resolveTranslationLanguage(String translationLanguage, String sourceLanguage) {
+        if (!StringUtils.hasText(translationLanguage)) {
+            return null;
+        }
+        String normalized = translationLanguage.trim().toUpperCase(Locale.ROOT);
+        if ("NONE".equals(normalized)) {
+            return null;
+        }
+        if (!SUPPORTED_LANGUAGES.contains(normalized)) {
+            throw new IllegalArgumentException("지원하지 않는 번역 언어 코드입니다: " + normalized);
+        }
+        String sourceNormalized = normalizeLanguage(sourceLanguage);
+        if (normalized.equals(sourceNormalized)) {
+            return null;
+        }
+        return normalized;
     }
 
     private void validateCharacterIds(List<Long> characterIds) {

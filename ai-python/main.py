@@ -29,6 +29,8 @@ from config import Config
 from schemas import (
     GenerateRequest,
     GenerateResponse,
+    CurriculumGoalDraftRequest,
+    CurriculumGoalDraftResponse,
     GenerateImageRequest,
     GenerateImageResponse,
     CreateCharacterReferenceImageRequest,
@@ -38,7 +40,7 @@ from schemas import (
     GenerateParagraphAudioRequest,
     GenerateParagraphAudioResponse,
 )
-from service.text_service import generate_story
+from service.text_service import generate_story, generate_curriculum_goals
 from service.image_service import generate_image, generate_character_reference_image
 from service.audio_service import (
     create_tts,
@@ -160,6 +162,19 @@ def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(..
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "GENERATION_ERROR", "message": f"스토리 생성 중 오류 발생: {e}"}
+        )
+
+
+@app.post("/ai/generate-curriculum-goals", response_model=CurriculumGoalDraftResponse)
+def generate_curriculum_goal_endpoint(request: Request, draft_req: CurriculumGoalDraftRequest = Body(...)):
+    try:
+        response = generate_curriculum_goals(draft_req, request.state.request_id)
+        return JSONResponse(content=response.model_dump())
+    except Exception as e:
+        logger.error(f"Curriculum goal generation failed for Request ID: {request.state.request_id}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "CURRICULUM_GOAL_GENERATION_ERROR", "message": str(e)}
         )
 
 @app.post("/ai/generate-image", response_model=GenerateImageResponse)

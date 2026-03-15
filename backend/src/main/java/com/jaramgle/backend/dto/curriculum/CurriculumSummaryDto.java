@@ -17,6 +17,7 @@ public class CurriculumSummaryDto {
     private String subTopic;
     private String ageRange;
     private String baseLanguage;
+    private String translationLanguage;
     private Integer weeks;
     private Integer completedWeeks;
     private String status;
