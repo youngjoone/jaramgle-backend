@@ -281,39 +281,65 @@ public class CurriculumJobProcessor {
         GenerationSnapshot snapshot = parseSnapshot(job.getRequestSnapshotJson());
         StoryGenerateRequest request = buildStoryRequest(curriculum, week, snapshot);
 
-        StoryService.GenerationResult generationResult = storyService.generateAiStory(request);
-        Story story = storyService.saveGeneratedStoryForCurriculum(
-                curriculum.getUserId(),
-                request,
-                generationResult.story(),
-                generationResult.concept(),
-                generationResult.translation()
-        );
+        Story story = null;
+        try {
+            StoryService.GenerationResult generationResult = storyService.generateAiStory(request);
+            story = storyService.saveGeneratedStoryForCurriculum(
+                    curriculum.getUserId(),
+                    request,
+                    generationResult.story(),
+                    generationResult.concept(),
+                    generationResult.translation()
+            );
 
-        StorybookService.CurriculumStorybookResult storybookResult = storybookService
-                .createStorybookForCurriculum(story.getId(), snapshot.voicePreset());
+            StorybookService.CurriculumStorybookResult storybookResult = storybookService
+                    .createStorybookForCurriculum(story.getId(), snapshot.voicePreset());
 
-        List<StoryPage> storyPages = storyPageRepository.findByStoryIdOrderByPageNoAsc(story.getId());
-        String storyText = storyPages.stream()
-                .sorted(Comparator.comparing(StoryPage::getPageNo))
-                .map(StoryPage::getText)
-                .filter(StringUtils::hasText)
-                .collect(Collectors.joining("\n\n"));
+            List<StoryPage> storyPages = storyPageRepository.findByStoryIdOrderByPageNoAsc(story.getId());
+            String storyText = storyPages.stream()
+                    .sorted(Comparator.comparing(StoryPage::getPageNo))
+                    .map(StoryPage::getText)
+                    .filter(StringUtils::hasText)
+                    .collect(Collectors.joining("\n\n"));
 
-        String lastSummary = summarize(storyText, 320);
-        String characterStateJson = buildCharacterStateJson(story, week.getWeekNo());
-        String coveredTopicsJson = buildCoveredTopicsJson(snapshot);
-        String assetRefsJson = buildAssetRefsJson(storybookResult.pages());
+            String lastSummary = summarize(storyText, 320);
+            String characterStateJson = buildCharacterStateJson(story, week.getWeekNo());
+            String coveredTopicsJson = buildCoveredTopicsJson(snapshot);
+            String assetRefsJson = buildAssetRefsJson(storybookResult.pages());
 
-        return new GenerationExecutionResult(
-                story,
-                storyText,
-                assetRefsJson,
-                lastSummary,
-                characterStateJson,
-                coveredTopicsJson,
-                storybookResult.audioFailed()
-        );
+            return new GenerationExecutionResult(
+                    story,
+                    storyText,
+                    assetRefsJson,
+                    lastSummary,
+                    characterStateJson,
+                    coveredTopicsJson,
+                    storybookResult.audioFailed()
+            );
+        } catch (Exception ex) {
+            cleanupFailedGeneratedStory(curriculum.getUserId(), curriculumId, week.getWeekNo(), jobId, story);
+            throw ex;
+        }
+    }
+
+    private void cleanupFailedGeneratedStory(
+            String userId,
+            Long curriculumId,
+            Integer weekNo,
+            Long jobId,
+            Story story
+    ) {
+        if (story == null || story.getId() == null) {
+            return;
+        }
+        try {
+            storyService.deleteStory(story.getId(), userId);
+            log.info("Deleted failed curriculum story. curriculumId={}, weekNo={}, jobId={}, storyId={}",
+                    curriculumId, weekNo, jobId, story.getId());
+        } catch (Exception cleanupEx) {
+            log.warn("Failed to delete failed curriculum story. curriculumId={}, weekNo={}, jobId={}, storyId={}",
+                    curriculumId, weekNo, jobId, story.getId(), cleanupEx);
+        }
     }
 
     private StoryGenerateRequest buildStoryRequest(Curriculum curriculum, CurriculumWeek week, GenerationSnapshot snapshot) {
