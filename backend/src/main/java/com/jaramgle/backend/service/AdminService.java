@@ -1,19 +1,25 @@
 package com.jaramgle.backend.service;
 
 import com.jaramgle.backend.dto.AdminBillingOrderDto;
+import com.jaramgle.backend.dto.AdminCleanupCandidateDto;
+import com.jaramgle.backend.dto.AdminCleanupFailureDto;
+import com.jaramgle.backend.dto.AdminCurriculumOrphanCleanupRequest;
+import com.jaramgle.backend.dto.AdminCurriculumOrphanCleanupResultDto;
+import com.jaramgle.backend.dto.AdminCurriculumOrphanPreviewDto;
 import com.jaramgle.backend.dto.AdminSharedCommentDto;
 import com.jaramgle.backend.dto.AdminStoryDto;
 import com.jaramgle.backend.dto.AdminUserDto;
 import com.jaramgle.backend.dto.AdjustHeartsRequest;
+import com.jaramgle.backend.dto.HeartTransactionDto;
 import com.jaramgle.backend.dto.UpdateSharedCommentAdminRequest;
 import com.jaramgle.backend.dto.UpdateStoryAdminRequest;
 import com.jaramgle.backend.dto.UpdateUserAdminRequest;
-import com.jaramgle.backend.dto.HeartTransactionDto;
 import com.jaramgle.backend.entity.BillingOrder;
 import com.jaramgle.backend.entity.BillingOrderStatus;
 import com.jaramgle.backend.entity.SharedStory;
 import com.jaramgle.backend.entity.SharedStoryComment;
 import com.jaramgle.backend.entity.Story;
+import com.jaramgle.backend.entity.StoryOrigin;
 import com.jaramgle.backend.entity.User;
 import com.jaramgle.backend.repository.BillingOrderRepository;
 import com.jaramgle.backend.repository.SharedStoryCommentRepository;
@@ -21,6 +27,8 @@ import com.jaramgle.backend.repository.SharedStoryRepository;
 import com.jaramgle.backend.repository.StoryRepository;
 import com.jaramgle.backend.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +36,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,12 +45,19 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AdminService {
 
+    private static final int DEFAULT_ORPHAN_OLDER_THAN_MINUTES = 60;
+    private static final int MIN_ORPHAN_OLDER_THAN_MINUTES = 30;
+    private static final int MAX_ORPHAN_OLDER_THAN_MINUTES = 10080;
+    private static final int DEFAULT_ORPHAN_LIMIT = 100;
+    private static final int MAX_ORPHAN_LIMIT = 500;
+
     private final UserRepository userRepository;
     private final StoryRepository storyRepository;
     private final SharedStoryRepository sharedStoryRepository;
     private final SharedStoryCommentRepository sharedStoryCommentRepository;
     private final BillingOrderRepository billingOrderRepository;
     private final HeartWalletService heartWalletService;
+    private final StoryService storyService;
     private final AdminAuditService adminAuditService;
 
     @Transactional(readOnly = true)
@@ -165,6 +181,118 @@ public class AdminService {
                     }
                     return AdminBillingOrderDto.fromEntity(order);
                 });
+    }
+
+    @Transactional(readOnly = true)
+    public AdminCurriculumOrphanPreviewDto previewCurriculumOrphans(Long adminUserId, Integer olderThanMinutes, Integer limit) {
+        requireAdmin(adminUserId);
+        int normalizedOlderThanMinutes = normalizeOlderThanMinutes(olderThanMinutes);
+        int normalizedLimit = normalizeLimit(limit);
+        LocalDateTime createdBefore = LocalDateTime.now().minusMinutes(normalizedOlderThanMinutes);
+
+        long totalCandidates = storyRepository.countOrphanCurriculumStories(StoryOrigin.CURRICULUM, createdBefore);
+        List<Story> candidateStories = storyRepository.findOrphanCurriculumStoriesForCleanup(
+                StoryOrigin.CURRICULUM,
+                createdBefore,
+                PageRequest.of(0, normalizedLimit)
+        );
+
+        List<AdminCleanupCandidateDto> candidates = candidateStories.stream()
+                .map(this::toCleanupCandidate)
+                .toList();
+
+        return AdminCurriculumOrphanPreviewDto.builder()
+                .olderThanMinutes(normalizedOlderThanMinutes)
+                .limit(normalizedLimit)
+                .totalCandidates(totalCandidates)
+                .candidates(candidates)
+                .build();
+    }
+
+    public AdminCurriculumOrphanCleanupResultDto cleanupCurriculumOrphans(
+            Long adminUserId,
+            AdminCurriculumOrphanCleanupRequest request
+    ) {
+        User adminUser = requireAdmin(adminUserId);
+        int normalizedOlderThanMinutes = normalizeOlderThanMinutes(request == null ? null : request.getOlderThanMinutes());
+        int normalizedLimit = normalizeLimit(request == null ? null : request.getLimit());
+        LocalDateTime createdBefore = LocalDateTime.now().minusMinutes(normalizedOlderThanMinutes);
+
+        List<Story> candidates = storyRepository.findOrphanCurriculumStoriesForCleanup(
+                StoryOrigin.CURRICULUM,
+                createdBefore,
+                PageRequest.of(0, normalizedLimit)
+        );
+
+        List<Long> deletedStoryIds = new ArrayList<>();
+        List<AdminCleanupFailureDto> failures = new ArrayList<>();
+
+        for (Story candidate : candidates) {
+            Long storyId = candidate.getId();
+            try {
+                storyService.deleteStory(storyId, candidate.getUserId());
+                deletedStoryIds.add(storyId);
+            } catch (Exception ex) {
+                failures.add(AdminCleanupFailureDto.builder()
+                        .storyId(storyId)
+                        .message(summarizeFailure(ex))
+                        .build());
+            }
+        }
+
+        adminAuditService.record(
+                adminUser,
+                "CLEANUP_CURRICULUM_ORPHAN_STORIES",
+                "STORY",
+                "BATCH",
+                "olderThanMinutes=" + normalizedOlderThanMinutes
+                        + ", limit=" + normalizedLimit
+                        + ", attempted=" + candidates.size()
+                        + ", deleted=" + deletedStoryIds.size()
+                        + ", failed=" + failures.size()
+        );
+
+        return AdminCurriculumOrphanCleanupResultDto.builder()
+                .olderThanMinutes(normalizedOlderThanMinutes)
+                .limit(normalizedLimit)
+                .attemptedCount(candidates.size())
+                .deletedCount(deletedStoryIds.size())
+                .failedCount(failures.size())
+                .deletedStoryIds(deletedStoryIds)
+                .failures(failures)
+                .build();
+    }
+
+    private AdminCleanupCandidateDto toCleanupCandidate(Story story) {
+        return AdminCleanupCandidateDto.builder()
+                .storyId(story.getId())
+                .title(story.getTitle())
+                .userId(story.getUserId())
+                .language(story.getLanguage())
+                .createdAt(story.getCreatedAt())
+                .build();
+    }
+
+    private int normalizeOlderThanMinutes(Integer olderThanMinutes) {
+        if (olderThanMinutes == null) {
+            return DEFAULT_ORPHAN_OLDER_THAN_MINUTES;
+        }
+        return Math.max(MIN_ORPHAN_OLDER_THAN_MINUTES, Math.min(olderThanMinutes, MAX_ORPHAN_OLDER_THAN_MINUTES));
+    }
+
+    private int normalizeLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_ORPHAN_LIMIT;
+        }
+        return Math.max(1, Math.min(limit, MAX_ORPHAN_LIMIT));
+    }
+
+    private String summarizeFailure(Exception ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return ex.getClass().getSimpleName();
+        }
+        return message.length() <= 250 ? message : message.substring(0, 250);
     }
 
     private User requireAdmin(Long adminUserId) {

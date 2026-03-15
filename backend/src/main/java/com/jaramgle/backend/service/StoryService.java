@@ -71,6 +71,7 @@ public class StoryService {
     private final StorageQuotaService storageQuotaService;
     private final HeartWalletService heartWalletService;
     private final WebClient webClient;
+    private final AiImageClient aiImageClient;
     private final ObjectMapper objectMapper;
     private final StoryAssembler storyAssembler;
     private final CharacterModelingService characterModelingService;
@@ -713,12 +714,7 @@ public class StoryService {
                 }
             });
 
-            JsonNode response = webClient.post()
-                    .uri("/ai/generate-cover-image")
-                    .bodyValue(payload)
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .block();
+            JsonNode response = aiImageClient.generateCoverImage(payload);
 
             if (response != null && response.hasNonNull("imageUrl")) {
                 String coverUrl = response.get("imageUrl").asText(null);
@@ -881,16 +877,7 @@ public class StoryService {
         }
 
         try {
-            JsonNode aiResponse = webClient.post()
-                    .uri("/ai/generate-page-assets")
-                    .bodyValue(requestPayload)
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
-                            .filter(throwable -> throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable)
-                            .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
-                                    new RuntimeException("AI asset generation service unavailable after retries.", retrySignal.failure())))
-                    .block();
+            JsonNode aiResponse = aiImageClient.generatePageAssets(requestPayload);
 
             if (aiResponse != null) {
                 String imageUrl = aiResponse.get("imageUrl").asText();

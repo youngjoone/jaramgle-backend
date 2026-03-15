@@ -1,6 +1,8 @@
 package com.jaramgle.backend.repository;
 
 import com.jaramgle.backend.entity.Story;
+import com.jaramgle.backend.entity.StoryOrigin;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -34,4 +36,36 @@ public interface StoryRepository extends JpaRepository<Story, Long> {
                                @Param("userId") String userId,
                                @Param("query") String query,
                                Pageable pageable);
+
+    @Query("""
+        SELECT s FROM Story s
+        WHERE s.origin = :origin
+          AND s.deleted = false
+          AND s.createdAt <= :createdBefore
+          AND NOT EXISTS (
+                SELECT 1 FROM CurriculumWeek w
+                WHERE w.story = s
+          )
+        ORDER BY s.createdAt ASC
+        """)
+    List<Story> findOrphanCurriculumStoriesForCleanup(
+            @Param("origin") StoryOrigin origin,
+            @Param("createdBefore") LocalDateTime createdBefore,
+            Pageable pageable
+    );
+
+    @Query("""
+        SELECT COUNT(s) FROM Story s
+        WHERE s.origin = :origin
+          AND s.deleted = false
+          AND s.createdAt <= :createdBefore
+          AND NOT EXISTS (
+                SELECT 1 FROM CurriculumWeek w
+                WHERE w.story = s
+          )
+        """)
+    long countOrphanCurriculumStories(
+            @Param("origin") StoryOrigin origin,
+            @Param("createdBefore") LocalDateTime createdBefore
+    );
 }

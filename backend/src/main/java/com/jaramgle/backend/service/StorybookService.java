@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.util.retry.Retry;
 
 import com.jaramgle.backend.util.AssetUrlResolver;
 
@@ -35,7 +34,6 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -65,6 +63,7 @@ public class StorybookService {
     private final StorybookPageRepository storybookPageRepository;
     private final StoryService storyService;
     private final WebClient webClient;
+    private final AiImageClient aiImageClient;
     private final ObjectMapper objectMapper; // ADDED
     private final PlatformTransactionManager transactionManager;
     private final HeartWalletService heartWalletService;
@@ -365,16 +364,7 @@ public class StorybookService {
                 throw new IllegalStateException("Image generation queue is busy. Please try again.");
             }
             permitAcquired = true;
-            assetResponse = webClient.post()
-                    .uri("/ai/generate-page-assets")
-                    .bodyValue(requestNode)
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
-                            .filter(throwable -> throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable)
-                            .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> new RuntimeException(
-                                    "AI asset generation service unavailable after retries.", retrySignal.failure())))
-                    .block();
+            assetResponse = aiImageClient.generatePageAssets(requestNode);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while waiting for image generation slot.", ie);
