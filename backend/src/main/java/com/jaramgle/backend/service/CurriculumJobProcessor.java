@@ -21,6 +21,7 @@ import com.jaramgle.backend.entity.HeartTransaction;
 import com.jaramgle.backend.entity.Story;
 import com.jaramgle.backend.entity.StoryPage;
 import com.jaramgle.backend.entity.StorybookPage;
+import com.jaramgle.backend.exception.InsufficientHeartsException;
 import com.jaramgle.backend.repository.CurriculumEpisodeVersionRepository;
 import com.jaramgle.backend.repository.CurriculumJobLedgerRepository;
 import com.jaramgle.backend.repository.CurriculumJobRepository;
@@ -145,6 +146,15 @@ public class CurriculumJobProcessor {
             }
 
             tx().finishSuccess(jobId, result);
+        } catch (InsufficientHeartsException insufficientHeartsException) {
+            log.warn("Curriculum job {} failed due to insufficient hearts: {}", jobId, insufficientHeartsException.getMessage());
+            autoRetryJobId = tx().finishFailure(
+                    jobId,
+                    false,
+                    "INSUFFICIENT_HEARTS",
+                    insufficientHeartsException.getMessage(),
+                    false
+            );
         } catch (TimeoutException timeoutException) {
             autoRetryJobId = tx().finishFailure(jobId, true, "TIMEOUT", "주차 생성 타임아웃");
         } catch (Exception ex) {
@@ -482,6 +492,11 @@ public class CurriculumJobProcessor {
 
     @Transactional
     protected Long finishFailure(Long jobId, boolean timeout, String errorCode, String errorMessage) {
+        return finishFailure(jobId, timeout, errorCode, errorMessage, true);
+    }
+
+    @Transactional
+    protected Long finishFailure(Long jobId, boolean timeout, String errorCode, String errorMessage, boolean allowAutoRetry) {
         CurriculumJob job = curriculumJobRepository.findById(jobId)
                 .orElseThrow(() -> new EntityNotFoundException("Job not found"));
         if (job.getStatus() != CurriculumJobStatus.RUNNING) {
@@ -506,7 +521,7 @@ public class CurriculumJobProcessor {
         refundIfNeeded(job);
 
         Long autoRetryJobId = null;
-        if (!week.isAutoRetryUsed()) {
+        if (allowAutoRetry && !week.isAutoRetryUsed()) {
             week.setAutoRetryUsed(true);
             week.setStatus(CurriculumWeekStatus.PENDING);
             curriculumWeekRepository.save(week);
@@ -699,6 +714,7 @@ public class CurriculumJobProcessor {
                     node.put("pageNo", page.getPageNumber());
                     node.put("imageUrl", page.getImageUrl());
                     node.put("audioUrl", page.getAudioUrl());
+                    node.put("translationAudioUrl", page.getTranslationAudioUrl());
                     return node;
                 })
                 .toList();

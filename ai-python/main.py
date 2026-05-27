@@ -197,6 +197,8 @@ async def generate_image_endpoint(request: Request, img_req: GenerateImageReques
                 request_id=request.state.request_id,
                 art_style=img_req.art_style,
                 character_visuals=combined_visuals,
+                output_size=(Config.STORY_IMAGE_RESPONSE_WIDTH, Config.STORY_IMAGE_RESPONSE_HEIGHT),
+                resize_mode="cover",
             )
         
         os.makedirs(_IMAGE_BASE_DIR, exist_ok=True)
@@ -383,6 +385,8 @@ async def generate_page_assets_endpoint(request: Request, req: GeneratePageAsset
                 art_style=req.art_style,
                 character_visuals=req.character_visuals,
                 include_metadata=True,
+                output_size=(Config.STORY_IMAGE_RESPONSE_WIDTH, Config.STORY_IMAGE_RESPONSE_HEIGHT),
+                resize_mode="cover",
             )
 
         if isinstance(image_result, tuple) and len(image_result) == 2:
@@ -481,6 +485,8 @@ async def generate_cover_image_endpoint(request: Request, req: GenerateCoverImag
                 art_style=req.art_style,
                 character_visuals=req.character_visuals,
                 include_metadata=True,
+                output_size=(Config.COVER_IMAGE_RESPONSE_WIDTH, Config.COVER_IMAGE_RESPONSE_HEIGHT),
+                resize_mode="cover",
             )
 
         if isinstance(image_result, tuple) and len(image_result) == 2:

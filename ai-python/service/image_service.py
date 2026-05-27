@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse, unquote
 from urllib.request import urlopen
 
-from PIL import Image
+from PIL import Image, ImageOps
 from openai import OpenAI
 
 from config import Config
@@ -54,8 +54,16 @@ _openai_image_provider = OpenAIImageProvider(
     ),
 )
 
-_google_image_provider: Optional[Tuple[str, ImageProvider]] = None
+_google_image_providers: List[Tuple[str, ImageProvider]] = []
 _prefer_google_image = Config.USE_GEMINI_IMAGE
+_story_output_size: Tuple[int, int] = (
+    Config.STORY_IMAGE_RESPONSE_WIDTH,
+    Config.STORY_IMAGE_RESPONSE_HEIGHT,
+)
+_character_reference_output_size: Tuple[int, int] = (
+    Config.CHARACTER_REFERENCE_IMAGE_RESPONSE_SIZE,
+    Config.CHARACTER_REFERENCE_IMAGE_RESPONSE_SIZE,
+)
 
 
 def _parse_dimensions(size: str) -> Optional[Tuple[int, int]]:
@@ -66,40 +74,57 @@ def _parse_dimensions(size: str) -> Optional[Tuple[int, int]]:
         return None
 
 
+def _build_gemini_provider(model_name: str, location: str) -> Optional[Tuple[str, ImageProvider]]:
+    try:
+        provider = Gemini25FlashImageProvider(
+            config=Gemini25FlashProviderConfig(
+                model=model_name,
+                project_id=Config.GOOGLE_PROJECT_ID,
+                location=location,
+                candidate_count=1,
+            ),
+        )
+        provider_name = f"Google Gemini Image ({model_name}, {location})"
+        logger.info(
+            "Google Gemini image provider initialised (model=%s, location=%s)",
+            model_name,
+            location,
+        )
+        return provider_name, provider
+    except ImageProviderError as exc:
+        logger.warning("Gemini provider init failed (model=%s, location=%s): %s", model_name, location, exc)
+        return None
+
+
 if _prefer_google_image:
     try:
         if not Config.GOOGLE_PROJECT_ID or not Config.GOOGLE_LOCATION:
             raise ImageProviderError(
-                "GOOGLE_PROJECT_ID and GOOGLE_LOCATION must be configured for Gemini 2.5 Flash."
+                "GOOGLE_PROJECT_ID and GOOGLE_LOCATION must be configured for Gemini image generation."
             )
 
         location = Config.GOOGLE_LOCATION.strip().strip('"').strip("'")
-        try:
-            provider = Gemini25FlashImageProvider(
-                config=Gemini25FlashProviderConfig(
-                    model=Config.GEMINI_IMAGE_MODEL,
-                    project_id=Config.GOOGLE_PROJECT_ID,
-                    location=location,
-                    candidate_count=1,
-                ),
-            )
-            provider_name = f"Google Gemini 2.5 Flash ({location})"
-            _google_image_provider = (provider_name, provider)
-            logger.info(
-                "Google Gemini 2.5 Flash image provider initialised (model=%s, location=%s)",
-                Config.GEMINI_IMAGE_MODEL,
-                location,
-            )
-        except ImageProviderError as exc:
-            logger.warning("Gemini provider init failed for location %s: %s", location, exc)
+        primary_model = Config.GEMINI_IMAGE_MODEL.strip()
+        primary_provider = _build_gemini_provider(primary_model, location)
+        if primary_provider:
+            _google_image_providers.append(primary_provider)
+
+        if Config.GEMINI_IMAGE_429_FALLBACK_ENABLED:
+            fallback_model = (Config.GEMINI_IMAGE_FALLBACK_MODEL or "").strip()
+            if fallback_model and fallback_model != primary_model:
+                fallback_provider = _build_gemini_provider(fallback_model, location)
+                if fallback_provider:
+                    _google_image_providers.append(fallback_provider)
+            elif fallback_model == primary_model:
+                logger.info("Gemini fallback model equals primary model; model fallback is disabled.")
     except ImageProviderError as exc:
         _prefer_google_image = False
         logger.warning(
-            "Google Gemini 2.5 Flash provider disabled, falling back to OpenAI: %s",
+            "Google Gemini provider disabled, falling back to OpenAI: %s",
             exc,
         )
     finally:
-        if not _google_image_provider:
+        if not _google_image_providers:
             _prefer_google_image = False
 
 if not _prefer_google_image:
@@ -115,10 +140,14 @@ def _generate_image_bytes(
     reference_images: Optional[List[bytes]] = None,
 ) -> Tuple[bytes, str]:
     providers: List[Tuple[str, ImageProvider]] = []
-    if _prefer_google_image and _google_image_provider:
-        providers.append(_google_image_provider)
-    else:
+    if _prefer_google_image and _google_image_providers:
+        providers.extend(_google_image_providers)
+        if Config.OPENAI_IMAGE_FALLBACK_ENABLED and Config.OPENAI_API_KEY:
+            providers.append(("OpenAI", _openai_image_provider))
+    elif Config.OPENAI_API_KEY:
         providers.append(("OpenAI", _openai_image_provider))
+    elif not providers:
+        raise ImageProviderError("No image provider is configured. Set Gemini credentials.")
 
     logger.info(
         "Image provider order for request %s: %s",
@@ -132,7 +161,7 @@ def _generate_image_bytes(
 
     attempt = 1
     while attempt <= max_attempts:
-        for provider_name, provider in providers:
+        for index, (provider_name, provider) in enumerate(providers):
             logger.info(
                 "Attempting image generation via %s for request_id %s (attempt %s/%s)",
                 provider_name,
@@ -159,6 +188,20 @@ def _generate_image_bytes(
                     exc,
                 )
 
+                # 3.1 -> 2.5 model fallback is only allowed when the primary Gemini model is throttled (429).
+                if (
+                    _prefer_google_image
+                    and len(_google_image_providers) > 1
+                    and index == 0
+                ):
+                    if _is_resource_exhausted_error(exc):
+                        logger.warning(
+                            "Primary Gemini model throttled for request %s; trying fallback model.",
+                            request_id,
+                        )
+                        continue
+                    break
+
         should_retry = (
             attempt < max_attempts
             and last_error is not None
@@ -180,15 +223,31 @@ def _generate_image_bytes(
     raise ImageProviderError("All image providers failed.") from last_error
 
 
-def _encode_png_base64(image_bytes: bytes, size: Tuple[int, int] = (Config.IMAGE_RESPONSE_SIZE, Config.IMAGE_RESPONSE_SIZE)) -> str:
+def _encode_png_base64(
+    image_bytes: bytes,
+    size: Optional[Tuple[int, int]] = None,
+    *,
+    resize_mode: str = "cover",
+) -> str:
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
-    if size:
-        image.thumbnail(size, Image.LANCZOS)
-        background = Image.new("RGB", size, (255, 255, 255))
-        paste_x = (size[0] - image.width) // 2
-        paste_y = (size[1] - image.height) // 2
-        background.paste(image, (paste_x, paste_y))
-        image = background
+    target_size = size or _story_output_size
+
+    if target_size and target_size[0] > 0 and target_size[1] > 0:
+        if resize_mode == "contain":
+            image.thumbnail(target_size, Image.LANCZOS)
+            background = Image.new("RGB", target_size, (255, 255, 255))
+            paste_x = (target_size[0] - image.width) // 2
+            paste_y = (target_size[1] - image.height) // 2
+            background.paste(image, (paste_x, paste_y))
+            image = background
+        else:
+            # cover mode keeps one consistent UI frame with no letterboxing.
+            image = ImageOps.fit(
+                image,
+                target_size,
+                method=Image.LANCZOS,
+                centering=(0.5, 0.5),
+            )
 
     buffer = BytesIO()
     image.save(buffer, format="PNG")
@@ -202,33 +261,78 @@ def _encode_png_base64(image_bytes: bytes, size: Tuple[int, int] = (Config.IMAGE
 
 
 def _strip_dialogue(raw_text: Optional[str]) -> str:
-
-
     if not raw_text:
-
-
         return ""
 
-
     cleaned = re.sub(r"“[^”]*”", "", raw_text)
-
-
     cleaned = re.sub(r"\"[^\"]*\"", "", cleaned)
-
-
     cleaned = re.sub(r"'[^']*'", "", cleaned)
-
-
     cleaned = cleaned.replace("\n", " ")
-
-
     cleaned = re.sub(r"\s{2,}", " ", cleaned)
-
-
     return cleaned.strip()
 
 
+def _normalize_literal_token(token: str) -> str:
+    return token.strip().strip("\"'`“”‘’")
 
+
+def _is_literal_token_candidate(token: str) -> bool:
+    if not token or len(token) > 8:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9+\-*/=:#@&%!?.,]{1,8}", token):
+        return False
+    if token.isalpha() and len(token) > 1 and not token.isupper():
+        return False
+    return True
+
+
+def _extract_literal_detail_tokens(raw_text: Optional[str], limit: int = 6) -> List[str]:
+    if not raw_text:
+        return []
+
+    candidates: List[str] = []
+    contextual_patterns = [
+        r"(?:알파벳|영문자|영어\s*글자|글자|문자|대문자|소문자|숫자|번호)\s*[:：]?\s*[\"'“”‘’]?([A-Za-z0-9+\-*/=:#@&%!?.,]{1,8})[\"'“”‘’]?",
+        r"(?:letter|alphabet|character|uppercase|lowercase|digit|number)\s*(?:is|:|=)?\s*[\"'“”‘’]?([A-Za-z0-9+\-*/=:#@&%!?.,]{1,8})[\"'“”‘’]?",
+    ]
+    for pattern in contextual_patterns:
+        for match in re.finditer(pattern, raw_text, flags=re.IGNORECASE):
+            token = _normalize_literal_token(match.group(1))
+            if _is_literal_token_candidate(token):
+                candidates.append(token)
+
+    # Quoted short literals are often exact learning targets (e.g. "A", "7", "+").
+    for match in re.finditer(r"[\"'“”‘’]([A-Za-z0-9+\-*/=:#@&%!?.,]{1,4})[\"'“”‘’]", raw_text):
+        token = _normalize_literal_token(match.group(1))
+        if _is_literal_token_candidate(token):
+            candidates.append(token)
+
+    deduped: List[str] = []
+    seen = set()
+    for token in candidates:
+        if token in seen:
+            continue
+        seen.add(token)
+        deduped.append(token)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _build_literal_detail_rules(raw_text: Optional[str]) -> str:
+    tokens = _extract_literal_detail_tokens(raw_text)
+    if not tokens:
+        return ""
+
+    token_list = ", ".join(f"'{token}'" for token in tokens)
+    return dedent(
+        f"""
+        - Keep creative freedom for composition, mood, and background details.
+        - If the scene requires visible letters, digits, or symbols, render these exact tokens only: {token_list}.
+        - Never substitute lookalike characters (for example A/H, O/0, I/1/l, B/8).
+        - If a token cannot be shown clearly, omit it instead of rendering the wrong token.
+        """
+    ).strip()
 
 
 # --- Public API ---
@@ -241,26 +345,14 @@ def _strip_dialogue(raw_text: Optional[str]) -> str:
 
 
 def generate_image(
-
-
     text: str,
-
-
     request_id: str,
-
-
     art_style: Optional[str] = None,
-
-
     character_visuals: Optional[List[CharacterVisual]] = None,
-
-
     character_images: Optional[List[CharacterProfile]] = None,  # Kept for fallback
-
-
     include_metadata: bool = False,
-
-
+    output_size: Optional[Tuple[int, int]] = None,
+    resize_mode: str = "cover",
 ) -> Union[str, Tuple[str, Dict[str, Any]]]:
 
 
@@ -356,6 +448,8 @@ def generate_image(
 
         scene_summary = "A key moment in the story with characters interacting."
 
+    literal_detail_rules = _build_literal_detail_rules(text)
+
 
 
 
@@ -375,7 +469,7 @@ def generate_image(
         - Strictly maintain character appearance from all provided reference images.
 
 
-        - Absolutely no speech bubbles, captions, or text of any kind.
+        - No speech bubbles or captions. Avoid decorative text unless the scene explicitly requires a specific learning token.
 
 
         - For each character, copy the silhouette, facial features, colors, outfit, and props exactly from the reference image. Never mix traits between characters or invent new costumes.
@@ -387,6 +481,9 @@ def generate_image(
 
 
     """).strip()
+
+    if literal_detail_rules:
+        rules = f"{rules}\n\n{literal_detail_rules}"
 
 
 
@@ -473,7 +570,12 @@ def generate_image(
         request_id=request_id,
         reference_images=reference_images_bytes,
     )
-    encoded = _encode_png_base64(image_bytes)
+    resolved_output_size = output_size or _story_output_size
+    encoded = _encode_png_base64(
+        image_bytes,
+        size=resolved_output_size,
+        resize_mode=resize_mode,
+    )
 
     if include_metadata:
         metadata: Dict[str, Any] = {
@@ -481,9 +583,12 @@ def generate_image(
             "prompt": prompt,
             "referenceCount": len(reference_images_bytes),
             "referenceSources": reference_sources,
+            "outputWidth": resolved_output_size[0],
+            "outputHeight": resolved_output_size[1],
+            "resizeMode": resize_mode,
         }
-        if _google_image_provider:
-            metadata["googleProviders"] = [_google_image_provider[0]]
+        if _google_image_providers:
+            metadata["googleProviders"] = [name for name, _ in _google_image_providers]
         if character_visuals:
             metadata["characters"] = [
                 {
@@ -534,7 +639,11 @@ def generate_character_reference_image(
         request_id=request_id,
         reference_images=reference_images or None,
     )
-    encoded = _encode_png_base64(image_bytes)
+    encoded = _encode_png_base64(
+        image_bytes,
+        size=_character_reference_output_size,
+        resize_mode="contain",
+    )
 
     metadata: Dict[str, Any] = {
         "provider": provider_used,

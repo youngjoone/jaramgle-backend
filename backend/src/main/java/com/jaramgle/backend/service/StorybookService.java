@@ -202,12 +202,14 @@ public class StorybookService {
     public void generateAudioForAllPagesSync(Long storyId, String voicePreset) {
         String resolvedVoicePreset = voicePreset;
         String resolvedLanguage = null;
+        String resolvedTranslationLanguage = null;
         Story story = storyRepository.findById(storyId).orElse(null);
         if (story != null) {
             if (!StringUtils.hasText(resolvedVoicePreset)) {
                 resolvedVoicePreset = story.getVoicePreset();
             }
             resolvedLanguage = story.getLanguage();
+            resolvedTranslationLanguage = story.getTranslationLanguage();
         }
         List<StorybookPage> pages = storybookPageRepository.findByStoryIdOrderByPageNumberAsc(storyId);
         for (StorybookPage page : pages) {
@@ -216,6 +218,15 @@ public class StorybookService {
             req.setVoicePreset(resolvedVoicePreset);
             req.setLanguage(resolvedLanguage);
             generatePageAudio(storyId, page.getId(), req);
+
+            if (StringUtils.hasText(resolvedTranslationLanguage)) {
+                GenerateParagraphAudioRequestDto translatedReq = new GenerateParagraphAudioRequestDto();
+                translatedReq.setForceRegenerate(false);
+                translatedReq.setVoicePreset(resolvedVoicePreset);
+                translatedReq.setLanguage(resolvedTranslationLanguage);
+                translatedReq.setTranslationTrack(true);
+                generatePageAudio(storyId, page.getId(), translatedReq);
+            }
         }
         log.info("Completed audio generation for storyId={}", storyId);
     }
@@ -513,13 +524,29 @@ public class StorybookService {
         }
 
         Story story = page.getStory();
+        String requestedLanguage = StringUtils.hasText(requestDto.getLanguage())
+                ? requestDto.getLanguage()
+                : (story != null ? story.getLanguage() : null);
+        boolean translationTrack = requestDto.isTranslationTrack()
+                || isTranslationLanguageRequest(requestedLanguage, story);
+        String cachedAudioUrl = translationTrack ? page.getTranslationAudioUrl() : page.getAudioUrl();
 
-        if (!requestDto.isForceRegenerate() && StringUtils.hasText(page.getAudioUrl())) {
-            log.info("Audio already exists for storyId={}, pageId={}; returning cached audio.", storyId, pageId);
+        if (!requestDto.isForceRegenerate() && StringUtils.hasText(cachedAudioUrl)) {
+            log.info(
+                    "Audio already exists for storyId={}, pageId={} (track={}); returning cached audio.",
+                    storyId,
+                    pageId,
+                    translationTrack ? "translation" : "original");
             return page;
         }
 
-        String resolvedText = StringUtils.hasText(requestDto.getText()) ? requestDto.getText() : page.getText();
+        String resolvedText = StringUtils.hasText(requestDto.getText()) ? requestDto.getText() : null;
+        if (!StringUtils.hasText(resolvedText) && translationTrack) {
+            resolvedText = findTranslatedTextForPage(story, page.getPageNumber());
+        }
+        if (!StringUtils.hasText(resolvedText)) {
+            resolvedText = page.getText();
+        }
         if (!StringUtils.hasText(resolvedText)) {
             throw new IllegalArgumentException("Paragraph text is required to generate audio.");
         }
@@ -531,9 +558,7 @@ public class StorybookService {
         outbound.setSpeakerSlug(requestDto.getSpeakerSlug());
         outbound.setEmotion(requestDto.getEmotion());
         outbound.setStyleHint(requestDto.getStyleHint());
-        String resolvedLanguage = StringUtils.hasText(requestDto.getLanguage())
-                ? requestDto.getLanguage()
-                : (story != null ? story.getLanguage() : null);
+        String resolvedLanguage = requestedLanguage;
         outbound.setLanguage(resolvedLanguage);
         String resolvedVoicePreset = StringUtils.hasText(requestDto.getVoicePreset())
                 ? requestDto.getVoicePreset()
@@ -557,10 +582,67 @@ public class StorybookService {
         }
 
         String audioUrl = toWebAccessibleUrl(response.getUrl());
-        page.setAudioUrl(audioUrl);
+        if (translationTrack) {
+            page.setTranslationAudioUrl(audioUrl);
+        } else {
+            page.setAudioUrl(audioUrl);
+        }
         StorybookPage saved = storybookPageRepository.save(page);
-        log.info("Saved audio for storyId={}, pageId={} at {}", storyId, pageId, audioUrl);
+        log.info(
+                "Saved {} audio for storyId={}, pageId={} at {}",
+                translationTrack ? "translation" : "original",
+                storyId,
+                pageId,
+                audioUrl);
         return saved;
+    }
+
+    private boolean isTranslationLanguageRequest(String requestedLanguage, Story story) {
+        if (story == null || !StringUtils.hasText(story.getTranslationLanguage()) || !StringUtils.hasText(requestedLanguage)) {
+            return false;
+        }
+        return languageEquivalent(requestedLanguage, story.getTranslationLanguage());
+    }
+
+    private boolean languageEquivalent(String left, String right) {
+        String leftNorm = normalizeLanguage(left);
+        String rightNorm = normalizeLanguage(right);
+        if (leftNorm.equals(rightNorm)) {
+            return true;
+        }
+        return leftNorm.length() >= 2
+                && rightNorm.length() >= 2
+                && leftNorm.substring(0, 2).equals(rightNorm.substring(0, 2));
+    }
+
+    private String normalizeLanguage(String value) {
+        return value == null ? "" : value.trim().toLowerCase().replace('_', '-');
+    }
+
+    private String findTranslatedTextForPage(Story story, Integer pageNumber) {
+        if (story == null || pageNumber == null || !StringUtils.hasText(story.getTranslations())) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(story.getTranslations());
+            JsonNode pages = root.path("pages");
+            if (!pages.isArray()) {
+                return null;
+            }
+            for (JsonNode pageNode : pages) {
+                int translatedPageNo = pageNode.path("page").asInt(
+                        pageNode.path("pageNo").asInt(pageNode.path("page_no").asInt(-1)));
+                if (translatedPageNo == pageNumber) {
+                    String text = pageNode.path("text").asText(null);
+                    if (StringUtils.hasText(text)) {
+                        return text;
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to parse translations for storyId={} page={}", story.getId(), pageNumber, ex);
+        }
+        return null;
     }
 
     private void cleanupStorybookArtifacts(Long storyId) {
@@ -571,6 +653,7 @@ public class StorybookService {
             for (StorybookPage page : pages) {
                 deleteFileFromUrl(page.getImageUrl());
                 deleteFileFromUrl(page.getAudioUrl());
+                deleteFileFromUrl(page.getTranslationAudioUrl());
             }
             if (!pages.isEmpty()) {
                 storybookPageRepository.deleteAll(pages);

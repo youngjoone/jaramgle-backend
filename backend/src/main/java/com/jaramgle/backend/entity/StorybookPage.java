@@ -32,4 +32,7 @@ public class StorybookPage {
 
     @Column(name = "audio_url")
     private String audioUrl;
+
+    @Column(name = "translation_audio_url")
+    private String translationAudioUrl;
 }

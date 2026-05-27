@@ -63,6 +63,7 @@ public class CurriculumService {
     private final CurriculumJobRepository curriculumJobRepository;
     private final CurriculumSeriesMemoryRepository curriculumSeriesMemoryRepository;
     private final CurriculumJobProcessor curriculumJobProcessor;
+    private final HeartWalletService heartWalletService;
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
@@ -343,6 +344,10 @@ public class CurriculumService {
 
         if (week.getStatus() == CurriculumWeekStatus.RUNNING || week.getStatus() == CurriculumWeekStatus.PENDING) {
             throw new IllegalStateException("이미 처리 중인 주차입니다.");
+        }
+
+        if (chargeRequired) {
+            heartWalletService.assertSufficientBalance(parseNumericUserId(curriculum.getUserId()), 1);
         }
 
         week.setStatus(CurriculumWeekStatus.PENDING);
@@ -675,6 +680,14 @@ public class CurriculumService {
                     .collect(Collectors.toList());
         } catch (Exception ex) {
             return List.of();
+        }
+    }
+
+    private Long parseNumericUserId(String userId) {
+        try {
+            return Long.parseLong(userId);
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Invalid numeric user id for curriculum billing: " + userId, ex);
         }
     }
 

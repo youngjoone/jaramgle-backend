@@ -17,6 +17,16 @@ cp .env.example .env
 
 Java와 Python 모두 경로가 비어 있으면 기본값을 사용하며, Java 측에서 앱 기동 시 `data/*` 디렉토리를 자동 생성합니다.
 
+## 부산시 마스코트 `부기` 세팅
+
+`V42` 마이그레이션으로 글로벌 캐릭터(`slug=busan-boogi`)가 자동 등록됩니다.
+
+1. 공식 사용 허가 절차를 완료한 `부기` 이미지를 아래 경로에 배치합니다.
+   - `data/character/busan-boogi.png`
+2. (선택) 추천 캐릭터 목록에서 우선 노출할 slug를 지정합니다.
+   - `.env`: `FEATURED_GLOBAL_CHARACTER_SLUGS=busan-boogi,boogi`
+3. 백엔드를 기동하면 `/api/public/characters`에 `부기`가 포함됩니다.
+
 ## 실행(개발)
 
 루트(`jaramgle`)에 있는 `start-dev.sh`가 프론트/백/AI를 모두 실행합니다.
@@ -37,4 +47,3 @@ cd /Users/kyj/jaramgle
 - `backend/` : Spring Boot 앱
 - `ai-python/` : 텍스트/이미지/음성 AI 파이프라인
 - `data/` : 런타임 자산 저장소 (`.gitignore` 처리, `.gitkeep`만 추적)
-

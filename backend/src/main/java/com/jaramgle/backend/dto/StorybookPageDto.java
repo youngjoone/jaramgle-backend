@@ -11,6 +11,7 @@ public class StorybookPageDto {
     private String text;
     private String imageUrl;
     private String audioUrl;
+    private String translationAudioUrl;
 
     public static StorybookPageDto fromEntity(StorybookPage entity) {
         StorybookPageDto dto = new StorybookPageDto();
@@ -19,6 +20,7 @@ public class StorybookPageDto {
         dto.setText(entity.getText());
         dto.setImageUrl(AssetUrlResolver.toPublicUrl(entity.getImageUrl()));
         dto.setAudioUrl(entity.getAudioUrl());
+        dto.setTranslationAudioUrl(entity.getTranslationAudioUrl());
         return dto;
     }
 }

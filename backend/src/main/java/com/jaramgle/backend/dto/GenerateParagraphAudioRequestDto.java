@@ -36,4 +36,7 @@ public class GenerateParagraphAudioRequestDto {
 
     @JsonProperty("forceRegenerate")
     private boolean forceRegenerate;
+
+    @JsonProperty("translationTrack")
+    private boolean translationTrack;
 }

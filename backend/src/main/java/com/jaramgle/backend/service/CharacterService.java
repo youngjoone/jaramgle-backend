@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -40,6 +41,7 @@ public class CharacterService {
     private static final int OPTIMIZE_MAX_SIZE = 1024;
     private static final double OPTIMIZE_QUALITY = 0.8; // 80%
     private static final long MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+    private static final List<String> FEATURED_GLOBAL_CHARACTER_SLUGS = parseFeaturedGlobalCharacterSlugs();
 
     private final CharacterRepository characterRepository;
     private final CharacterModelingService characterModelingService;
@@ -47,7 +49,25 @@ public class CharacterService {
 
     @Transactional(readOnly = true)
     public List<Character> findAllGlobal() {
-        return characterRepository.findAllByScopeOrderByIdAsc(CharacterScope.GLOBAL);
+        List<Character> globalCharacters = new ArrayList<>(
+                characterRepository.findAllByScopeOrderByIdAsc(CharacterScope.GLOBAL)
+        );
+        if (globalCharacters.isEmpty() || FEATURED_GLOBAL_CHARACTER_SLUGS.isEmpty()) {
+            return globalCharacters;
+        }
+
+        // Featured mascots are surfaced first so users can easily pick official characters (e.g. Busan "Boogi").
+        globalCharacters.sort((left, right) -> {
+            int leftRank = featuredRank(left.getSlug());
+            int rightRank = featuredRank(right.getSlug());
+            if (leftRank != rightRank) {
+                return Integer.compare(leftRank, rightRank);
+            }
+            Long leftId = left.getId() != null ? left.getId() : Long.MAX_VALUE;
+            Long rightId = right.getId() != null ? right.getId() : Long.MAX_VALUE;
+            return Long.compare(leftId, rightId);
+        });
+        return globalCharacters;
     }
 
     @Transactional(readOnly = true)
@@ -209,6 +229,25 @@ public class CharacterService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static List<String> parseFeaturedGlobalCharacterSlugs() {
+        String raw = System.getenv().getOrDefault("FEATURED_GLOBAL_CHARACTER_SLUGS", "busan-boogi,boogi");
+        return List.of(raw.split(",")).stream()
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private static int featuredRank(String slug) {
+        if (slug == null) {
+            return Integer.MAX_VALUE;
+        }
+        String normalized = slug.trim().toLowerCase();
+        int rank = FEATURED_GLOBAL_CHARACTER_SLUGS.indexOf(normalized);
+        return rank >= 0 ? rank : Integer.MAX_VALUE;
     }
 
     private Path storeUploadedPhoto(MultipartFile photo) {
