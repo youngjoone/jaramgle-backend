@@ -2,6 +2,7 @@ package com.jaramgle.backend.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -71,6 +72,15 @@ public class StoryGenerateRequest {
     @Pattern(regexp = "^(KO|EN|JA|FR|ES|DE|ZH|NONE)?$", message = "지원하지 않는 번역 언어 코드입니다.")
     private String translationLanguage;
 
+    @JsonProperty("generation_profile")
+    @JsonAlias({"generationProfile", "generation_profile"})
+    @Size(max = 32)
+    private String generationProfile;
+
+    @JsonProperty("busan_context")
+    @JsonAlias({"busanContext", "busan_context"})
+    private BusanContext busanContext;
+
     public void setRequiredElements(List<String> elements) {
         if (elements == null) {
             this.requiredElements = null;
@@ -91,5 +101,61 @@ public class StoryGenerateRequest {
                 .map(item -> item == null ? "" : item.trim())
                 .filter(item -> !item.isEmpty())
                 .collect(Collectors.toList());
+    }
+
+    public void setGenerationProfile(String generationProfile) {
+        if (generationProfile == null) {
+            this.generationProfile = null;
+            return;
+        }
+        String normalized = generationProfile.trim();
+        this.generationProfile = normalized.isEmpty() ? null : normalized;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class BusanContext {
+        @JsonProperty("source_type")
+        @JsonAlias({"sourceType"})
+        private String sourceType;
+        @JsonProperty("source_id")
+        @JsonAlias({"sourceId"})
+        private String sourceId;
+        private String title;
+        private String district;
+        private String subtitle;
+        @JsonProperty("introduction")
+        @JsonAlias({"intro"})
+        private String introduction;
+        @JsonProperty("feature_summary")
+        @JsonAlias({"featureSummary", "feature"})
+        private String featureSummary;
+        @JsonProperty("origin_story")
+        @JsonAlias({"originStory", "origin"})
+        private String originStory;
+        private String description;
+        private String address;
+
+        public void setSourceType(String sourceType) { this.sourceType = trimToNull(sourceType); }
+        public void setSourceId(String sourceId) { this.sourceId = trimToNull(sourceId); }
+        public void setTitle(String title) { this.title = trimToNull(title); }
+        public void setDistrict(String district) { this.district = trimToNull(district); }
+        public void setSubtitle(String subtitle) { this.subtitle = trimToNull(subtitle); }
+        public void setIntroduction(String introduction) { this.introduction = trimToNull(introduction); }
+        public void setFeatureSummary(String featureSummary) { this.featureSummary = trimToNull(featureSummary); }
+        public void setOriginStory(String originStory) { this.originStory = trimToNull(originStory); }
+        public void setDescription(String description) { this.description = trimToNull(description); }
+        public void setAddress(String address) { this.address = trimToNull(address); }
+
+        private static String trimToNull(String value) {
+            if (value == null) {
+                return null;
+            }
+            String trimmed = value.trim();
+            return trimmed.isEmpty() ? null : trimmed;
+        }
     }
 }

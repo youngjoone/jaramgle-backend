@@ -41,6 +41,7 @@ from schemas import (
     GenerateParagraphAudioResponse,
 )
 from service.text_service import generate_story, generate_curriculum_goals
+from service.text_service_busan import generate_busan_story
 from service.image_service import generate_image, generate_character_reference_image
 from service.audio_service import (
     create_tts,
@@ -162,6 +163,19 @@ def generate_story_endpoint(request: Request, gen_req: GenerateRequest = Body(..
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "GENERATION_ERROR", "message": f"스토리 생성 중 오류 발생: {e}"}
+        )
+
+
+@app.post("/ai/generate-busan", response_model=GenerateResponse)
+def generate_busan_story_endpoint(request: Request, gen_req: GenerateRequest = Body(...)):
+    try:
+        response = generate_busan_story(gen_req, request.state.request_id)
+        return JSONResponse(content=response.model_dump())
+    except Exception as e:
+        logger.error(f"Busan story generation failed for Request ID: {request.state.request_id}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "BUSAN_GENERATION_ERROR", "message": f"부산 동화 생성 중 오류 발생: {e}"}
         )
 
 

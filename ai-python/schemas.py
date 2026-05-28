@@ -20,6 +20,39 @@ class CharacterProfile(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
+class BusanContext(BaseModel):
+    source_type: Optional[str] = Field(default=None, alias="source_type")
+    source_id: Optional[str] = Field(default=None, alias="source_id")
+    title: Optional[str] = None
+    district: Optional[str] = None
+    subtitle: Optional[str] = None
+    introduction: Optional[str] = None
+    feature_summary: Optional[str] = Field(default=None, alias="feature_summary")
+    origin_story: Optional[str] = Field(default=None, alias="origin_story")
+    description: Optional[str] = None
+    address: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    @field_validator(
+        "source_type",
+        "source_id",
+        "title",
+        "district",
+        "subtitle",
+        "introduction",
+        "feature_summary",
+        "origin_story",
+        "description",
+        "address",
+        mode="before",
+    )
+    def _strip_optional_fields(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
 
 class GenerateRequest(BaseModel):
     age_range: Union[int, str]
@@ -34,6 +67,8 @@ class GenerateRequest(BaseModel):
     required_elements: List[str] = Field(default_factory=list)
     art_style: Optional[str] = Field(default=None, alias="artStyle")
     translation_language: Optional[str] = Field(default=None, alias="translation_language")
+    generation_profile: Optional[str] = Field(default=None, alias="generation_profile")
+    busan_context: Optional[BusanContext] = Field(default=None, alias="busan_context")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -111,6 +146,13 @@ class GenerateRequest(BaseModel):
             v = value.strip()
             return v or None
         return value
+
+    @field_validator("generation_profile", mode="before")
+    def _normalize_generation_profile(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     @field_validator("translation_language", mode="before")
     def _normalize_translation_lang(cls, v, values):

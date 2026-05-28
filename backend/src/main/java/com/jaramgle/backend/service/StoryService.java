@@ -425,6 +425,12 @@ public class StoryService {
         if (request.getArtStyle() != null && !request.getArtStyle().isBlank()) {
             promptPayload.put("art_style", request.getArtStyle().trim());
         }
+        if (request.getGenerationProfile() != null && !request.getGenerationProfile().isBlank()) {
+            promptPayload.put("generation_profile", request.getGenerationProfile().trim());
+        }
+        if (request.getBusanContext() != null) {
+            promptPayload.set("busan_context", objectMapper.valueToTree(request.getBusanContext()));
+        }
         String translationLang = resolveTranslationLanguage(request.getTranslationLanguage(), request.getLanguage());
         if (translationLang != null) {
             promptPayload.put("translation_language", translationLang);
@@ -456,8 +462,9 @@ public class StoryService {
         }
 
         try {
+            String aiGeneratePath = isBusanProfile(request) ? "/ai/generate-busan" : "/ai/generate";
             JsonNode aiResponse = webClient.post()
-                    .uri("/ai/generate")
+                    .uri(aiGeneratePath)
                     .bodyValue(promptPayload)
                     .retrieve()
                     .bodyToMono(JsonNode.class)
@@ -510,6 +517,15 @@ public class StoryService {
             return null;
         }
         return normalized;
+    }
+
+    private boolean isBusanProfile(StoryGenerateRequest request) {
+        String profile = request.getGenerationProfile();
+        if (profile == null) {
+            return false;
+        }
+        String normalized = profile.trim().toUpperCase(Locale.ROOT);
+        return "BUSAN".equals(normalized) || "BUSAN_COMPETITION".equals(normalized);
     }
 
     private void applyCharacterMetadata(Story story, StoryGenerateRequest request, JsonNode creativeConcept) {
