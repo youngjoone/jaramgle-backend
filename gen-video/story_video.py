@@ -8,8 +8,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
-import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +23,9 @@ DEFAULT_HEIGHT = 720
 DEFAULT_FPS = 30
 DEFAULT_PAGE_DURATION = 6.0
 MAX_AUDIO_PAGE_DURATION = 90.0
+DEFAULT_CAPTION_FONT_SIZE = 34
+DEFAULT_CAPTION_MAX_LINES = 3
+DEFAULT_CAPTION_MIN_SECONDS = 2.2
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,13 @@ class StoryPage:
     text: str
     audio: str | None
     duration: float
+
+
+@dataclass(frozen=True)
+class CaptionTrack:
+    path: Path
+    start: float
+    end: float
 
 
 def main() -> int:
@@ -67,22 +75,35 @@ def main() -> int:
         image_path = resolve_media(page.image, media_dir, f"page-{page.page}-image")
         audio_path = resolve_media(page.audio, media_dir, f"page-{page.page}-audio") if page.audio else None
         duration = resolve_page_duration(ffmpeg, audio_path, page.duration)
-
-        caption_path = captions_dir / f"page-{page.page:03d}.png"
-        render_caption_overlay(
-            caption_path,
+        chunks = split_caption_chunks(
             page.text,
             width=args.width,
-            height=args.height,
-            title=title if index == 1 else None,
+            max_lines=args.caption_max_lines,
+            font_size=args.caption_font_size,
         )
+        duration = max(duration, len(chunks) * args.caption_min_seconds)
+
+        caption_tracks: list[CaptionTrack] = []
+        for chunk_index, chunk in enumerate(chunks):
+            caption_path = captions_dir / f"page-{page.page:03d}-{chunk_index + 1:02d}.png"
+            render_caption_overlay(
+                caption_path,
+                chunk,
+                width=args.width,
+                height=args.height,
+                title=title if index == 1 and chunk_index == 0 else None,
+                font_size=args.caption_font_size,
+                max_lines=args.caption_max_lines,
+            )
+            start, end = caption_window(chunk_index, len(chunks), duration)
+            caption_tracks.append(CaptionTrack(path=caption_path, start=start, end=end))
 
         clip_path = clips_dir / f"page-{page.page:03d}.mp4"
-        print(f"  rendering clip ({duration:.2f}s)")
+        print(f"  rendering clip ({duration:.2f}s, captions={len(caption_tracks)})")
         render_page_clip(
             ffmpeg=ffmpeg,
             image_path=image_path,
-            caption_path=caption_path,
+            caption_tracks=caption_tracks,
             audio_path=audio_path,
             output_path=clip_path,
             duration=duration,
@@ -126,6 +147,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
     parser.add_argument("--fps", type=int, default=DEFAULT_FPS)
+    parser.add_argument("--caption-font-size", type=int, default=DEFAULT_CAPTION_FONT_SIZE)
+    parser.add_argument("--caption-max-lines", type=int, default=DEFAULT_CAPTION_MAX_LINES)
+    parser.add_argument("--caption-min-seconds", type=float, default=DEFAULT_CAPTION_MIN_SECONDS)
     return parser.parse_args()
 
 
@@ -223,13 +247,89 @@ def probe_duration(ffmpeg: str, media_path: Path) -> float | None:
     return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 
-def render_caption_overlay(path: Path, text: str, *, width: int, height: int, title: str | None = None) -> None:
+def split_caption_chunks(text: str, *, width: int, max_lines: int, font_size: int) -> list[str]:
+    normalized = normalize_caption_text(text)
+    if not normalized:
+        return [""]
+
+    font = load_font(font_size)
+    probe = Image.new("RGBA", (width, 100), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(probe)
+    max_text_width = width - 2 * 72 - 2 * 36
+
+    chunks: list[str] = []
+    current = ""
+    for unit in split_sentence_units(normalized):
+        candidate = f"{current} {unit}".strip() if current else unit
+        if caption_fits(draw, candidate, font, max_text_width, max_lines):
+            current = candidate
+            continue
+
+        if current:
+            chunks.append(current)
+            current = ""
+
+        if caption_fits(draw, unit, font, max_text_width, max_lines):
+            current = unit
+        else:
+            lines = wrap_text_to_pixels(draw, unit, font, max_text_width)
+            for start in range(0, len(lines), max_lines):
+                chunks.append(" ".join(lines[start:start + max_lines]).strip())
+
+    if current:
+        chunks.append(current)
+
+    return [chunk for chunk in chunks if chunk.strip()] or [normalized]
+
+
+def normalize_caption_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def split_sentence_units(text: str) -> list[str]:
+    units = re.findall(r"[^.!?。！？\n]+[.!?。！？…]*", text)
+    return [unit.strip() for unit in units if unit.strip()]
+
+
+def caption_fits(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    max_width: int,
+    max_lines: int,
+) -> bool:
+    return len(wrap_text_to_pixels(draw, text, font, max_width)) <= max_lines
+
+
+def caption_window(index: int, total: int, duration: float) -> tuple[float, float]:
+    if total <= 1:
+        return 0.0, duration
+    start = duration * index / total
+    end = duration * (index + 1) / total
+    return start, end
+
+
+def render_caption_overlay(
+    path: Path,
+    text: str,
+    *,
+    width: int,
+    height: int,
+    title: str | None = None,
+    font_size: int = DEFAULT_CAPTION_FONT_SIZE,
+    max_lines: int = DEFAULT_CAPTION_MAX_LINES,
+) -> None:
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image, "RGBA")
 
-    font = load_font(34)
+    font = load_font(font_size)
     title_font = load_font(42)
-    caption_lines = wrap_text(text, width=30)
+    max_text_width = width - 2 * 72 - 2 * 36
+    caption_lines = wrap_text_to_pixels(draw, text, font, max_text_width)
+    while len(caption_lines) > max_lines and font_size > 24:
+        font_size -= 2
+        font = load_font(font_size)
+        caption_lines = wrap_text_to_pixels(draw, text, font, max_text_width)
     caption_text = "\n".join(caption_lines)
 
     box_margin = 72
@@ -277,21 +377,72 @@ def load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def wrap_text(text: str, *, width: int) -> list[str]:
+def wrap_text_to_pixels(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    max_width: int,
+) -> list[str]:
     if not text.strip():
         return [""]
+
     lines: list[str] = []
-    for paragraph in text.splitlines():
-        wrapped = textwrap.wrap(paragraph, width=width, break_long_words=False, replace_whitespace=False)
-        lines.extend(wrapped or [""])
-    return lines[:4]
+    for paragraph in text.splitlines() or [text]:
+        current = ""
+        for token in re.findall(r"\S+\s*", paragraph):
+            candidate = f"{current}{token}" if current else token
+            if text_pixel_width(draw, candidate.rstrip(), font) <= max_width:
+                current = candidate
+                continue
+
+            if current.strip():
+                lines.append(current.rstrip())
+                current = ""
+
+            if text_pixel_width(draw, token.rstrip(), font) <= max_width:
+                current = token
+            else:
+                current = append_split_token(draw, token.rstrip(), font, max_width, lines)
+
+        if current.strip():
+            lines.append(current.rstrip())
+
+    return lines or [""]
+
+
+def append_split_token(
+    draw: ImageDraw.ImageDraw,
+    token: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    max_width: int,
+    lines: list[str],
+) -> str:
+    current = ""
+    for char in token:
+        candidate = current + char
+        if text_pixel_width(draw, candidate, font) <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = char
+    return current
+
+
+def text_pixel_width(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+) -> int:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0]
 
 
 def render_page_clip(
     *,
     ffmpeg: str,
     image_path: Path,
-    caption_path: Path,
+    caption_tracks: list[CaptionTrack],
     audio_path: Path | None,
     output_path: Path,
     duration: float,
@@ -300,15 +451,36 @@ def render_page_clip(
     fps: int,
 ) -> None:
     frames = max(1, int(duration * fps))
-    zoom_filter = (
+    filter_parts = [
         f"[0:v]scale={width * 2}:{height * 2}:force_original_aspect_ratio=increase,"
         f"crop={width * 2}:{height * 2},"
         f"zoompan=z='min(zoom+0.0007,1.08)':d={frames}:"
         f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={width}x{height}:fps={fps},"
-        f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[bg];"
-        f"[1:v]scale={width}:{height},format=rgba[cap];"
-        f"[bg][cap]overlay=0:0:format=auto,format=yuv420p[v]"
-    )
+        f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[base]"
+    ]
+
+    previous_label = "base"
+    for index, track in enumerate(caption_tracks, start=1):
+        input_index = index
+        cap_label = f"cap{index}"
+        out_label = "v" if index == len(caption_tracks) else f"ov{index}"
+        enable = f"between(t\\,{track.start:.3f}\\,{track.end:.3f})"
+        filter_parts.append(f"[{input_index}:v]scale={width}:{height},format=rgba[{cap_label}]")
+        filter_parts.append(
+            f"[{previous_label}][{cap_label}]overlay=0:0:format=auto:enable='{enable}'[{out_label}]"
+        )
+        previous_label = out_label
+
+    if not caption_tracks:
+        filter_parts.append("[base]format=yuv420p[v]")
+    else:
+        filter_parts.append(f"[{previous_label}]format=yuv420p[v]")
+    zoom_filter = ";".join(filter_parts)
+
+    caption_inputs: list[str] = []
+    for track in caption_tracks:
+        caption_inputs.extend(["-loop", "1", "-i", str(track.path)])
+    audio_input_index = 1 + len(caption_tracks)
 
     if audio_path:
         command = [
@@ -318,10 +490,7 @@ def render_page_clip(
             "1",
             "-i",
             str(image_path),
-            "-loop",
-            "1",
-            "-i",
-            str(caption_path),
+            *caption_inputs,
             "-i",
             str(audio_path),
             "-filter_complex",
@@ -329,7 +498,7 @@ def render_page_clip(
             "-map",
             "[v]",
             "-map",
-            "2:a:0",
+            f"{audio_input_index}:a:0",
             "-t",
             f"{duration:.3f}",
             "-c:v",
@@ -354,10 +523,7 @@ def render_page_clip(
             "1",
             "-i",
             str(image_path),
-            "-loop",
-            "1",
-            "-i",
-            str(caption_path),
+            *caption_inputs,
             "-f",
             "lavfi",
             "-t",
@@ -369,7 +535,7 @@ def render_page_clip(
             "-map",
             "[v]",
             "-map",
-            "2:a:0",
+            f"{audio_input_index}:a:0",
             "-t",
             f"{duration:.3f}",
             "-c:v",
