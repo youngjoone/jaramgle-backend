@@ -287,8 +287,38 @@ def normalize_caption_text(text: str) -> str:
 
 
 def split_sentence_units(text: str) -> list[str]:
-    units = re.findall(r"[^.!?。！？\n]+[.!?。！？…]*", text)
-    return [unit.strip() for unit in units if unit.strip()]
+    units: list[str] = []
+    current: list[str] = []
+    index = 0
+    quote_pairs = {'"': '"', "“": "”", "'": "'", "‘": "’"}
+    sentence_endings = set(".!?。！？")
+
+    while index < len(text):
+        char = text[index]
+        if char in quote_pairs:
+            if current and "".join(current).strip():
+                units.append("".join(current).strip())
+                current = []
+
+            closing = quote_pairs[char]
+            quoted = [char]
+            index += 1
+            while index < len(text):
+                quoted.append(text[index])
+                if text[index] == closing:
+                    break
+                index += 1
+            units.append("".join(quoted).strip())
+        else:
+            current.append(char)
+            if char in sentence_endings:
+                units.append("".join(current).strip())
+                current = []
+        index += 1
+
+    if current and "".join(current).strip():
+        units.append("".join(current).strip())
+    return units
 
 
 def caption_fits(

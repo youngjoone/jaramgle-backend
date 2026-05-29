@@ -49,6 +49,18 @@ python story_video.py \
 - `audio`가 있으면 오디오 길이를 우선 사용합니다.
 - `duration`은 오디오가 없을 때 사용되는 페이지 길이입니다.
 - `image`와 `audio`는 로컬 경로 또는 `http(s)` URL을 사용할 수 있습니다.
+- 긴 `text`는 문장 단위로 여러 캡션 구간으로 나뉘어 표시됩니다. 글꼴과 캡션 박스 스타일은 구간마다 동일하게 유지됩니다.
+
+캡션 옵션:
+
+```bash
+python story_video.py \
+  --story out/forest-friends-story-video-input.json \
+  --out out/forest-friends-preview.mp4 \
+  --caption-font-size 34 \
+  --caption-max-lines 3 \
+  --caption-min-seconds 2.2
+```
 
 ## Leonardo 실험
 
