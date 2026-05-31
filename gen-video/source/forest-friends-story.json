@@ -1,0 +1,38 @@
+{
+  "fairy_tale": {
+    "book_title": "숲속 친구들의 이야기",
+    "total_chapters": 3,
+    "chapters": [
+      {
+        "chapter_number": 1,
+        "chapter_title": "호기심 많은 아기 곰",
+        "image": "1.png",
+        "script": "울창하고 평화로운 숲속, 작고 보슬보슬한 아기 곰 한 마리가 살고 있었어요. 아기 곰은 세상 모든 게 궁금했답니다. 어느 날 아침, 따뜻한 햇살이 비추는 숲을 거닐던 아기 곰은 나무 그루터기 뒤에서 덤불 속을 응시했어요. \"어? 저기 반짝이는 게 뭐지?\" 호기심 가득한 눈으로, 아기 곰은 조심스럽게 그곳을 향해 걸어갔어요.",
+        "video_motion": {
+          "prompt_en": "The camera slowly pans closer to the cute baby bear peeking out from behind a mossy tree stump. The baby bear blinks its big curious eyes and gently shifts its head, looking towards the shining light in the bushes. Leaves rustle slightly in the gentle breeze, and sunbeams shimmer through the forest trees, watercolor style.",
+          "description_kr": "카메라가 이끼 낀 나무 그루터기 뒤에서 엿보는 귀여운 아기 곰에게 천천히 다가갑니다. 아기 곰은 호기심 가득한 큰 눈을 깜빡이고 고개를 부드럽게 움직이며 덤불 속의 반짝이는 빛을 바라봅니다. 나뭇잎들이 잔잔한 바람에 살랑이고, 햇살이 숲속 나무들 사이로 영롱하게 빛납니다. (수채화 풍)"
+        }
+      },
+      {
+        "chapter_number": 2,
+        "chapter_title": "신비로운 요정과의 만남",
+        "image": "2.png",
+        "script": "아기 곰이 반짝이는 물건을 따라 덤불을 헤치고 들어가자, 상상도 못 한 아름다운 꽃밭이 펼쳐졌어요! 그리고 그 꽃밭 한가운데, 아주 커다랗고 빛나는 꽃 위에 세상에! 아주 작은 요정이 앉아있는 게 아니겠어요? 투명하고 예쁜 날개를 가진 요정은 아기 곰을 보며 환하게 웃어주었답니다. 아기 곰은 너무 놀라 입을 다물지 못했어요.",
+        "video_motion": {
+          "prompt_en": "The small flower fairy with transparent wings gently flutters her wings and smiles warmly while sitting on a large glowing flower. The cute baby bear stands on its hind legs, its eyes wide with surprise and its mouth slightly open. Tiny magical sparkles float around the fairy. A slow, gentle zoom-in captures their interaction in a beautiful watercolor forest.",
+          "description_kr": "투명한 날개를 가진 작은 꽃 요정이 크고 빛나는 꽃 위에 앉아 날개를 부드럽게 파닥이며 따뜻하게 미소 지어 보입니다. 귀여운 아기 곰은 뒷다리로 서서 놀란 듯 눈을 커다랗게 뜨고 입을 약간 벌리고 있습니다. 요정 주변으로 작은 마법의 반짝임들이 떠다닙니다. 천천히 부드럽게 줌인되며 아름다운 수채화 풍 숲속에서 두 존재의 교감을 담아냅니다."
+        }
+      },
+      {
+        "chapter_number": 3,
+        "chapter_title": "달빛 아래 우정의 춤",
+        "image": "3.png",
+        "script": "아기 곰과 작은 요정은 금세 친구가 되었어요. 밤이 되어 은은한 달빛이 숲을 비추자, 두 친구는 함께 즐거운 시간을 보냈답니다. 요정은 아기 곰 앞에서 신나게 춤을 추었고, 아기 곰은 앞발을 들고 기뻐하며 박수를 쳤어요. 따뜻한 달빛 아래, 두 친구의 우정은 숲속의 마법처럼 아름답게 빛났답니다.",
+        "video_motion": {
+          "prompt_en": "Under the soft, glowing full moon, the little flower fairy gracefully twirls and dances in the air, leaving a trail of shimmering golden stardust. The cute baby bear sits on the grass, happily clapping its paws with a big joyful smile. The background trees are softly lit by moonlight, creating a magical, enchanting atmosphere with a subtle camera tracking movement, watercolor style.",
+          "description_kr": "은은하게 빛나는 보름달 아래에서 작은 꽃 요정이 공중에서 우아하게 돌며 춤을 추고, 그 뒤로 반짝이는 황금빛 별가루 잔상이 남습니다. 귀여운 아기 곰은 풀밭에 앉아 환한 미소를 지으며 기쁘게 앞발을 맞부딪치며 박수를 칩니다. 배경의 나무들이 달빛을 받아 부드럽게 빛나며, 미세한 카메라 트래킹 움직임과 함께 마법 같고 황홀한 분위기를 연출합니다. (수채화 풍)"
+        }
+      }
+    ]
+  }
+}
