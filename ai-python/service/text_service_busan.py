@@ -20,12 +20,19 @@ logger = logging.getLogger(__name__)
 
 
 def _detect_busan_mission(req: GenerateRequest) -> str:
-    signal = " ".join([
-        *(req.topics or []),
-        *(req.objectives or []),
-        req.moral or "",
-        *(req.required_elements or []),
-    ]).lower()
+    topics = [str(topic).strip().lower() for topic in (req.topics or []) if str(topic).strip()]
+    objectives = [str(obj).strip().lower() for obj in (req.objectives or []) if str(obj).strip()]
+    moral = (req.moral or "").strip().lower()
+
+    # 부산 전용 UI에서 전달하는 주제값을 우선 신뢰한다.
+    # (다문화는 탭에서 선택한 경우에만 활성화되도록 강제)
+    if any("다문화" in topic for topic in topics):
+        return "MULTICULTURAL"
+    if any(("문화유산" in topic or "역사" in topic) for topic in topics):
+        return "HERITAGE"
+
+    # 구버전/직접호출 요청과의 호환을 위한 보조 판별
+    signal = " ".join([*objectives, moral]).strip()
     if "다문화" in signal:
         return "MULTICULTURAL"
     if "문화유산" in signal or "역사" in signal:
@@ -72,11 +79,13 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
         - 부산 공식 캐릭터 '부기'가 매 페이지의 핵심 행동에 참여한다.
         - 선택된 부산 장소를 배경으로 도시의 특징(바다·시장·다리·골목)을 자연스럽게 소개한다.
         - 홍보문처럼 나열하지 말고 아이가 직접 체험하는 사건 중심으로 구성한다.
+        - 다문화 전개는 추가하지 말고, 등장인물은 부기와 명소 맥락에 필요한 최소 보조 인물만 사용한다.
         """).strip(),
         "HERITAGE": dedent("""
         - 부산 공식 캐릭터 '부기'가 문화유산 탐험의 안내자 역할을 맡는다.
         - 제공된 장소/설명 기반 사실 정보를 최소 1개 이상 포함한다.
         - 연도/고유명사 등 확신 없는 사실은 단정하지 말고 일반 설명으로 완화한다.
+        - 다문화 전개는 추가하지 말고, 등장인물은 부기와 명소 맥락에 필요한 최소 보조 인물만 사용한다.
         """).strip(),
         "MULTICULTURAL": dedent("""
         - 부산 공식 캐릭터 '부기'와 다양한 문화권의 어린이 2명 이상이 함께 등장한다.

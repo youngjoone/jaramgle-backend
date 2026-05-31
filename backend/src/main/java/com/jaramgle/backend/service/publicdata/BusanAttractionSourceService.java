@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Locale;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +37,10 @@ public class BusanAttractionSourceService {
     private static final int SEARCH_FETCH_PAGE_SIZE = 30;
     private static final int SEARCH_FETCH_MAX_PAGES = 4;
     private static final int MAX_STORY_CONTEXT_CHARS = 280;
+    // 예: "국립해양박물관(한,영,중간,중번,일)" 같은 언어 표기 접미사 제거
+    private static final Pattern LANGUAGE_SUFFIX_PATTERN = Pattern.compile(
+            "\\s*\\((?:한|영|일|중간|중번)(?:\\s*,\\s*(?:한|영|일|중간|중번))*\\)\\s*$"
+    );
 
     @Value("${busan.public-data.service-key:${BUSAN_PUBLIC_DATA_SERVICE_KEY:}}")
     private String serviceKey;
@@ -46,13 +51,18 @@ public class BusanAttractionSourceService {
             .connectTimeout(Duration.ofSeconds(4))
             .build();
 
-    public BusanAttractionPageDto getAttractions(int page, int size, String keyword) {
+    public BusanAttractionPageDto getAttractions(int page, int size, String keyword, String sourceId) {
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(MAX_SIZE, size <= 0 ? DEFAULT_SIZE : size));
         String normalizedKeyword = normalizeKeyword(keyword);
+        String normalizedSourceId = normalizeSourceId(sourceId);
         if (serviceKey == null || serviceKey.isBlank()) {
             log.warn("Busan attraction service key is not configured.");
             return new BusanAttractionPageDto(List.of(), safePage, safeSize, 0L, false);
+        }
+
+        if (normalizedSourceId != null) {
+            return findBySourceId(normalizedSourceId);
         }
 
         if (normalizedKeyword != null) {
@@ -87,6 +97,39 @@ public class BusanAttractionSourceService {
         } catch (Exception ex) {
             log.warn("Failed to fetch Busan attractions: {}", ex.getMessage());
             return new BusanAttractionPageDto(List.of(), safePage, safeSize, 0L, false);
+        }
+    }
+
+    private BusanAttractionPageDto findBySourceId(String sourceId) {
+        try {
+            URI uri = UriComponentsBuilder
+                    .fromHttpUrl(BUSAN_ATTRACTION_API_URL)
+                    .queryParam("serviceKey", serviceKey.trim())
+                    .queryParam("numOfRows", 1)
+                    .queryParam("pageNo", 1)
+                    .queryParam("UC_SEQ", sourceId)
+                    .queryParam("resultType", "json")
+                    .build(true)
+                    .toUri();
+
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                    .GET()
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Accept", "application/json")
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                return new BusanAttractionPageDto(List.of(), 1, 1, 0L, false);
+            }
+            List<BusanAttractionSourceDto> items = parseAttractions(response.body(), 1);
+            if (items.isEmpty()) {
+                return new BusanAttractionPageDto(List.of(), 1, 1, 0L, false);
+            }
+            return new BusanAttractionPageDto(items, 1, 1, 1L, false);
+        } catch (Exception ex) {
+            log.warn("Failed to fetch attraction by sourceId {}: {}", sourceId, ex.getMessage());
+            return new BusanAttractionPageDto(List.of(), 1, 1, 0L, false);
         }
     }
 
@@ -189,16 +232,16 @@ public class BusanAttractionSourceService {
                 break;
             }
 
-            String title = text(row, "MAIN_TITLE");
+            String title = sanitizeLanguageSuffix(text(row, "MAIN_TITLE"));
             String thumb = normalizeImageUrl(text(row, "MAIN_IMG_THUMB"));
-            if (title.isBlank() || thumb.isBlank()) {
+            if (title.isBlank()) {
                 continue;
             }
 
             String sourceId = text(row, "UC_SEQ");
             String district = text(row, "GUGUN_NM");
-            String subtitle = text(row, "SUBTITLE");
-            String titleLine = text(row, "TITLE");
+            String subtitle = sanitizeLanguageSuffix(text(row, "SUBTITLE"));
+            String titleLine = sanitizeLanguageSuffix(text(row, "TITLE"));
             String itemContents = normalizeContent(text(row, "ITEMCNTNTS"));
             String intro = firstNonBlank(titleLine, subtitle, firstSentence(itemContents));
             String origin = extractOrigin(itemContents);
@@ -209,6 +252,8 @@ public class BusanAttractionSourceService {
                     normalizeImageUrl(text(row, "MAIN_IMG_NORMAL")),
                     thumb
             );
+            Double lat = parseDoubleOrNull(text(row, "LAT"));
+            Double lng = parseDoubleOrNull(text(row, "LNG"));
 
             deduped.putIfAbsent(sourceId.isBlank() ? title : sourceId,
                     new BusanAttractionSourceDto(
@@ -222,7 +267,9 @@ public class BusanAttractionSourceService {
                             storyContext,
                             address,
                             thumb,
-                            imageUrl
+                            imageUrl,
+                            lat,
+                            lng
                     ));
         }
 
@@ -274,6 +321,14 @@ public class BusanAttractionSourceService {
         return trimmed.isEmpty() ? null : trimmed.toLowerCase(Locale.ROOT);
     }
 
+    private String normalizeSourceId(String sourceId) {
+        if (sourceId == null) {
+            return null;
+        }
+        String trimmed = sourceId.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     private boolean containsKeyword(BusanAttractionSourceDto item, String keyword) {
         return contains(item.title(), keyword)
                 || contains(item.district(), keyword)
@@ -301,6 +356,17 @@ public class BusanAttractionSourceService {
                 .replace('\r', ' ')
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private String sanitizeLanguageSuffix(String value) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        return LANGUAGE_SUFFIX_PATTERN.matcher(normalized).replaceAll("").trim();
     }
 
     private String firstSentence(String text) {
@@ -360,5 +426,16 @@ public class BusanAttractionSourceService {
             return base.substring(0, MAX_STORY_CONTEXT_CHARS).trim();
         }
         return base;
+    }
+
+    private Double parseDoubleOrNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 }

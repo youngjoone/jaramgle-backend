@@ -27,8 +27,9 @@ public class PublicController {
     public ResponseEntity<BusanAttractionPageDto> getBusanAttractions(
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "size", defaultValue = "12") int size,
-            @RequestParam(name = "q", required = false) String query
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(name = "sourceId", required = false) String sourceId
     ) {
-        return ResponseEntity.ok(busanAttractionSourceService.getAttractions(page, size, query));
+        return ResponseEntity.ok(busanAttractionSourceService.getAttractions(page, size, query, sourceId));
     }
 }

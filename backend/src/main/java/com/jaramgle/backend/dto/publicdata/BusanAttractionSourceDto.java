@@ -11,5 +11,7 @@ public record BusanAttractionSourceDto(
         String storyContext,
         String address,
         String thumbnailUrl,
-        String imageUrl
+        String imageUrl,
+        Double lat,
+        Double lng
 ) {}
