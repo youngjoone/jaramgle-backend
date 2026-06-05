@@ -33,7 +33,7 @@ BGM_DIR = Path(__file__).parent / "bgm"
 BGM_DEFAULT = "magical"
 BGM_MOODS = {"magical", "warm", "adventure", "peaceful", "cheerful", "mysterious", "dreamy"}
 
-TTS_MODEL = "gemini-2.5-flash-preview-tts"
+TTS_MODEL = "gemini-3.1-flash-tts-preview"
 TTS_VOICE = "Kore"       # 한국어 여성 나레이터
 TTS_SAMPLE_RATE = 24000  # Gemini TTS LINEAR16 출력 기본 샘플레이트
 
