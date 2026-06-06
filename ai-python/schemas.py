@@ -17,6 +17,8 @@ class CharacterProfile(BaseModel):
     catchphrase: Optional[str] = None
     prompt_keywords: Optional[str] = Field(default=None, alias="promptKeywords")
     image_path: Optional[str] = Field(default=None, alias="imagePath")
+    image_url: Optional[str] = Field(default=None, alias="imageUrl")
+    visual_description: Optional[str] = Field(default=None, alias="visualDescription")
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 

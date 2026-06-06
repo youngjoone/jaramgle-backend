@@ -45,6 +45,22 @@ _base_image_style = dedent(
     '''
 ).strip()
 
+_boogi_2d_visual_guide = (
+    "Official Busan mascot Boogi must appear as a flat 2D storybook character: cute white seagull-like mascot, "
+    "tall rounded bean-shaped body, smooth white face and belly, tiny black oval eyes, small yellow-orange rounded beak, "
+    "short rounded wing-like arms, thin yellow legs, black sneakers with white soles and small red flower accents, "
+    "and red round glasses resting on top of the head. Preserve these identity details exactly, but do not copy any 3D render style."
+)
+
+_strict_2d_style_rules = dedent(
+    """
+    - Render the entire image as one consistent 2D children's storybook illustration.
+    - Reference images are identity references only. If a reference looks 3D, photographic, or toy-like, translate it into flat 2D art while preserving silhouette, colors, accessories, and facial features.
+    - Absolutely avoid 3D render, CGI, plastic toy, clay, mascot costume photo, realistic fur/feather texture, glossy material, volumetric lighting, and depth-of-field photography.
+    - Use flat colors, hand-drawn outlines, gentle pastel shading, and consistent 2D lighting across characters and background.
+    """
+).strip()
+
 _openai_image_provider = OpenAIImageProvider(
     client=_openai_client,
     config=OpenAIProviderConfig(
@@ -94,6 +110,12 @@ def _build_gemini_provider(model_name: str, location: str) -> Optional[Tuple[str
     except ImageProviderError as exc:
         logger.warning("Gemini provider init failed (model=%s, location=%s): %s", model_name, location, exc)
         return None
+
+
+def _is_boogi_visual(name: Optional[str], slug: Optional[str] = None) -> bool:
+    normalized_slug = (slug or "").strip().lower()
+    normalized_name = (name or "").strip().lower()
+    return normalized_slug in {"busan-boogi", "boogi"} or "부기" in normalized_name or "boogi" in normalized_name
 
 
 if _prefer_google_image:
@@ -393,12 +415,16 @@ def generate_image(
 
 
     character_descriptions = []
+    has_boogi_character = False
 
 
     if character_visuals:
 
 
         for visual in character_visuals:
+            slug = getattr(visual, "slug", None)
+            is_boogi = _is_boogi_visual(visual.name, slug)
+            has_boogi_character = has_boogi_character or is_boogi
 
 
             # Extract just the persona/personality part
@@ -407,7 +433,16 @@ def generate_image(
             persona_match = re.search(r"Persona: ([^|]+)", visual.visual_description, re.IGNORECASE)
 
 
-            if persona_match:
+            description = (visual.visual_description or "").strip()
+
+            if is_boogi:
+                boogi_name = visual.name or "Busan mascot Boogi"
+                character_descriptions.append(f"- {boogi_name}: {_boogi_2d_visual_guide}")
+
+            elif description:
+                character_descriptions.append(f"- {visual.name}: {description}")
+
+            elif persona_match:
 
 
                 persona = persona_match.group(1).strip()
@@ -481,6 +516,11 @@ def generate_image(
 
 
     """).strip()
+
+    if has_boogi_character or "2d" in style_guide.lower() or "2d" in scene_summary.lower():
+        rules = f"{rules}\n\n{_strict_2d_style_rules}"
+        if has_boogi_character:
+            rules = f"{rules}\n- For Boogi specifically: {_boogi_2d_visual_guide}"
 
     if literal_detail_rules:
         rules = f"{rules}\n\n{literal_detail_rules}"

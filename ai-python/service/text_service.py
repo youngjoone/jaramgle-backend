@@ -5,7 +5,8 @@ import logging
 from textwrap import dedent
 from typing import Any, Dict, Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai.types import GenerateContentConfig
 from openai import OpenAI
 
 from config import Config
@@ -22,6 +23,29 @@ from schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _get_vertex_text_client() -> tuple[genai.Client, str]:
+    if not Config.GOOGLE_PROJECT_ID or not Config.GOOGLE_LOCATION:
+        raise RuntimeError("GOOGLE_PROJECT_ID and GOOGLE_LOCATION must be configured for Vertex Gemini text generation.")
+
+    model_name = getattr(Config, "GEMINI_TEXT_MODEL", None) or "gemini-2.5-flash"
+    client = genai.Client(
+        vertexai=True,
+        project=Config.GOOGLE_PROJECT_ID,
+        location=Config.GOOGLE_LOCATION,
+    )
+    return client, model_name
+
+
+def _parse_json_response(raw_json_text: str, request_id: str, label: str) -> Dict[str, Any]:
+    try:
+        return json.loads(raw_json_text)
+    except json.JSONDecodeError:
+        from json_repair import repair_json
+        repaired = repair_json(raw_json_text)
+        logger.warning("%s JSON decode failed. Attempting repair for request %s", label, request_id)
+        return json.loads(repaired)
 
 def _normalize_and_validate_story(story: StoryOutput, req: GenerateRequest) -> StoryOutput:
     """Ensure the story meets structural requirements and normalise page text."""
@@ -263,28 +287,23 @@ def _build_gemini_story_prompt(req: GenerateRequest) -> str:
 
 
 def _call_gemini(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
-    """Gemini API를 호출하고 결과를 dict로 반환합니다."""
-    client = genai.GenerativeModel(
-        model_name="models/gemini-2.5-flash",
-        generation_config={"response_mime_type": "application/json"}
-    )
+    """Vertex Gemini를 호출하고 결과를 dict로 반환합니다."""
+    client, model_name = _get_vertex_text_client()
     prompt = _build_gemini_story_prompt(req)
     
-    logger.info(f"Calling Gemini for request_id: {request_id}")
-    response = client.generate_content(
-        prompt,
-        generation_config=genai.types.GenerationConfig(temperature=0.7),
+    logger.info("Calling Vertex Gemini for request_id: %s, model: %s, location: %s", request_id, model_name, Config.GOOGLE_LOCATION)
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt,
+        config=GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.7,
+        ),
     )
     
-    raw_json_text = response.text
+    raw_json_text = response.text or ""
     logger.info(f"Gemini raw response for {request_id}: {raw_json_text}")
-    try:
-        return json.loads(raw_json_text)
-    except json.JSONDecodeError:
-        from json_repair import repair_json
-        repaired = repair_json(raw_json_text)
-        logger.warning(f"Story JSON decode failed. Attempting repair for request {request_id}")
-        return json.loads(repaired)
+    return _parse_json_response(raw_json_text, request_id, "Story")
 
 def _call_openai(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
     """OpenAI API를 호출하고 결과를 dict로 반환합니다."""
@@ -330,24 +349,19 @@ def _translate_story(story: StoryOutput, source_lang: str, target_lang: str, req
     {pages_block}
     """).strip()
 
-    client = genai.GenerativeModel(
-        model_name="models/gemini-2.5-flash",
-        generation_config={"response_mime_type": "application/json"}
-    )
+    client, model_name = _get_vertex_text_client()
     logger.info(f"Translating story for request {request_id}: {source}->{target}")
-    response = client.generate_content(
-        prompt,
-        generation_config=genai.types.GenerationConfig(temperature=0.4),
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt,
+        config=GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.4,
+        ),
     )
-    raw_json_text = response.text
+    raw_json_text = response.text or ""
     logger.info(f"Translation raw response for {request_id}: {raw_json_text}")
-    try:
-        data = json.loads(raw_json_text)
-    except json.JSONDecodeError:
-        from json_repair import repair_json
-        repaired = repair_json(raw_json_text)
-        logger.warning(f"Translation JSON decode failed. Attempting repair for request {request_id}")
-        data = json.loads(repaired)
+    data = _parse_json_response(raw_json_text, request_id, "Translation")
     return TranslationOutput(**data)
 
 def generate_story(req: GenerateRequest, request_id: str) -> GenerateResponse:
@@ -557,26 +571,21 @@ def _normalize_curriculum_goals(raw_payload: Dict[str, Any], req: CurriculumGoal
 
 
 def generate_curriculum_goals(req: CurriculumGoalDraftRequest, request_id: str) -> CurriculumGoalDraftResponse:
-    client = genai.GenerativeModel(
-        model_name="models/gemini-2.5-flash",
-        generation_config={"response_mime_type": "application/json"},
-    )
+    client, model_name = _get_vertex_text_client()
 
     prompt = _build_curriculum_goal_prompt(req)
-    logger.info("Generating curriculum goals for request %s", request_id)
-    response = client.generate_content(
-        prompt,
-        generation_config=genai.types.GenerationConfig(temperature=0.9),
+    logger.info("Generating curriculum goals via Vertex Gemini for request %s, model: %s", request_id, model_name)
+    response = client.models.generate_content(
+        model=model_name,
+        contents=prompt,
+        config=GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.9,
+        ),
     )
 
-    raw_json_text = response.text
+    raw_json_text = response.text or ""
     logger.info("Curriculum goal raw response for %s: %s", request_id, raw_json_text)
-    try:
-        payload = json.loads(raw_json_text)
-    except json.JSONDecodeError:
-        from json_repair import repair_json
-        repaired = repair_json(raw_json_text)
-        logger.warning("Curriculum goal JSON decode failed. Attempting repair for request %s", request_id)
-        payload = json.loads(repaired)
+    payload = _parse_json_response(raw_json_text, request_id, "Curriculum goal")
 
     return _normalize_curriculum_goals(payload, req)

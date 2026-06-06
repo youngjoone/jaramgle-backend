@@ -175,7 +175,7 @@ def generate_busan_story_endpoint(request: Request, gen_req: GenerateRequest = B
         logger.error(f"Busan provider quota error for Request ID: {request.state.request_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"code": "AI_PROVIDER_CREDITS_DEPLETED", "message": str(e)}
+            detail={"code": "AI_PROVIDER_QUOTA_OR_BILLING_ERROR", "message": str(e)}
         )
     except Exception as e:
         logger.error(f"Busan story generation failed for Request ID: {request.state.request_id}", exc_info=True)

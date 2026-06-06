@@ -65,6 +65,9 @@ import com.jaramgle.backend.util.AssetUrlResolver;
 public class StoryService {
 
     private static final int MAX_TOTAL_STORY_CHARACTERS = 3;
+    private static final String BUSAN_BOOGI_SLUG = "busan-boogi";
+    private static final String BOOGI_ALIAS_SLUG = "boogi";
+    private static final String BOOGI_ALIAS_NAME = "부기";
 
     private final StoryRepository storyRepository;
     private final StoryPageRepository storyPageRepository;
@@ -552,9 +555,9 @@ public class StoryService {
             JsonNode detail = root.path("detail");
             String code = detail.path("code").asText(root.path("code").asText(""));
             String message = detail.path("message").asText(root.path("message").asText(""));
-            if ("AI_PROVIDER_CREDITS_DEPLETED".equals(code)) {
+            if ("AI_PROVIDER_CREDITS_DEPLETED".equals(code) || "AI_PROVIDER_QUOTA_OR_BILLING_ERROR".equals(code)) {
                 String safeMessage = message == null || message.isBlank()
-                        ? "AI 제공자 크레딧이 소진되어 동화를 생성할 수 없습니다. 관리자에게 문의해 주세요."
+                        ? "AI 제공자 권한/쿼터/결제 설정 문제로 동화를 생성할 수 없습니다. 관리자에게 문의해 주세요."
                         : message;
                 return new AiProviderException(code, safeMessage, HttpStatus.SERVICE_UNAVAILABLE);
             }
@@ -589,9 +592,15 @@ public class StoryService {
             for (Character character : selectedCharacters) {
                 if (character.getSlug() != null) {
                     storyCharactersBySlug.putIfAbsent(character.getSlug().toLowerCase(Locale.ROOT), character);
+                    if (BUSAN_BOOGI_SLUG.equalsIgnoreCase(character.getSlug())) {
+                        storyCharactersBySlug.putIfAbsent(BOOGI_ALIAS_SLUG, character);
+                    }
                 }
                 if (character.getName() != null && !character.getName().isBlank()) {
                     storyCharactersByName.putIfAbsent(character.getName().trim().toLowerCase(Locale.ROOT), character);
+                    if (BUSAN_BOOGI_SLUG.equalsIgnoreCase(character.getSlug())) {
+                        storyCharactersByName.putIfAbsent(BOOGI_ALIAS_NAME, character);
+                    }
                 }
             }
         }
@@ -620,6 +629,12 @@ public class StoryService {
             Character character = storyCharactersBySlug.get(normalizedSlug);
             if (character == null && normalizedName != null) {
                 character = storyCharactersByName.get(normalizedName);
+            }
+            if (character == null && isBusanProfile(request) && isBoogiAlias(slug, name)) {
+                character = storyCharactersBySlug.get(BUSAN_BOOGI_SLUG);
+                if (character == null) {
+                    character = characterRepository.findBySlug(BUSAN_BOOGI_SLUG).orElse(null);
+                }
             }
             if (character == null) {
                 if (additionalCreated >= maxAdditionalAllowed) {
@@ -656,13 +671,14 @@ public class StoryService {
                 }
             }
 
-            if (node.hasNonNull("visual_description")) {
+            boolean preserveExistingCharacterMetadata = shouldPreserveExistingCharacterMetadata(character);
+            if (!preserveExistingCharacterMetadata && node.hasNonNull("visual_description")) {
                 character.setVisualDescription(node.get("visual_description").asText());
             }
-            if (node.hasNonNull("prompt_keywords")) {
+            if (!preserveExistingCharacterMetadata && node.hasNonNull("prompt_keywords")) {
                 character.setPromptKeywords(node.get("prompt_keywords").asText());
             }
-            if (node.hasNonNull("catchphrase")) {
+            if (!preserveExistingCharacterMetadata && node.hasNonNull("catchphrase")) {
                 character.setCatchphrase(node.get("catchphrase").asText());
             }
 
@@ -681,6 +697,27 @@ public class StoryService {
         }
 
         storyRepository.save(story);
+    }
+
+    private boolean isBoogiAlias(String slug, String name) {
+        String normalizedSlug = slug == null ? "" : slug.trim().toLowerCase(Locale.ROOT);
+        String normalizedName = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
+        return BUSAN_BOOGI_SLUG.equals(normalizedSlug)
+                || BOOGI_ALIAS_SLUG.equals(normalizedSlug)
+                || normalizedName.contains(BOOGI_ALIAS_NAME)
+                || normalizedName.contains("boogi");
+    }
+
+    private boolean shouldPreserveExistingCharacterMetadata(Character character) {
+        if (character == null) {
+            return false;
+        }
+        if (character.getSlug() != null && BUSAN_BOOGI_SLUG.equalsIgnoreCase(character.getSlug())) {
+            return true;
+        }
+        return character.getScope() == CharacterScope.GLOBAL
+                && character.getImageUrl() != null
+                && !character.getImageUrl().isBlank();
     }
 
     private String generateSlug(String slugCandidate, String name) {

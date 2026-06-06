@@ -7,7 +7,6 @@ from typing import Dict, List, Optional, Tuple
 import json
 from textwrap import dedent
 
-import google.generativeai as genai
 from openai import OpenAI
 
 from config import Config
