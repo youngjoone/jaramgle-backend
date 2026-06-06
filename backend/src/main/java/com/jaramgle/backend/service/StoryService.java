@@ -13,6 +13,7 @@ import com.jaramgle.backend.entity.Character;
 import com.jaramgle.backend.entity.CharacterModelingStatus;
 import com.jaramgle.backend.entity.CharacterScope;
 import com.jaramgle.backend.entity.StoryOrigin;
+import com.jaramgle.backend.exception.AiProviderException;
 import com.jaramgle.backend.exception.CharacterModelingException;
 import com.jaramgle.backend.exception.StoryGenerationException;
 import com.jaramgle.backend.repository.CharacterRepository;
@@ -28,6 +29,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -469,7 +471,7 @@ public class StoryService {
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
-                            .filter(throwable -> throwable instanceof org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable)
+                            .filter(throwable -> shouldRetryAiServiceUnavailable(throwable, request))
                             .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
                                     new RuntimeException("LLM service unavailable after retries.", retrySignal.failure())))
                     .block();
@@ -494,6 +496,12 @@ public class StoryService {
 
         } catch (WebClientResponseException ex) {
             log.error("LLM service returned an error response: {}", ex.getMessage(), ex);
+            if (isBusanProfile(request)) {
+                AiProviderException providerException = toAiProviderException(ex);
+                if (providerException != null) {
+                    throw providerException;
+                }
+            }
             throw new StoryGenerationException("동화 생성에 실패했어요. 잠시 후 다시 시도해 주세요.", ex);
         } catch (Exception e) {
             log.error("Failed to generate story from LLM service.", e);
@@ -526,6 +534,34 @@ public class StoryService {
         }
         String normalized = profile.trim().toUpperCase(Locale.ROOT);
         return "BUSAN".equals(normalized) || "BUSAN_COMPETITION".equals(normalized);
+    }
+
+    private boolean shouldRetryAiServiceUnavailable(Throwable throwable, StoryGenerateRequest request) {
+        if (!(throwable instanceof WebClientResponseException.ServiceUnavailable ex)) {
+            return false;
+        }
+        if (isBusanProfile(request) && toAiProviderException(ex) != null) {
+            return false;
+        }
+        return true;
+    }
+
+    private AiProviderException toAiProviderException(WebClientResponseException ex) {
+        try {
+            JsonNode root = objectMapper.readTree(ex.getResponseBodyAsString());
+            JsonNode detail = root.path("detail");
+            String code = detail.path("code").asText(root.path("code").asText(""));
+            String message = detail.path("message").asText(root.path("message").asText(""));
+            if ("AI_PROVIDER_CREDITS_DEPLETED".equals(code)) {
+                String safeMessage = message == null || message.isBlank()
+                        ? "AI 제공자 크레딧이 소진되어 동화를 생성할 수 없습니다. 관리자에게 문의해 주세요."
+                        : message;
+                return new AiProviderException(code, safeMessage, HttpStatus.SERVICE_UNAVAILABLE);
+            }
+        } catch (Exception parseError) {
+            log.debug("Failed to parse AI provider error body: {}", parseError.getMessage());
+        }
+        return null;
     }
 
     private void applyCharacterMetadata(Story story, StoryGenerateRequest request, JsonNode creativeConcept) {

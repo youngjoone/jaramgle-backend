@@ -1,6 +1,7 @@
 package com.jaramgle.backend.controller;
 
 import com.jaramgle.backend.dto.ApiError;
+import com.jaramgle.backend.exception.AiProviderException;
 import com.jaramgle.backend.exception.BizException;
 import com.jaramgle.backend.exception.PaymentRequiredException;
 import com.jaramgle.backend.exception.StoryGenerationException;
@@ -71,6 +72,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleStoryGeneration(StoryGenerationException ex) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(ApiError.of("STORY_GENERATION_FAILED", ex.getMessage()));
+    }
+
+    @ExceptionHandler(AiProviderException.class)
+    public ResponseEntity<ApiError> handleAiProvider(AiProviderException ex) {
+        return ResponseEntity.status(ex.getStatus())
+                .body(ApiError.of(ex.getCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(IllegalStateException.class)

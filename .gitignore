@@ -1,6 +1,8 @@
 # Environment
 .env
 backend/.env
+ai-python/gcp-sa.json
+**/gcp-sa.json
 
 # macOS
 .DS_Store
@@ -8,6 +10,7 @@ backend/.env
 # Local data/artifacts
 data/**
 backend/data/**
+ai-python/data/**
 !data/.gitkeep
 !backend/data/.gitkeep
 
@@ -24,4 +27,3 @@ backend/build/
 backend/frontend/node_modules/
 node_modules/
 .next/
-

@@ -41,7 +41,7 @@ from schemas import (
     GenerateParagraphAudioResponse,
 )
 from service.text_service import generate_story, generate_curriculum_goals
-from service.text_service_busan import generate_busan_story
+from service.text_service_busan import BusanProviderQuotaError, generate_busan_story
 from service.image_service import generate_image, generate_character_reference_image
 from service.audio_service import (
     create_tts,
@@ -171,6 +171,12 @@ def generate_busan_story_endpoint(request: Request, gen_req: GenerateRequest = B
     try:
         response = generate_busan_story(gen_req, request.state.request_id)
         return JSONResponse(content=response.model_dump())
+    except BusanProviderQuotaError as e:
+        logger.error(f"Busan provider quota error for Request ID: {request.state.request_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "AI_PROVIDER_CREDITS_DEPLETED", "message": str(e)}
+        )
     except Exception as e:
         logger.error(f"Busan story generation failed for Request ID: {request.state.request_id}", exc_info=True)
         raise HTTPException(

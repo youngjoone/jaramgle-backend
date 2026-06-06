@@ -4,6 +4,7 @@ from textwrap import dedent
 from typing import Any, Dict, Optional
 
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 
 from config import Config
 from schemas import (
@@ -17,6 +18,17 @@ from schemas import (
 from service.text_service import _normalize_and_validate_story, _translate_story
 
 logger = logging.getLogger(__name__)
+
+
+class BusanProviderQuotaError(RuntimeError):
+    """Raised when the upstream AI provider cannot serve due to billing/quota."""
+
+
+def _is_prepayment_depleted(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "prepayment credits are depleted" in message or (
+        "resource_exhausted" in message and "billing" in message
+    )
 
 
 def _detect_busan_mission(req: GenerateRequest) -> str:
@@ -234,6 +246,28 @@ def generate_busan_story(req: GenerateRequest, request_id: str) -> GenerateRespo
                 max_attempts,
                 request_id,
                 validation_error,
+            )
+            if attempt == max_attempts:
+                break
+        except ResourceExhausted as exc:
+            last_error = exc
+            if _is_prepayment_depleted(exc):
+                logger.error(
+                    "Busan Gemini credits are depleted for request %s: %s",
+                    request_id,
+                    exc,
+                )
+                raise BusanProviderQuotaError(
+                    "Gemini API 선불 크레딧이 소진되어 부산 동화를 생성할 수 없습니다. "
+                    "AI Studio에서 프로젝트 결제/크레딧을 확인해 주세요."
+                ) from exc
+            logger.error(
+                "Busan Gemini resource exhausted (attempt %s/%s) for request %s: %s",
+                attempt,
+                max_attempts,
+                request_id,
+                exc,
+                exc_info=True,
             )
             if attempt == max_attempts:
                 break

@@ -58,7 +58,7 @@ GEMINI_API_KEY=your_google_ai_studio_key
 ### 모델 설정
 
 - 텍스트/오디오 생성은 기본적으로 `gpt-5-mini` 모델을 사용합니다. `config.py`에서 `OPENAI_MODEL`, `OPENAI_MAX_OUTPUT_TOKENS`, `OPENAI_TEMPERATURE` 값을 조정할 수 있습니다.
-- 이미지 생성은 기본적으로 OpenAI `gpt-image-1` 모델을 사용하지만, `.env`에 `USE_GEMINI_IMAGE=true`를 지정하거나 `config.py`의 `DEFAULT_USE_GEMINI_IMAGE` 값을 `True`로 변경하면 Google Gemini 이미지 모델(`GEMINI_IMAGE_MODEL`, 기본값 `gemini-2.5-flash-image`)이 사용됩니다. 환경에 `google-genai` 패키지가 설치되어 있으면 공식 클라이언트를 사용하고, 그렇지 않은 경우 Google REST API를 직접 호출합니다. 오류가 발생하면 OpenAI 경로가 자동으로 폴백됩니다.
+- 이미지 생성은 기본적으로 Google Gemini 이미지 모델을 사용합니다. `GEMINI_IMAGE_MODEL` 기본값은 `gemini-3.1-flash-image`이고, 기본 리전은 `GOOGLE_LOCATION=global`입니다. 429 또는 일시 장애 시 `GEMINI_IMAGE_FALLBACK_MODEL` 값으로 한 번 더 시도할 수 있으며, OpenAI 이미지 폴백은 기본 비활성화 상태입니다.
 
 ### 샘플 요청/응답 (OpenAI 연동 후)
 
