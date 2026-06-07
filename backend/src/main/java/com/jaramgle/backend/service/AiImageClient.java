@@ -17,7 +17,7 @@ public class AiImageClient {
 
     private static final int RETRY_ATTEMPTS = Math.max(
             0,
-            Integer.parseInt(System.getenv().getOrDefault("AI_IMAGE_CLIENT_RETRY_ATTEMPTS", "0")));
+            Integer.parseInt(System.getenv().getOrDefault("AI_IMAGE_CLIENT_RETRY_ATTEMPTS", "3")));
     private static final Duration RETRY_BACKOFF = Duration.ofSeconds(Math.max(
             1,
             Long.parseLong(System.getenv().getOrDefault("AI_IMAGE_CLIENT_RETRY_BACKOFF_SECONDS", "2"))));
@@ -60,6 +60,7 @@ public class AiImageClient {
         if (!(throwable instanceof WebClientResponseException ex)) {
             return false;
         }
-        return ex.getStatusCode().value() == 429;
+        int statusCode = ex.getStatusCode().value();
+        return statusCode == 429 || ex.getStatusCode().is5xxServerError();
     }
 }
