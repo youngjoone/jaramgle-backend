@@ -9,8 +9,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
-
 @RestController
 @RequestMapping("/api/admin/busan/story-sources")
 @RequiredArgsConstructor
@@ -19,10 +17,8 @@ public class AdminBusanDataController {
     private final BusanAttractionSourceService busanAttractionSourceService;
 
     @GetMapping("/status")
-    public ResponseEntity<Map<String, Object>> status() {
-        return ResponseEntity.ok(Map.of(
-                "has_active_sources", busanAttractionSourceService.hasActiveSources()
-        ));
+    public ResponseEntity<BusanAttractionSourceService.StatusResult> status() {
+        return ResponseEntity.ok(busanAttractionSourceService.getStatus());
     }
 
     @PostMapping("/sync")

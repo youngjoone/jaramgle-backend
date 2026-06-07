@@ -12,6 +12,23 @@ public interface BusanStorySourceRepository extends JpaRepository<BusanStorySour
 
     long countByActiveTrue();
 
+    @Query("""
+            SELECT COUNT(s) FROM BusanStorySource s
+            WHERE s.active = true
+              AND (COALESCE(s.thumbnailUrl, '') <> '' OR COALESCE(s.imageUrl, '') <> '')
+            """)
+    long countVisible();
+
+    @Query("""
+            SELECT COUNT(s) FROM BusanStorySource s
+            WHERE s.active = true
+              AND COALESCE(s.photoKeywords, '') <> ''
+            """)
+    long countPhotoEnriched();
+
+    @Query("SELECT MAX(s.lastSyncedAt) FROM BusanStorySource s")
+    java.time.LocalDateTime findLatestSyncedAt();
+
     Optional<BusanStorySource> findFirstByActiveTrueAndExternalIdOrderByQualityScoreDesc(String externalId);
 
     Optional<BusanStorySource> findByExternalSourceAndExternalId(String externalSource, String externalId);

@@ -175,7 +175,22 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
 
     busan_ctx = req.busan_context
     busan_context_block = "- 선택된 장소 컨텍스트 없음"
+    busan_story_seed_block = "- 장소명과 사진 키워드를 중심으로 아이가 체험할 수 있는 장면을 만든다."
     if busan_ctx:
+        story_seed_items = []
+        if busan_ctx.title:
+            story_seed_items.append(f"장소명 '{busan_ctx.title}'은 이야기의 주요 배경으로 사용")
+        if busan_ctx.district:
+            story_seed_items.append(f"'{busan_ctx.district}' 지역 정체성을 한 장면 이상에 반영")
+        if busan_ctx.feature_summary:
+            story_seed_items.append(f"주요 특징 활용: {busan_ctx.feature_summary}")
+        if busan_ctx.origin_story:
+            story_seed_items.append(f"유래/역사 포인트 활용: {busan_ctx.origin_story}")
+        if busan_ctx.photo_keywords:
+            story_seed_items.append(f"관광사진 키워드를 시각 장면에 반영: {busan_ctx.photo_keywords}")
+        if busan_ctx.photo_title:
+            story_seed_items.append(f"사진 제목에서 연상되는 장면 활용: {busan_ctx.photo_title}")
+
         context_lines = [
             f"- 장소명: {busan_ctx.title or '미상'}",
             f"- 구/군: {busan_ctx.district or '미상'}",
@@ -183,6 +198,7 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
             f"- 주요 특징: {busan_ctx.feature_summary or '미상'}",
             f"- 유래/역사 포인트: {busan_ctx.origin_story or '미상'}",
             f"- 스토리 참고 요약: {busan_ctx.description or '미상'}",
+            f"- 동화 소재 힌트: {busan_ctx.story_seed or '미상'}",
             f"- 주소: {busan_ctx.address or '미상'}",
             f"- 관광사진 제목: {busan_ctx.photo_title or '미상'}",
             f"- 관광사진 촬영지: {busan_ctx.photo_location or '미상'}",
@@ -190,6 +206,10 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
             f"- 공공데이터 출처: {busan_ctx.data_sources or '미상'}",
         ]
         busan_context_block = "\n".join(context_lines)
+        if busan_ctx.story_seed:
+            busan_story_seed_block = f"- 우선 활용할 동화 소재 힌트: {busan_ctx.story_seed}"
+        else:
+            busan_story_seed_block = "\n".join(f"- {item}" for item in story_seed_items) if story_seed_items else busan_story_seed_block
 
     mission_rules = {
         "CITY_INTRO": dedent("""
@@ -254,6 +274,12 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
 
 [부산 장소 컨텍스트]
 {busan_context_block}
+
+[공공데이터 기반 동화 소재 추출]
+{busan_story_seed_block}
+- 위 데이터에 없는 구체적 연도, 인물, 사건, 문화재 지정 정보는 새로 지어내지 않는다.
+- 역사/유래 정보가 부족하면 사실을 꾸며내지 말고, 장소의 분위기·사진 키워드·아이의 체험 중심으로 이야기를 만든다.
+- 공공데이터 설명을 그대로 복사하지 말고, 아이가 이해할 수 있는 행동·대화·발견 장면으로 바꾼다.
 
 [부산 미션 규칙]
 {mission_rules[mission]}

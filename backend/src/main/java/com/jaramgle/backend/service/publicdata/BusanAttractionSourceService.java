@@ -116,6 +116,20 @@ public class BusanAttractionSourceService {
         return busanStorySourceRepository.countByActiveTrue() > 0;
     }
 
+    public StatusResult getStatus() {
+        long activeCount = busanStorySourceRepository.countByActiveTrue();
+        long visibleCount = busanStorySourceRepository.countVisible();
+        long photoEnrichedCount = busanStorySourceRepository.countPhotoEnriched();
+        LocalDateTime latestSyncedAt = busanStorySourceRepository.findLatestSyncedAt();
+        return new StatusResult(
+                activeCount > 0,
+                activeCount,
+                visibleCount,
+                photoEnrichedCount,
+                latestSyncedAt
+        );
+    }
+
     public SyncResult syncFromPublicData() {
         if (serviceKey == null || serviceKey.isBlank()) {
             log.warn("Busan attraction service key is not configured. Sync skipped.");
@@ -295,6 +309,14 @@ public class BusanAttractionSourceService {
                 source.getPhotoTitle(),
                 source.getPhotoLocation(),
                 source.getPhotoKeywords(),
+                buildStorySeed(
+                        source.getTitle(),
+                        source.getDistrict(),
+                        source.getFeature(),
+                        source.getOrigin(),
+                        source.getPhotoTitle(),
+                        source.getPhotoKeywords()
+                ),
                 source.getDataSources(),
                 source.getLat(),
                 source.getLng()
@@ -375,6 +397,7 @@ public class BusanAttractionSourceService {
                             "",
                             "",
                             "",
+                            buildStorySeed(title, district, feature, origin, "", ""),
                             "부산광역시 관광명소정보서비스",
                             lat,
                             lng
@@ -445,6 +468,7 @@ public class BusanAttractionSourceService {
                 photo.title(),
                 photo.location(),
                 photo.keywords(),
+                buildStorySeed(item.title(), item.district(), feature, item.origin(), photo.title(), photo.keywords()),
                 dataSources,
                 item.lat(),
                 item.lng()
@@ -596,6 +620,9 @@ public class BusanAttractionSourceService {
         if (notBlank(item.photoKeywords())) {
             score += 20;
         }
+        if (notBlank(item.storySeed())) {
+            score += 8;
+        }
         if (notBlank(item.storyContext())) {
             score += 15;
         }
@@ -650,6 +677,40 @@ public class BusanAttractionSourceService {
             return base + "와 관련된 관광사진 키워드: " + keywords;
         }
         return base;
+    }
+
+    private String buildStorySeed(
+            String title,
+            String district,
+            String feature,
+            String origin,
+            String photoTitle,
+            String photoKeywords
+    ) {
+        List<String> parts = new ArrayList<>();
+        if (notBlank(title)) {
+            parts.add("'" + title.trim() + "'을/를 주요 배경으로 사용");
+        }
+        if (notBlank(district)) {
+            parts.add(district.trim() + " 지역의 분위기를 반영");
+        }
+        if (notBlank(feature)) {
+            parts.add("특징: " + trimToLength(feature.trim(), 120));
+        }
+        if (notBlank(origin)) {
+            parts.add("유래/역사: " + trimToLength(origin.trim(), 120));
+        }
+        if (notBlank(photoTitle)) {
+            parts.add("사진 장면: " + trimToLength(photoTitle.trim(), 80));
+        }
+        if (notBlank(photoKeywords)) {
+            parts.add("시각 키워드: " + trimToLength(photoKeywords.trim(), 100));
+        }
+        if (parts.isEmpty()) {
+            return "";
+        }
+        String seed = String.join(" · ", parts);
+        return trimToLength(seed, 360);
     }
 
     private String appendDataSource(String existing, String source) {
@@ -843,6 +904,14 @@ public class BusanAttractionSourceService {
             int skipped,
             int failedPages,
             String status
+    ) {}
+
+    public record StatusResult(
+            boolean hasActiveSources,
+            long activeCount,
+            long visibleCount,
+            long photoEnrichedCount,
+            LocalDateTime latestSyncedAt
     ) {}
 
     public record PhotoEnrichmentResult(

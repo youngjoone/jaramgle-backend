@@ -147,6 +147,9 @@ public class StoryGenerateRequest {
         @JsonProperty("photo_keywords")
         @JsonAlias({"photoKeywords"})
         private String photoKeywords;
+        @JsonProperty("story_seed")
+        @JsonAlias({"storySeed"})
+        private String storySeed;
         @JsonProperty("data_sources")
         @JsonAlias({"dataSources"})
         private String dataSources;
@@ -164,6 +167,7 @@ public class StoryGenerateRequest {
         public void setPhotoTitle(String photoTitle) { this.photoTitle = trimToNull(photoTitle); }
         public void setPhotoLocation(String photoLocation) { this.photoLocation = trimToNull(photoLocation); }
         public void setPhotoKeywords(String photoKeywords) { this.photoKeywords = trimToNull(photoKeywords); }
+        public void setStorySeed(String storySeed) { this.storySeed = trimToNull(storySeed); }
         public void setDataSources(String dataSources) { this.dataSources = trimToNull(dataSources); }
 
         private static String trimToNull(String value) {

@@ -36,6 +36,7 @@ class BusanContext(BaseModel):
     photo_title: Optional[str] = Field(default=None, alias="photo_title")
     photo_location: Optional[str] = Field(default=None, alias="photo_location")
     photo_keywords: Optional[str] = Field(default=None, alias="photo_keywords")
+    story_seed: Optional[str] = Field(default=None, alias="story_seed")
     data_sources: Optional[str] = Field(default=None, alias="data_sources")
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
@@ -54,6 +55,7 @@ class BusanContext(BaseModel):
         "photo_title",
         "photo_location",
         "photo_keywords",
+        "story_seed",
         "data_sources",
         mode="before",
     )
