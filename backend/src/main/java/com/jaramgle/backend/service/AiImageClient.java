@@ -15,8 +15,12 @@ import java.time.Duration;
 @RequiredArgsConstructor
 public class AiImageClient {
 
-    private static final int RETRY_ATTEMPTS = 3;
-    private static final Duration RETRY_BACKOFF = Duration.ofSeconds(2);
+    private static final int RETRY_ATTEMPTS = Math.max(
+            0,
+            Integer.parseInt(System.getenv().getOrDefault("AI_IMAGE_CLIENT_RETRY_ATTEMPTS", "0")));
+    private static final Duration RETRY_BACKOFF = Duration.ofSeconds(Math.max(
+            1,
+            Long.parseLong(System.getenv().getOrDefault("AI_IMAGE_CLIENT_RETRY_BACKOFF_SECONDS", "2"))));
 
     private final WebClient webClient;
 
@@ -41,11 +45,14 @@ public class AiImageClient {
                 .uri(uri)
                 .bodyValue(payload)
                 .retrieve()
-                .bodyToMono(JsonNode.class)
-                .retryWhen(Retry.backoff(RETRY_ATTEMPTS, RETRY_BACKOFF)
-                        .filter(this::isRetryable)
-                        .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
-                                new RuntimeException(retryExhaustedMessage, retrySignal.failure())));
+                .bodyToMono(JsonNode.class);
+
+        if (RETRY_ATTEMPTS > 0) {
+            responseMono = responseMono.retryWhen(Retry.backoff(RETRY_ATTEMPTS, RETRY_BACKOFF)
+                    .filter(this::isRetryable)
+                    .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) ->
+                            new RuntimeException(retryExhaustedMessage, retrySignal.failure())));
+        }
         return responseMono.block();
     }
 
@@ -53,7 +60,6 @@ public class AiImageClient {
         if (!(throwable instanceof WebClientResponseException ex)) {
             return false;
         }
-        int statusCode = ex.getStatusCode().value();
-        return statusCode == 429 || ex.getStatusCode().is5xxServerError();
+        return ex.getStatusCode().value() == 429;
     }
 }
