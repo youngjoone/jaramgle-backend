@@ -63,7 +63,7 @@ public class StoryGenerateRequest {
 
     @JsonProperty("art_style")
     @JsonAlias({"artStyle"})
-    @Size(max = 80)
+    @Size(max = 200)
     private String artStyle;
 
     @JsonProperty("translation_language")
@@ -138,6 +138,18 @@ public class StoryGenerateRequest {
         private String originStory;
         private String description;
         private String address;
+        @JsonProperty("photo_title")
+        @JsonAlias({"photoTitle"})
+        private String photoTitle;
+        @JsonProperty("photo_location")
+        @JsonAlias({"photoLocation"})
+        private String photoLocation;
+        @JsonProperty("photo_keywords")
+        @JsonAlias({"photoKeywords"})
+        private String photoKeywords;
+        @JsonProperty("data_sources")
+        @JsonAlias({"dataSources"})
+        private String dataSources;
 
         public void setSourceType(String sourceType) { this.sourceType = trimToNull(sourceType); }
         public void setSourceId(String sourceId) { this.sourceId = trimToNull(sourceId); }
@@ -149,6 +161,10 @@ public class StoryGenerateRequest {
         public void setOriginStory(String originStory) { this.originStory = trimToNull(originStory); }
         public void setDescription(String description) { this.description = trimToNull(description); }
         public void setAddress(String address) { this.address = trimToNull(address); }
+        public void setPhotoTitle(String photoTitle) { this.photoTitle = trimToNull(photoTitle); }
+        public void setPhotoLocation(String photoLocation) { this.photoLocation = trimToNull(photoLocation); }
+        public void setPhotoKeywords(String photoKeywords) { this.photoKeywords = trimToNull(photoKeywords); }
+        public void setDataSources(String dataSources) { this.dataSources = trimToNull(dataSources); }
 
         private static String trimToNull(String value) {
             if (value == null) {

@@ -184,6 +184,10 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
             f"- 유래/역사 포인트: {busan_ctx.origin_story or '미상'}",
             f"- 스토리 참고 요약: {busan_ctx.description or '미상'}",
             f"- 주소: {busan_ctx.address or '미상'}",
+            f"- 관광사진 제목: {busan_ctx.photo_title or '미상'}",
+            f"- 관광사진 촬영지: {busan_ctx.photo_location or '미상'}",
+            f"- 관광사진 키워드: {busan_ctx.photo_keywords or '미상'}",
+            f"- 공공데이터 출처: {busan_ctx.data_sources or '미상'}",
         ]
         busan_context_block = "\n".join(context_lines)
 

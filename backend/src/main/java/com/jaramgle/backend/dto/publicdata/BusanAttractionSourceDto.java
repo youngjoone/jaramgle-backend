@@ -12,6 +12,10 @@ public record BusanAttractionSourceDto(
         String address,
         String thumbnailUrl,
         String imageUrl,
+        String photoTitle,
+        String photoLocation,
+        String photoKeywords,
+        String dataSources,
         Double lat,
         Double lng
 ) {}

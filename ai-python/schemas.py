@@ -33,6 +33,10 @@ class BusanContext(BaseModel):
     origin_story: Optional[str] = Field(default=None, alias="origin_story")
     description: Optional[str] = None
     address: Optional[str] = None
+    photo_title: Optional[str] = Field(default=None, alias="photo_title")
+    photo_location: Optional[str] = Field(default=None, alias="photo_location")
+    photo_keywords: Optional[str] = Field(default=None, alias="photo_keywords")
+    data_sources: Optional[str] = Field(default=None, alias="data_sources")
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -47,6 +51,10 @@ class BusanContext(BaseModel):
         "origin_story",
         "description",
         "address",
+        "photo_title",
+        "photo_location",
+        "photo_keywords",
+        "data_sources",
         mode="before",
     )
     def _strip_optional_fields(cls, value):
