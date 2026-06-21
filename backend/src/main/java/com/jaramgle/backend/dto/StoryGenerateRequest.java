@@ -81,6 +81,10 @@ public class StoryGenerateRequest {
     @JsonAlias({"busanContext", "busan_context"})
     private BusanContext busanContext;
 
+    @JsonProperty("local_context")
+    @JsonAlias({"localContext", "local_context"})
+    private LocalContext localContext;
+
     public void setRequiredElements(List<String> elements) {
         if (elements == null) {
             this.requiredElements = null;
@@ -154,6 +158,81 @@ public class StoryGenerateRequest {
         @JsonAlias({"dataSources"})
         private String dataSources;
 
+        public void setSourceType(String sourceType) { this.sourceType = trimToNull(sourceType); }
+        public void setSourceId(String sourceId) { this.sourceId = trimToNull(sourceId); }
+        public void setTitle(String title) { this.title = trimToNull(title); }
+        public void setDistrict(String district) { this.district = trimToNull(district); }
+        public void setSubtitle(String subtitle) { this.subtitle = trimToNull(subtitle); }
+        public void setIntroduction(String introduction) { this.introduction = trimToNull(introduction); }
+        public void setFeatureSummary(String featureSummary) { this.featureSummary = trimToNull(featureSummary); }
+        public void setOriginStory(String originStory) { this.originStory = trimToNull(originStory); }
+        public void setDescription(String description) { this.description = trimToNull(description); }
+        public void setAddress(String address) { this.address = trimToNull(address); }
+        public void setPhotoTitle(String photoTitle) { this.photoTitle = trimToNull(photoTitle); }
+        public void setPhotoLocation(String photoLocation) { this.photoLocation = trimToNull(photoLocation); }
+        public void setPhotoKeywords(String photoKeywords) { this.photoKeywords = trimToNull(photoKeywords); }
+        public void setStorySeed(String storySeed) { this.storySeed = trimToNull(storySeed); }
+        public void setDataSources(String dataSources) { this.dataSources = trimToNull(dataSources); }
+
+        private static String trimToNull(String value) {
+            if (value == null) {
+                return null;
+            }
+            String trimmed = value.trim();
+            return trimmed.isEmpty() ? null : trimmed;
+        }
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class LocalContext {
+        @JsonProperty("region_code")
+        @JsonAlias({"regionCode"})
+        private String regionCode;
+        @JsonProperty("region_name")
+        @JsonAlias({"regionName"})
+        private String regionName;
+        @JsonProperty("source_type")
+        @JsonAlias({"sourceType"})
+        private String sourceType;
+        @JsonProperty("source_id")
+        @JsonAlias({"sourceId"})
+        private String sourceId;
+        private String title;
+        private String district;
+        private String subtitle;
+        @JsonProperty("introduction")
+        @JsonAlias({"intro"})
+        private String introduction;
+        @JsonProperty("feature_summary")
+        @JsonAlias({"featureSummary", "feature"})
+        private String featureSummary;
+        @JsonProperty("origin_story")
+        @JsonAlias({"originStory", "origin"})
+        private String originStory;
+        private String description;
+        private String address;
+        @JsonProperty("photo_title")
+        @JsonAlias({"photoTitle"})
+        private String photoTitle;
+        @JsonProperty("photo_location")
+        @JsonAlias({"photoLocation"})
+        private String photoLocation;
+        @JsonProperty("photo_keywords")
+        @JsonAlias({"photoKeywords"})
+        private String photoKeywords;
+        @JsonProperty("story_seed")
+        @JsonAlias({"storySeed"})
+        private String storySeed;
+        @JsonProperty("data_sources")
+        @JsonAlias({"dataSources"})
+        private String dataSources;
+
+        public void setRegionCode(String regionCode) { this.regionCode = trimToNull(regionCode); }
+        public void setRegionName(String regionName) { this.regionName = trimToNull(regionName); }
         public void setSourceType(String sourceType) { this.sourceType = trimToNull(sourceType); }
         public void setSourceId(String sourceId) { this.sourceId = trimToNull(sourceId); }
         public void setTitle(String title) { this.title = trimToNull(title); }

@@ -436,6 +436,9 @@ public class StoryService {
         if (request.getBusanContext() != null) {
             promptPayload.set("busan_context", objectMapper.valueToTree(request.getBusanContext()));
         }
+        if (request.getLocalContext() != null) {
+            promptPayload.set("local_context", objectMapper.valueToTree(request.getLocalContext()));
+        }
         String translationLang = resolveTranslationLanguage(request.getTranslationLanguage(), request.getLanguage());
         if (translationLang != null) {
             promptPayload.put("translation_language", translationLang);
@@ -467,7 +470,9 @@ public class StoryService {
         }
 
         try {
-            String aiGeneratePath = isBusanProfile(request) ? "/ai/generate-busan" : "/ai/generate";
+            String aiGeneratePath = isBusanProfile(request)
+                    ? "/ai/generate-busan"
+                    : (isLocalProfile(request) ? "/ai/generate-local" : "/ai/generate");
             JsonNode aiResponse = webClient.post()
                     .uri(aiGeneratePath)
                     .bodyValue(promptPayload)
@@ -499,7 +504,7 @@ public class StoryService {
 
         } catch (WebClientResponseException ex) {
             log.error("LLM service returned an error response: {}", ex.getMessage(), ex);
-            if (isBusanProfile(request)) {
+            if (isBusanProfile(request) || isLocalProfile(request)) {
                 AiProviderException providerException = toAiProviderException(ex);
                 if (providerException != null) {
                     throw providerException;
@@ -539,11 +544,22 @@ public class StoryService {
         return "BUSAN".equals(normalized) || "BUSAN_COMPETITION".equals(normalized);
     }
 
+    private boolean isLocalProfile(StoryGenerateRequest request) {
+        String profile = request.getGenerationProfile();
+        if (profile == null) {
+            return false;
+        }
+        String normalized = profile.trim().toUpperCase(Locale.ROOT);
+        return "LOCAL_STORY_MAP".equals(normalized)
+                || "LOCAL_DAEGU".equals(normalized)
+                || "LOCAL_CHUNGBUK".equals(normalized);
+    }
+
     private boolean shouldRetryAiServiceUnavailable(Throwable throwable, StoryGenerateRequest request) {
         if (!(throwable instanceof WebClientResponseException.ServiceUnavailable ex)) {
             return false;
         }
-        if (isBusanProfile(request) && toAiProviderException(ex) != null) {
+        if ((isBusanProfile(request) || isLocalProfile(request)) && toAiProviderException(ex) != null) {
             return false;
         }
         return true;

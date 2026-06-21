@@ -9,6 +9,13 @@ ai-python/gcp-sa.json
 
 # Local data/artifacts
 data/**
+!data/
+data/*
+!data/character/
+data/character/*
+!data/character/busan-boogi.png
+!data/character/daegu-dodalsu.png
+!data/character/chungbuk-godeumi-bareumi.jpg
 backend/data/**
 ai-python/data/**
 !data/.gitkeep

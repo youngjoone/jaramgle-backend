@@ -66,6 +66,54 @@ class BusanContext(BaseModel):
         return text or None
 
 
+class LocalContext(BaseModel):
+    region_code: Optional[str] = Field(default=None, alias="region_code")
+    region_name: Optional[str] = Field(default=None, alias="region_name")
+    source_type: Optional[str] = Field(default=None, alias="source_type")
+    source_id: Optional[str] = Field(default=None, alias="source_id")
+    title: Optional[str] = None
+    district: Optional[str] = None
+    subtitle: Optional[str] = None
+    introduction: Optional[str] = None
+    feature_summary: Optional[str] = Field(default=None, alias="feature_summary")
+    origin_story: Optional[str] = Field(default=None, alias="origin_story")
+    description: Optional[str] = None
+    address: Optional[str] = None
+    photo_title: Optional[str] = Field(default=None, alias="photo_title")
+    photo_location: Optional[str] = Field(default=None, alias="photo_location")
+    photo_keywords: Optional[str] = Field(default=None, alias="photo_keywords")
+    story_seed: Optional[str] = Field(default=None, alias="story_seed")
+    data_sources: Optional[str] = Field(default=None, alias="data_sources")
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    @field_validator(
+        "region_code",
+        "region_name",
+        "source_type",
+        "source_id",
+        "title",
+        "district",
+        "subtitle",
+        "introduction",
+        "feature_summary",
+        "origin_story",
+        "description",
+        "address",
+        "photo_title",
+        "photo_location",
+        "photo_keywords",
+        "story_seed",
+        "data_sources",
+        mode="before",
+    )
+    def _strip_optional_fields(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+
 class GenerateRequest(BaseModel):
     age_range: Union[int, str]
     topics: List[str]
@@ -81,6 +129,7 @@ class GenerateRequest(BaseModel):
     translation_language: Optional[str] = Field(default=None, alias="translation_language")
     generation_profile: Optional[str] = Field(default=None, alias="generation_profile")
     busan_context: Optional[BusanContext] = Field(default=None, alias="busan_context")
+    local_context: Optional[LocalContext] = Field(default=None, alias="local_context")
 
     model_config = ConfigDict(extra="ignore")
 
