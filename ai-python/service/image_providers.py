@@ -341,6 +341,8 @@ class Gemini25FlashProviderConfig:
     project_id: str
     location: str
     candidate_count: int = 1
+    aspect_ratio: Optional[str] = None
+    image_size: Optional[str] = None
 
 
 class Gemini25FlashImageProvider(ImageProvider):
@@ -379,7 +381,7 @@ class Gemini25FlashImageProvider(ImageProvider):
     )
     def generate(self, *, prompt: str, request_id: str, image_bytes: Optional[List[bytes]] = None) -> bytes:
         try:
-            from google.genai.types import GenerateContentConfig
+            from google.genai.types import GenerateContentConfig, ImageConfig
             from PIL import Image
             from io import BytesIO
 
@@ -389,9 +391,16 @@ class Gemini25FlashImageProvider(ImageProvider):
                     img = Image.open(BytesIO(img_bytes))
                     contents.append(img)
 
+            image_config_kwargs = {}
+            if self._config.aspect_ratio:
+                image_config_kwargs["aspect_ratio"] = self._config.aspect_ratio
+            if self._config.image_size and self._config.model.startswith("gemini-3"):
+                image_config_kwargs["image_size"] = self._config.image_size
+
             generation_config = GenerateContentConfig(
                 response_modalities=["IMAGE"],
                 candidate_count=self._config.candidate_count,
+                image_config=ImageConfig(**image_config_kwargs) if image_config_kwargs else None,
             )
 
             response = self._client.models.generate_content(

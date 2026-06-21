@@ -1,11 +1,14 @@
 import json
 import logging
+from io import BytesIO
 from textwrap import dedent
 from typing import Any, Dict, Optional
+from urllib.request import Request, urlopen
 
 from google import genai
 from google.genai.errors import ClientError
 from google.genai.types import GenerateContentConfig
+from PIL import Image
 
 from config import Config
 from schemas import (
@@ -81,7 +84,7 @@ def _parse_json_response(raw_json_text: str, request_id: str, label: str) -> Dic
         return json.loads(repaired)
 
 
-def _enforce_busan_visual_contract(story_data: Dict[str, Any]) -> Dict[str, Any]:
+def _enforce_busan_visual_contract(story_data: Dict[str, Any], req: GenerateRequest) -> Dict[str, Any]:
     concept = story_data.setdefault("creative_concept", {})
     existing_style = str(concept.get("art_style") or "").strip()
     if "3d" in existing_style.lower() or "cgi" in existing_style.lower():
@@ -112,6 +115,17 @@ def _enforce_busan_visual_contract(story_data: Dict[str, Any]) -> Dict[str, Any]
     boogi_sheet["visual_description"] = BOOGI_2D_VISUAL_GUIDE
     boogi_sheet.setdefault("voice_profile", "밝고 친근하며 아이들을 부산 모험으로 안내하는 명랑한 목소리")
 
+    recurring_companions = [
+        sheet
+        for sheet in sheets
+        if isinstance(sheet, dict) and sheet is not boogi_sheet
+    ]
+    required_companion_count = 2 if _detect_busan_mission(req) == "MULTICULTURAL" else 1
+    if len(recurring_companions) < required_companion_count:
+        raise ValueError(
+            f"Busan story must include at least {required_companion_count} recurring child character sheet(s)."
+        )
+
     story = story_data.get("story")
     pages = story.get("pages") if isinstance(story, dict) else None
     if isinstance(pages, list):
@@ -122,7 +136,10 @@ def _enforce_busan_visual_contract(story_data: Dict[str, Any]) -> Dict[str, Any]
             style_suffix = (
                 "Render as a consistent flat 2D children's storybook illustration with pastel colors and clean outlines. "
                 "Boogi must match the official 2D guide with red round glasses, yellow beak, white rounded body, and black sneakers. "
-                "No 3D, CGI, plastic toy, clay, mascot costume, or photorealistic texture."
+                "No 3D, CGI, plastic toy, clay, mascot costume, or photorealistic texture. "
+                "Use a full-bleed 3:4 portrait composition with no white margins, borders, panels, captions, logos, sign text, or speech bubbles. "
+                "Keep all important faces, hands, feet, props, and landmark features inside the central safe area. "
+                "Each named character appears exactly once."
             )
             if image_prompt:
                 page["image_prompt"] = f"{image_prompt} {style_suffix}"
@@ -280,6 +297,8 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
 - 위 데이터에 없는 구체적 연도, 인물, 사건, 문화재 지정 정보는 새로 지어내지 않는다.
 - 역사/유래 정보가 부족하면 사실을 꾸며내지 말고, 장소의 분위기·사진 키워드·아이의 체험 중심으로 이야기를 만든다.
 - 공공데이터 설명을 그대로 복사하지 말고, 아이가 이해할 수 있는 행동·대화·발견 장면으로 바꾼다.
+- 함께 제공된 공식 장소 사진을 가장 신뢰할 수 있는 시각 근거로 사용하고, 사진에 없는 건축물·시장·해변·산을 임의로 추가하지 않는다.
+- 선택 장소는 이야기의 중심 배경이며 전체 페이지의 절반 이상에서 장소 자체 또는 사진에서 확인되는 핵심 외형이 드러나야 한다.
 
 [부산 미션 규칙]
 {mission_rules[mission]}
@@ -295,6 +314,9 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
 - 부기의 외형은 다음 설명을 기준으로 고정한다: {BOOGI_2D_VISUAL_GUIDE}
 - 부기를 다른 새, 오리, 펭귄, 사람, 로봇, 3D 인형, 털/깃털이 사실적인 동물로 재해석하지 않는다.
 - 부기의 빨간 동그란 안경, 노란 주둥이, 흰 둥근 몸, 검은 운동화 디테일을 모든 페이지에서 유지한다.
+- 도시 소개/문화유산 탐험은 반복 등장하는 어린이 주인공 1명을, 다문화 우정 이야기는 서로 다른 문화권의 어린이 2명 이상을 정한다.
+- 반복 등장 어린이는 이름·나이·얼굴형·피부색·머리 모양·상의·하의·신발·소품 색상을 고정하고 creative_concept.character_sheets에 각각 정확히 한 번 기록한다.
+- 부기와 어린이 주인공을 별칭으로 다시 만들거나 같은 장면에 복제하지 않는다.
 
 [필수 등장 요소]
 {required_section}
@@ -306,7 +328,11 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
 - story.pages는 정확히 {min_pages}개.
 - story.pages.text / story.title / quiz는 반드시 {lang_label}로 작성.
 - page.text는 각 페이지마다 충분한 서사(20단어 이상)를 갖는다.
-- page.image_prompt는 1~2문장으로 장면·행동·감정을 구체적으로 묘사한다.
+- page.image_prompt는 1~2문장으로 그 페이지에 실제 등장하는 인물만 이름으로 명시하고 장면·행동·감정을 구체적으로 묘사한다.
+- 반복 등장 인물은 creative_concept.character_sheets의 이름·외형·복장·소품을 모든 페이지에서 동일하게 유지한다.
+- 장소가 보이는 페이지에는 공식 사진에서 관찰한 지붕선, 외벽 재료, 구조, 주변 지형 중 2개 이상을 image_prompt에 구체적으로 적는다.
+- 모든 이미지는 여백 없는 3:4 세로형 full-bleed 삽화이며, 캐릭터와 랜드마크가 가장자리에서 잘리지 않도록 중앙 안전영역에 배치한다.
+- 간판, 말풍선, 제목, 로고, 장식 글자는 이미지에 만들지 않는다.
 - quiz는 정확히 3개, 3지선다, answer는 0~2 인덱스.
 
 [출력 스키마]
@@ -327,9 +353,35 @@ def _build_busan_prompt(req: GenerateRequest) -> str:
     return dedent(prompt).strip()
 
 
+def _load_busan_location_reference(req: GenerateRequest) -> Optional[Image.Image]:
+    ctx = req.busan_context
+    image_url = (ctx.image_url if ctx else None) or (ctx.thumbnail_url if ctx else None)
+    if not image_url:
+        return None
+    try:
+        request = Request(image_url, headers={"User-Agent": "Jaramgle/1.0"})
+        with urlopen(request, timeout=10) as response:
+            data = response.read(12 * 1024 * 1024)
+        image = Image.open(BytesIO(data))
+        image.load()
+        return image.convert("RGB")
+    except Exception as exc:
+        logger.warning("Failed to load Busan location image %s: %s", image_url, exc)
+        return None
+
+
 def _call_busan_gemini(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
     client, model_name = _get_busan_vertex_client()
     prompt = _build_busan_prompt(req)
+    contents: list[Any] = [prompt]
+    location_reference = _load_busan_location_reference(req)
+    if location_reference is not None:
+        contents.extend([
+            "The following image is the official public-data photo of the selected Busan location. "
+            "Inspect its visible architecture, materials, colors, coastline, and terrain. "
+            "Use it as visual evidence only; ignore and never reproduce any watermark or text.",
+            location_reference,
+        ])
     logger.info(
         "Calling Busan Vertex Gemini for request_id: %s, model: %s, location: %s",
         request_id,
@@ -338,7 +390,7 @@ def _call_busan_gemini(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
     )
     response = client.models.generate_content(
         model=model_name,
-        contents=prompt,
+        contents=contents,
         config=GenerateContentConfig(
             response_mime_type="application/json",
             temperature=0.65,
@@ -420,7 +472,7 @@ def generate_busan_story(req: GenerateRequest, request_id: str) -> GenerateRespo
             else:
                 # 부산 전용은 프롬프트 통제를 위해 Gemini 경로만 사용
                 story_data = _call_busan_gemini(req, request_id)
-            story_data = _enforce_busan_visual_contract(story_data)
+            story_data = _enforce_busan_visual_contract(story_data, req)
 
             story = StoryOutput(**story_data["story"])
             story = _normalize_and_validate_story(story, req)

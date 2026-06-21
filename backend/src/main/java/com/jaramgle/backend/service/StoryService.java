@@ -13,10 +13,14 @@ import com.jaramgle.backend.entity.Character;
 import com.jaramgle.backend.entity.CharacterModelingStatus;
 import com.jaramgle.backend.entity.CharacterScope;
 import com.jaramgle.backend.entity.StoryOrigin;
+import com.jaramgle.backend.entity.BusanStorySource;
+import com.jaramgle.backend.entity.LocalStorySource;
 import com.jaramgle.backend.exception.AiProviderException;
 import com.jaramgle.backend.exception.CharacterModelingException;
 import com.jaramgle.backend.exception.StoryGenerationException;
 import com.jaramgle.backend.repository.CharacterRepository;
+import com.jaramgle.backend.repository.BusanStorySourceRepository;
+import com.jaramgle.backend.repository.LocalStorySourceRepository;
 import com.jaramgle.backend.repository.StoryPageRepository;
 import com.jaramgle.backend.repository.StoryRepository;
 import com.jaramgle.backend.repository.StorybookPageRepository;
@@ -68,11 +72,16 @@ public class StoryService {
     private static final String BUSAN_BOOGI_SLUG = "busan-boogi";
     private static final String BOOGI_ALIAS_SLUG = "boogi";
     private static final String BOOGI_ALIAS_NAME = "부기";
+    private static final String DAEGU_DODALSSU_SLUG = "daegu-dodalsu";
+    private static final Set<String> DODALSSU_ALIAS_SLUGS = Set.of("dodalssu", "dodalsu", DAEGU_DODALSSU_SLUG);
+    private static final String DODALSSU_ALIAS_NAME = "도달쑤";
 
     private final StoryRepository storyRepository;
     private final StoryPageRepository storyPageRepository;
     private final StorybookPageRepository storybookPageRepository;
     private final CharacterRepository characterRepository;
+    private final BusanStorySourceRepository busanStorySourceRepository;
+    private final LocalStorySourceRepository localStorySourceRepository;
     private final StorageQuotaService storageQuotaService;
     private final HeartWalletService heartWalletService;
     private final WebClient webClient;
@@ -315,13 +324,14 @@ public class StoryService {
             throw new StoryGenerationException("퀴즈 생성에 실패했어요. 잠시 후 다시 시도해 주세요.");
         }
 
+        JsonNode creativeConceptForStorage = enrichCreativeConcept(creativeConcept, request);
         String quizJson;
         String creativeConceptJson = null;
         String translationJson = null;
         try {
             quizJson = objectMapper.writeValueAsString(stableStoryDto.quiz());
-            if (creativeConcept != null) {
-                creativeConceptJson = objectMapper.writeValueAsString(creativeConcept);
+            if (creativeConceptForStorage != null) {
+                creativeConceptJson = objectMapper.writeValueAsString(creativeConceptForStorage);
             }
             if (translation != null && !translation.isNull()) {
                 translationJson = objectMapper.writeValueAsString(translation);
@@ -406,6 +416,7 @@ public class StoryService {
 
     @Cacheable(value = "story-generation", key = "#request.toString()")
     public GenerationResult generateAiStory(StoryGenerateRequest request) {
+        hydrateTrustedRegionalContext(request);
         log.info("Cache miss. Generating new story for request: {}", request);
         ObjectNode promptPayload = objectMapper.createObjectNode();
         promptPayload.put("age_range", request.getAgeRange());
@@ -610,12 +621,16 @@ public class StoryService {
                     storyCharactersBySlug.putIfAbsent(character.getSlug().toLowerCase(Locale.ROOT), character);
                     if (BUSAN_BOOGI_SLUG.equalsIgnoreCase(character.getSlug())) {
                         storyCharactersBySlug.putIfAbsent(BOOGI_ALIAS_SLUG, character);
+                    } else if (DAEGU_DODALSSU_SLUG.equalsIgnoreCase(character.getSlug())) {
+                        DODALSSU_ALIAS_SLUGS.forEach(alias -> storyCharactersBySlug.putIfAbsent(alias, character));
                     }
                 }
                 if (character.getName() != null && !character.getName().isBlank()) {
                     storyCharactersByName.putIfAbsent(character.getName().trim().toLowerCase(Locale.ROOT), character);
                     if (BUSAN_BOOGI_SLUG.equalsIgnoreCase(character.getSlug())) {
                         storyCharactersByName.putIfAbsent(BOOGI_ALIAS_NAME, character);
+                    } else if (DAEGU_DODALSSU_SLUG.equalsIgnoreCase(character.getSlug())) {
+                        storyCharactersByName.putIfAbsent(DODALSSU_ALIAS_NAME, character);
                     }
                 }
             }
@@ -626,7 +641,7 @@ public class StoryService {
             return;
         }
 
-        int currentCharacterCount = storyCharactersBySlug.size();
+        int currentCharacterCount = story.getCharacters().size();
         int maxAdditionalAllowed = Math.max(0, MAX_TOTAL_STORY_CHARACTERS - currentCharacterCount);
         int additionalCreated = 0;
         Set<Character> charactersToPersist = new HashSet<>();
@@ -650,6 +665,12 @@ public class StoryService {
                 character = storyCharactersBySlug.get(BUSAN_BOOGI_SLUG);
                 if (character == null) {
                     character = characterRepository.findBySlug(BUSAN_BOOGI_SLUG).orElse(null);
+                }
+            }
+            if (character == null && isDaeguProfile(request) && isDodalsuAlias(slug, name)) {
+                character = storyCharactersBySlug.get(DAEGU_DODALSSU_SLUG);
+                if (character == null) {
+                    character = characterRepository.findBySlug(DAEGU_DODALSSU_SLUG).orElse(null);
                 }
             }
             if (character == null) {
@@ -722,6 +743,119 @@ public class StoryService {
                 || BOOGI_ALIAS_SLUG.equals(normalizedSlug)
                 || normalizedName.contains(BOOGI_ALIAS_NAME)
                 || normalizedName.contains("boogi");
+    }
+
+    private boolean isDodalsuAlias(String slug, String name) {
+        String normalizedSlug = slug == null ? "" : slug.trim().toLowerCase(Locale.ROOT);
+        String normalizedName = name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
+        return DODALSSU_ALIAS_SLUGS.contains(normalizedSlug)
+                || normalizedName.contains(DODALSSU_ALIAS_NAME)
+                || normalizedName.contains("dodalssu")
+                || normalizedName.contains("dodalsu");
+    }
+
+    private boolean isDaeguProfile(StoryGenerateRequest request) {
+        if (request == null) {
+            return false;
+        }
+        String profile = normalize(request.getGenerationProfile()).toUpperCase(Locale.ROOT);
+        if ("LOCAL_DAEGU".equals(profile)) {
+            return true;
+        }
+        StoryGenerateRequest.LocalContext context = request.getLocalContext();
+        return context != null && "DAEGU".equalsIgnoreCase(normalize(context.getRegionCode()));
+    }
+
+    private JsonNode enrichCreativeConcept(JsonNode creativeConcept, StoryGenerateRequest request) {
+        if (creativeConcept == null || creativeConcept.isNull() || !creativeConcept.isObject()) {
+            return creativeConcept;
+        }
+        ObjectNode enriched = ((ObjectNode) creativeConcept).deepCopy();
+        if (request != null && request.getLocalContext() != null) {
+            enriched.set("local_context", objectMapper.valueToTree(request.getLocalContext()));
+        }
+        if (request != null && request.getBusanContext() != null) {
+            enriched.set("busan_context", objectMapper.valueToTree(request.getBusanContext()));
+        }
+        return enriched;
+    }
+
+    private void hydrateTrustedRegionalContext(StoryGenerateRequest request) {
+        if (request == null) {
+            return;
+        }
+
+        StoryGenerateRequest.LocalContext localContext = request.getLocalContext();
+        if (localContext != null) {
+            String regionCode = normalize(localContext.getRegionCode()).toUpperCase(Locale.ROOT);
+            String sourceId = normalize(localContext.getSourceId());
+            Optional<LocalStorySource> source = regionCode.isBlank() || sourceId.isBlank()
+                    ? Optional.empty()
+                    : localStorySourceRepository
+                            .findFirstByRegionCodeAndActiveTrueAndExternalIdOrderByQualityScoreDesc(regionCode, sourceId);
+            source.ifPresentOrElse(
+                    trusted -> copyLocalContext(localContext, trusted),
+                    () -> {
+                        localContext.setImageUrl(null);
+                        localContext.setThumbnailUrl(null);
+                    });
+        }
+
+        StoryGenerateRequest.BusanContext busanContext = request.getBusanContext();
+        if (busanContext != null) {
+            String sourceId = normalize(busanContext.getSourceId());
+            Optional<BusanStorySource> source = sourceId.isBlank()
+                    ? Optional.empty()
+                    : busanStorySourceRepository
+                            .findFirstByActiveTrueAndExternalIdOrderByQualityScoreDesc(sourceId);
+            source.ifPresentOrElse(
+                    trusted -> copyBusanContext(busanContext, trusted),
+                    () -> {
+                        busanContext.setImageUrl(null);
+                        busanContext.setThumbnailUrl(null);
+                    });
+        }
+    }
+
+    private void copyLocalContext(StoryGenerateRequest.LocalContext context, LocalStorySource source) {
+        context.setRegionCode(source.getRegionCode());
+        context.setSourceType(source.getSourceType());
+        context.setSourceId(source.getExternalId());
+        context.setTitle(source.getTitle());
+        context.setDistrict(source.getDistrict());
+        context.setSubtitle(source.getSubtitle());
+        context.setIntroduction(source.getIntro());
+        context.setFeatureSummary(source.getFeature());
+        context.setOriginStory(source.getOrigin());
+        context.setDescription(source.getStoryContext());
+        context.setAddress(source.getAddress());
+        context.setPhotoTitle(source.getPhotoTitle());
+        context.setPhotoLocation(source.getPhotoLocation());
+        context.setPhotoKeywords(source.getPhotoKeywords());
+        context.setStorySeed(source.getStoryContext());
+        context.setDataSources(source.getDataSources());
+        context.setImageUrl(source.getImageUrl());
+        context.setThumbnailUrl(source.getThumbnailUrl());
+    }
+
+    private void copyBusanContext(StoryGenerateRequest.BusanContext context, BusanStorySource source) {
+        context.setSourceType(source.getSourceType());
+        context.setSourceId(source.getExternalId());
+        context.setTitle(source.getTitle());
+        context.setDistrict(source.getDistrict());
+        context.setSubtitle(source.getSubtitle());
+        context.setIntroduction(source.getIntro());
+        context.setFeatureSummary(source.getFeature());
+        context.setOriginStory(source.getOrigin());
+        context.setDescription(source.getStoryContext());
+        context.setAddress(source.getAddress());
+        context.setPhotoTitle(source.getPhotoTitle());
+        context.setPhotoLocation(source.getPhotoLocation());
+        context.setPhotoKeywords(source.getPhotoKeywords());
+        context.setStorySeed(source.getStoryContext());
+        context.setDataSources(source.getDataSources());
+        context.setImageUrl(source.getImageUrl());
+        context.setThumbnailUrl(source.getThumbnailUrl());
     }
 
     private boolean shouldPreserveExistingCharacterMetadata(Character character) {
@@ -818,6 +952,10 @@ public class StoryService {
                     node.put("image_url", resolvedImage);
                 }
             });
+            String locationImage = extractRequestSceneReference(request);
+            if (!locationImage.isBlank()) {
+                payload.putArray("scene_reference_images").add(locationImage);
+            }
 
             JsonNode response = aiImageClient.generateCoverImage(payload);
 
@@ -908,6 +1046,72 @@ public class StoryService {
         return value == null ? "" : value.trim();
     }
 
+    private boolean characterAppearsInPage(Character character, StoryPage page) {
+        String scene = (normalize(page.getText()) + " " + normalize(page.getImagePrompt())).toLowerCase(Locale.ROOT);
+        String name = normalize(character.getName()).toLowerCase(Locale.ROOT);
+        if (!name.isBlank() && scene.contains(name)) {
+            return true;
+        }
+        String simplifiedName = name
+                .replace("부산시 마스코트", "")
+                .replace("대구시 캐릭터", "")
+                .replace("공식 캐릭터", "")
+                .trim();
+        if (simplifiedName.length() >= 2 && scene.contains(simplifiedName)) {
+            return true;
+        }
+        String slug = normalize(character.getSlug()).toLowerCase(Locale.ROOT);
+        return DAEGU_DODALSSU_SLUG.equals(slug) && scene.contains(DODALSSU_ALIAS_NAME)
+                || BUSAN_BOOGI_SLUG.equals(slug) && scene.contains(BOOGI_ALIAS_NAME);
+    }
+
+    private String extractSceneReference(String creativeConceptJson) {
+        if (normalize(creativeConceptJson).isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode concept = objectMapper.readTree(creativeConceptJson);
+            for (String contextKey : List.of("local_context", "busan_context")) {
+                JsonNode context = concept.path(contextKey);
+                String imageUrl = normalize(context.path("image_url").asText(null));
+                if (!imageUrl.isBlank()) {
+                    return imageUrl;
+                }
+                String thumbnailUrl = normalize(context.path("thumbnail_url").asText(null));
+                if (!thumbnailUrl.isBlank()) {
+                    return thumbnailUrl;
+                }
+            }
+        } catch (JsonProcessingException ex) {
+            log.warn("Failed to parse scene reference: {}", ex.getMessage());
+        }
+        return "";
+    }
+
+    private String extractRequestSceneReference(StoryGenerateRequest request) {
+        if (request == null) {
+            return "";
+        }
+        if (request.getLocalContext() != null) {
+            String imageUrl = normalize(request.getLocalContext().getImageUrl());
+            if (!imageUrl.isBlank()) {
+                return imageUrl;
+            }
+            String thumbnailUrl = normalize(request.getLocalContext().getThumbnailUrl());
+            if (!thumbnailUrl.isBlank()) {
+                return thumbnailUrl;
+            }
+        }
+        if (request.getBusanContext() != null) {
+            String imageUrl = normalize(request.getBusanContext().getImageUrl());
+            if (!imageUrl.isBlank()) {
+                return imageUrl;
+            }
+            return normalize(request.getBusanContext().getThumbnailUrl());
+        }
+        return "";
+    }
+
     private StableStoryDto createFailsafeStory() {
         String title = "용감한 토끼의 모험";
         List<StableStoryPageDto> pages = List.of(
@@ -931,6 +1135,7 @@ public class StoryService {
         // Prepare character visuals for the AI service
         List<Character> charactersNeedingSave = new ArrayList<>();
         List<Map<String, String>> characterVisuals = story.getCharacters().stream()
+                .filter(character -> characterAppearsInPage(character, storyPage))
                 .map(character -> {
                     if (character.getImageUrl() == null || character.getImageUrl().isBlank()) {
                         ensureCharacterReference(character, character.getVisualDescription());
@@ -965,7 +1170,14 @@ public class StoryService {
 
         // Construct the request payload for the AI service
         ObjectNode requestPayload = objectMapper.createObjectNode();
-        requestPayload.put("text", storyPage.getText());
+        String scenePrompt = normalize(storyPage.getImagePrompt());
+        if (scenePrompt.isBlank()) {
+            scenePrompt = storyPage.getText();
+        }
+        requestPayload.put("text", scenePrompt
+                + " | Full-bleed 3:4 portrait illustration with no white margins or borders."
+                + " | Keep all important subjects inside the central safe area and show each named character exactly once."
+                + " | Do not invent signs, labels, captions, logos, or speech bubbles.");
         String artStyle = extractArtStyleFromConcept(story.getCreativeConcept());
         requestPayload.put("art_style", artStyle);
         
@@ -974,6 +1186,10 @@ public class StoryService {
             ObjectNode characterNode = characterArray.addObject();
             cv.forEach(characterNode::put);
         });
+        String sceneReference = extractSceneReference(story.getCreativeConcept());
+        if (!sceneReference.isBlank()) {
+            requestPayload.putArray("scene_reference_images").add(sceneReference);
+        }
 
         try {
             log.info("[CHARACTER_DEBUG] Payload for page {} asset generation: {}", pageNo, objectMapper.writeValueAsString(requestPayload));

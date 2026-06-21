@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -316,6 +317,7 @@ public class StorybookService {
         String promptForImage = resolveImagePrompt(imagePrompt, pageText, artStyle, pageNumber, story.getId());
 
         List<CharacterVisualDto> characterVisualsForRequest = story.getCharacters().stream()
+                .filter(character -> characterAppearsInScene(character, pageText, promptForImage))
                 .map(character -> createCharacterVisualDto(character, story.getId()))
                 .collect(Collectors.toList());
 
@@ -330,8 +332,15 @@ public class StorybookService {
             ObjectNode node = characterArray.addObject();
             node.put("name", visual.getName());
             if (visual.getSlug() != null && !visual.getSlug().isBlank()) {
+                String normalizedSlug = visual.getSlug().toLowerCase(Locale.ROOT);
                 node.put("slug", visual.getSlug());
-                existingCharacterKeys.add(visual.getSlug().toLowerCase());
+                existingCharacterKeys.add(normalizedSlug);
+                if ("daegu-dodalsu".equals(normalizedSlug)) {
+                    existingCharacterKeys.add("dodalssu");
+                    existingCharacterKeys.add("dodalsu");
+                } else if ("busan-boogi".equals(normalizedSlug)) {
+                    existingCharacterKeys.add("boogi");
+                }
             }
             if (visual.getVisualDescription() != null && !visual.getVisualDescription().isBlank()) {
                 node.put("visual_description", visual.getVisualDescription());
@@ -347,6 +356,7 @@ public class StorybookService {
 
         characterVisuals.stream()
                 .filter(visual -> visual.getName() != null && !visual.getName().isBlank())
+                .filter(visual -> characterVisualAppearsInScene(visual, pageText, promptForImage))
                 .filter(visual -> {
                     String key = visual.getSlug() != null ? visual.getSlug().toLowerCase()
                             : visual.getName().toLowerCase();
@@ -367,6 +377,12 @@ public class StorybookService {
                     }
                     existingCharacterKeys.add(visual.getName().toLowerCase());
                 });
+
+        List<String> sceneReferenceImages = extractSceneReferenceImages(story.getCreativeConcept());
+        if (!sceneReferenceImages.isEmpty()) {
+            ArrayNode sceneReferenceArray = requestNode.putArray("scene_reference_images");
+            sceneReferenceImages.forEach(sceneReferenceArray::add);
+        }
 
         JsonNode assetResponse;
         boolean permitAcquired = false;
@@ -492,9 +508,9 @@ public class StorybookService {
 
         // Compress and Convert to JPG
         net.coobird.thumbnailator.Thumbnails.of(originalFile.toFile())
-                .size(1024, 1024) // Resize to max 1024px
+                .size(1050, 1400)
                 .outputFormat("jpg")
-                .outputQuality(0.8) // 80% quality
+                .outputQuality(0.85)
                 .toFile(newFile.toFile());
 
         // Delete original file to save space
@@ -753,7 +769,11 @@ public class StorybookService {
             int pageNumber,
             Long storyId) {
         if (rawPrompt != null && !rawPrompt.isBlank()) {
-            return rawPrompt;
+            return rawPrompt.trim()
+                    + " | Full-bleed 3:4 portrait storybook illustration with no white margins, borders, panels, or page mockup."
+                    + " | Keep all important faces, hands, feet, props, and landmarks inside the central safe area; do not crop them."
+                    + " | Each named character appears exactly once; do not clone or duplicate any character."
+                    + " | Do not invent signs, labels, logos, captions, speech bubbles, or decorative text.";
         }
 
         String normalizedText = pageText != null ? pageText.replaceAll("\\s+", " ").trim() : "";
@@ -809,6 +829,84 @@ public class StorybookService {
 
         log.warn("No image prompt found for storyId {}, page {}. Using fallback prompt.", storyId, pageNumber);
         return fallback.toString();
+    }
+
+    private boolean characterAppearsInScene(com.jaramgle.backend.entity.Character character,
+            String pageText,
+            String imagePrompt) {
+        String scene = (normalize(pageText) + " " + normalize(imagePrompt)).toLowerCase(Locale.ROOT);
+        if (scene.isBlank()) {
+            return false;
+        }
+
+        String name = normalize(character.getName()).toLowerCase(Locale.ROOT);
+        if (!name.isBlank() && scene.contains(name)) {
+            return true;
+        }
+
+        String simplifiedName = name
+                .replace("부산시 마스코트", "")
+                .replace("대구시 캐릭터", "")
+                .replace("공식 캐릭터", "")
+                .replace("지역 안내 캐릭터", "")
+                .trim();
+        if (simplifiedName.length() >= 2 && scene.contains(simplifiedName)) {
+            return true;
+        }
+
+        String slug = normalize(character.getSlug()).toLowerCase(Locale.ROOT);
+        if (!slug.isBlank()) {
+            for (String token : slug.split("-")) {
+                if (token.length() >= 4 && scene.contains(token)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean characterVisualAppearsInScene(CharacterVisualDto visual,
+            String pageText,
+            String imagePrompt) {
+        String scene = (normalize(pageText) + " " + normalize(imagePrompt)).toLowerCase(Locale.ROOT);
+        String name = normalize(visual.getName()).toLowerCase(Locale.ROOT);
+        if (!name.isBlank() && scene.contains(name)) {
+            return true;
+        }
+        String slug = normalize(visual.getSlug()).toLowerCase(Locale.ROOT);
+        if (!slug.isBlank()) {
+            for (String token : slug.split("-")) {
+                if (token.length() >= 4 && scene.contains(token)) {
+                    return true;
+                }
+            }
+        }
+        return "dodalssu".equals(slug) && scene.contains("도달쑤")
+                || "dodalsu".equals(slug) && scene.contains("도달쑤")
+                || "boogi".equals(slug) && scene.contains("부기");
+    }
+
+    private List<String> extractSceneReferenceImages(String creativeConceptJson) {
+        if (!StringUtils.hasText(creativeConceptJson)) {
+            return List.of();
+        }
+        try {
+            JsonNode concept = objectMapper.readTree(creativeConceptJson);
+            for (String contextKey : List.of("local_context", "busan_context")) {
+                JsonNode context = concept.path(contextKey);
+                String imageUrl = normalize(context.path("image_url").asText(null));
+                String thumbnailUrl = normalize(context.path("thumbnail_url").asText(null));
+                if (!imageUrl.isBlank()) {
+                    return List.of(imageUrl);
+                }
+                if (!thumbnailUrl.isBlank()) {
+                    return List.of(thumbnailUrl);
+                }
+            }
+        } catch (IOException ex) {
+            log.warn("Failed to parse local scene reference from creative concept: {}", ex.getMessage());
+        }
+        return List.of();
     }
 
     private CharacterVisualDto createCharacterVisualDto(com.jaramgle.backend.entity.Character character, Long storyId) {

@@ -157,6 +157,12 @@ public class StoryGenerateRequest {
         @JsonProperty("data_sources")
         @JsonAlias({"dataSources"})
         private String dataSources;
+        @JsonProperty("image_url")
+        @JsonAlias({"imageUrl"})
+        private String imageUrl;
+        @JsonProperty("thumbnail_url")
+        @JsonAlias({"thumbnailUrl"})
+        private String thumbnailUrl;
 
         public void setSourceType(String sourceType) { this.sourceType = trimToNull(sourceType); }
         public void setSourceId(String sourceId) { this.sourceId = trimToNull(sourceId); }
@@ -173,6 +179,8 @@ public class StoryGenerateRequest {
         public void setPhotoKeywords(String photoKeywords) { this.photoKeywords = trimToNull(photoKeywords); }
         public void setStorySeed(String storySeed) { this.storySeed = trimToNull(storySeed); }
         public void setDataSources(String dataSources) { this.dataSources = trimToNull(dataSources); }
+        public void setImageUrl(String imageUrl) { this.imageUrl = trimToNull(imageUrl); }
+        public void setThumbnailUrl(String thumbnailUrl) { this.thumbnailUrl = trimToNull(thumbnailUrl); }
 
         private static String trimToNull(String value) {
             if (value == null) {
@@ -230,6 +238,12 @@ public class StoryGenerateRequest {
         @JsonProperty("data_sources")
         @JsonAlias({"dataSources"})
         private String dataSources;
+        @JsonProperty("image_url")
+        @JsonAlias({"imageUrl"})
+        private String imageUrl;
+        @JsonProperty("thumbnail_url")
+        @JsonAlias({"thumbnailUrl"})
+        private String thumbnailUrl;
 
         public void setRegionCode(String regionCode) { this.regionCode = trimToNull(regionCode); }
         public void setRegionName(String regionName) { this.regionName = trimToNull(regionName); }
@@ -248,6 +262,8 @@ public class StoryGenerateRequest {
         public void setPhotoKeywords(String photoKeywords) { this.photoKeywords = trimToNull(photoKeywords); }
         public void setStorySeed(String storySeed) { this.storySeed = trimToNull(storySeed); }
         public void setDataSources(String dataSources) { this.dataSources = trimToNull(dataSources); }
+        public void setImageUrl(String imageUrl) { this.imageUrl = trimToNull(imageUrl); }
+        public void setThumbnailUrl(String thumbnailUrl) { this.thumbnailUrl = trimToNull(thumbnailUrl); }
 
         private static String trimToNull(String value) {
             if (value == null) {

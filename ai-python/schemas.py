@@ -38,6 +38,8 @@ class BusanContext(BaseModel):
     photo_keywords: Optional[str] = Field(default=None, alias="photo_keywords")
     story_seed: Optional[str] = Field(default=None, alias="story_seed")
     data_sources: Optional[str] = Field(default=None, alias="data_sources")
+    image_url: Optional[str] = Field(default=None, alias="image_url")
+    thumbnail_url: Optional[str] = Field(default=None, alias="thumbnail_url")
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -57,6 +59,8 @@ class BusanContext(BaseModel):
         "photo_keywords",
         "story_seed",
         "data_sources",
+        "image_url",
+        "thumbnail_url",
         mode="before",
     )
     def _strip_optional_fields(cls, value):
@@ -84,6 +88,8 @@ class LocalContext(BaseModel):
     photo_keywords: Optional[str] = Field(default=None, alias="photo_keywords")
     story_seed: Optional[str] = Field(default=None, alias="story_seed")
     data_sources: Optional[str] = Field(default=None, alias="data_sources")
+    image_url: Optional[str] = Field(default=None, alias="image_url")
+    thumbnail_url: Optional[str] = Field(default=None, alias="thumbnail_url")
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -105,6 +111,8 @@ class LocalContext(BaseModel):
         "photo_keywords",
         "story_seed",
         "data_sources",
+        "image_url",
+        "thumbnail_url",
         mode="before",
     )
     def _strip_optional_fields(cls, value):
@@ -400,6 +408,7 @@ class GeneratePageAssetsRequest(BaseModel):
     text: str
     art_style: Optional[str] = None
     character_visuals: List[CharacterVisual] = Field(default_factory=list)
+    scene_reference_images: List[str] = Field(default_factory=list)
 
     model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
 
@@ -409,6 +418,7 @@ class GenerateCoverImageRequest(BaseModel):
     tagline: Optional[str] = None
     art_style: Optional[str] = Field(default=None, alias="artStyle")
     character_visuals: List[CharacterVisual] = Field(default_factory=list)
+    scene_reference_images: List[str] = Field(default_factory=list)
 
     model_config = ConfigDict(populate_by_name=True, alias_generator=to_camel)
 

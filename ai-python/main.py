@@ -424,6 +424,7 @@ async def generate_page_assets_endpoint(request: Request, req: GeneratePageAsset
                 request_id=request.state.request_id,
                 art_style=req.art_style,
                 character_visuals=req.character_visuals,
+                scene_reference_images=req.scene_reference_images,
                 include_metadata=True,
                 output_size=(Config.STORY_IMAGE_RESPONSE_WIDTH, Config.STORY_IMAGE_RESPONSE_HEIGHT),
                 resize_mode="cover",
@@ -499,23 +500,14 @@ async def generate_cover_image_endpoint(request: Request, req: GenerateCoverImag
         tagline = req.tagline or ""
         style_line = req.art_style or "soft watercolor storybook illustration with warm pastel lighting"
 
-        cover_prompt = dedent(
-            f"""
-            Design a single, polished children's storybook cover illustration.
-
-            Title: "{req.title}"
-            Story summary: {summary_line}
-            Tagline / moral cue: {tagline or "Highlight friendship, curiosity, and joy."}
-            Featured characters: {character_names}
-
-            Requirements:
-            - Use {style_line} consistently across the entire cover.
-            - Focus on the main characters interacting in a dynamic yet readable composition.
-            - Include subtle environmental hints drawn from the summary (beach, sea, magical light if mentioned).
-            - Leave breathing room for typography, but do NOT draw any text, title, or logos.
-            - Keep proportions cute and cohesive so this cover matches the rest of the story's illustrations.
-            """
-        ).strip()
+        cover_prompt = (
+            f"Create an inviting children's storybook cover scene featuring {character_names}. "
+            f"Story moment: {summary_line} "
+            f"Mood cue: {tagline or 'friendship, curiosity, and joy'}. "
+            "Use one clear focal group, a dynamic readable composition, and subtle environmental clues from the story. "
+            "Keep a calm but fully illustrated upper-third area for the app title overlay. "
+            "Do not draw any text, title, logo, caption, border, frame, or speech bubble."
+        )
 
         async with _image_generation_slot():
             image_result = await asyncio.to_thread(
@@ -524,6 +516,7 @@ async def generate_cover_image_endpoint(request: Request, req: GenerateCoverImag
                 request_id=request.state.request_id,
                 art_style=req.art_style,
                 character_visuals=req.character_visuals,
+                scene_reference_images=req.scene_reference_images,
                 include_metadata=True,
                 output_size=(Config.COVER_IMAGE_RESPONSE_WIDTH, Config.COVER_IMAGE_RESPONSE_HEIGHT),
                 resize_mode="cover",

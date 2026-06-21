@@ -98,6 +98,8 @@ def _build_gemini_provider(model_name: str, location: str) -> Optional[Tuple[str
                 project_id=Config.GOOGLE_PROJECT_ID,
                 location=location,
                 candidate_count=1,
+                aspect_ratio=Config.IMAGE_GENERATION_ASPECT_RATIO,
+                image_size=Config.IMAGE_GENERATION_SIZE,
             ),
         )
         provider_name = f"Google Gemini Image ({model_name}, {location})"
@@ -303,7 +305,8 @@ def _is_literal_token_candidate(token: str) -> bool:
         return False
     if not re.fullmatch(r"[A-Za-z0-9+\-*/=:#@&%!?.,]{1,8}", token):
         return False
-    if token.isalpha() and len(token) > 1 and not token.isupper():
+    alphanumeric_core = re.sub(r"[^A-Za-z0-9]", "", token)
+    if alphanumeric_core.isalpha() and not alphanumeric_core.isupper():
         return False
     return True
 
@@ -315,7 +318,7 @@ def _extract_literal_detail_tokens(raw_text: Optional[str], limit: int = 6) -> L
     candidates: List[str] = []
     contextual_patterns = [
         r"(?:알파벳|영문자|영어\s*글자|글자|문자|대문자|소문자|숫자|번호)\s*[:：]?\s*[\"'“”‘’]?([A-Za-z0-9+\-*/=:#@&%!?.,]{1,8})[\"'“”‘’]?",
-        r"(?:letter|alphabet|character|uppercase|lowercase|digit|number)\s*(?:is|:|=)?\s*[\"'“”‘’]?([A-Za-z0-9+\-*/=:#@&%!?.,]{1,8})[\"'“”‘’]?",
+        r"\b(?:letter|alphabet|character|uppercase|lowercase|digit|number)\b\s*(?:is|:|=)?\s*[\"'“”‘’]?([A-Za-z0-9+\-*/=:#@&%!?.,]{1,8})[\"'“”‘’]?",
     ]
     for pattern in contextual_patterns:
         for match in re.finditer(pattern, raw_text, flags=re.IGNORECASE):
@@ -372,6 +375,7 @@ def generate_image(
     art_style: Optional[str] = None,
     character_visuals: Optional[List[CharacterVisual]] = None,
     character_images: Optional[List[CharacterProfile]] = None,  # Kept for fallback
+    scene_reference_images: Optional[List[str]] = None,
     include_metadata: bool = False,
     output_size: Optional[Tuple[int, int]] = None,
     resize_mode: str = "cover",
@@ -525,6 +529,39 @@ def generate_image(
     if literal_detail_rules:
         rules = f"{rules}\n\n{literal_detail_rules}"
 
+    layout_rules = dedent(
+        """
+        - Compose a full-bleed 3:4 portrait storybook illustration that fills the canvas edge to edge.
+        - Do not add white margins, frames, borders, page mockups, panels, or empty bands.
+        - Keep every important face, hand, foot, prop, and landmark inside the central 90% safe area so resizing never crops them.
+        - Each named character may appear only once. Never duplicate, clone, or create alternate versions of the same character.
+        - Show only the named foreground characters required by this scene. Background crowds may remain small and indistinct.
+        - Do not invent shop signs, labels, logos, letters, captions, or speech bubbles unless an exact visible token is explicitly required.
+        - If the scene mentions a sign but no exact wording is required, show a blank or unreadable weathered sign with no legible glyphs.
+        """
+    ).strip()
+    rules = f"{rules}\n\n{layout_rules}"
+
+    if scene_reference_images:
+        character_reference_count = sum(
+            1 for visual in (character_visuals or []) if getattr(visual, "image_url", None)
+        )
+        first_location_index = character_reference_count + 1
+        character_reference_rule = (
+            f"- Reference images 1 through {character_reference_count} are character identity references in the same order as the Characters section. "
+            "Never treat them as extra characters or duplicate them."
+            if character_reference_count
+            else "- No character identity reference image is provided for this scene."
+        )
+        rules = f"""{rules}
+
+{character_reference_rule}
+- Reference image {first_location_index} is the official photo of the selected real location. It is an environment reference, never a character reference.
+- When this scene occurs at the selected location, preserve its roofline, facade, materials, colors, terrain, and spatial identity.
+- When the scene temporarily moves elsewhere, retain the same regional palette but do not transplant the landmark into an unrelated setting.
+- Adapt the real location into the requested 2D storybook style without replacing it with a generic European alley, generic market, generic temple, or unrelated scenery.
+- Do not copy watermarks, logos, captions, or text from the location reference."""
+
 
 
 
@@ -588,7 +625,7 @@ def generate_image(
                         logger.info(f"Using local image file as reference: {local_path}")
                     elif parsed.scheme in {"http", "https"}:
                         try:
-                            with urlopen(visual.image_url) as response:
+                            with urlopen(visual.image_url, timeout=10) as response:
                                 data = response.read()
                                 reference_images_bytes.append(data)
                                 reference_sources.append(visual.image_url)
@@ -604,6 +641,26 @@ def generate_image(
                     logger.warning(f"Reference image file not found: {local_path}")
                 except Exception as e:
                     logger.error(f"Error reading reference image file {visual.image_url}: {e}")
+
+    for scene_reference in (scene_reference_images or [])[:1]:
+        if not scene_reference:
+            continue
+        try:
+            parsed = urlparse(scene_reference)
+            if parsed.scheme in {"http", "https"}:
+                with urlopen(scene_reference, timeout=10) as response:
+                    data = response.read()
+                    reference_images_bytes.append(data)
+                    reference_sources.append(scene_reference)
+                logger.info("Using scene location image as reference: %s", scene_reference)
+            elif parsed.scheme == "file":
+                local_path = unquote(parsed.path)
+                with open(local_path, "rb") as source_file:
+                    reference_images_bytes.append(source_file.read())
+                    reference_sources.append(scene_reference)
+                logger.info("Using local scene image as reference: %s", local_path)
+        except Exception as fetch_err:
+            logger.warning("Failed to load scene reference image %s: %s", scene_reference, fetch_err)
 
     image_bytes, provider_used = _generate_image_bytes(
         prompt=prompt,
