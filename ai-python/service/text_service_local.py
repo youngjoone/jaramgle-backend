@@ -34,14 +34,14 @@ REGION_PROFILES: Dict[str, Dict[str, str]] = {
         "tone": "따뜻한 벽돌빛 골목, 근대문화, 시장의 활기, 도시 속 시간여행",
         "rules": "붉은 벽돌 골목, 시장의 소리와 냄새, 팔공산과 도심 풍경 같은 대구의 도시적 온기를 살린다.",
         "guide": "도달쑤",
-        "guide_description": "대구 신천에 사는 밝고 장난기 많은 도시 수달 안내자. 물길과 골목을 좋아하고 아이들에게 장소의 단서를 알려준다.",
+        "guide_description": "대구 신천에 사는 밝고 장난기 많은 도시 수달 안내자. 물길과 골목을 좋아하고 어린이 눈높이로 장소의 단서를 알려준다.",
     },
     "CHUNGBUK": {
         "name": "충북",
         "tone": "청풍명월, 호수와 숲, 산길, 문화유산, 느린 자연 탐험",
         "rules": "호수, 산, 숲, 물길, 문화유산을 따라가는 차분하고 맑은 자연 탐험의 정서를 살린다.",
-        "guide": "충북 길잡이 친구들",
-        "guide_description": "올곧고 바른 마음으로 충북의 길을 안내하는 독창적인 어린이 친구들. 공식 마스코트의 이름이나 외형을 복제하지 않는다.",
+        "guide": "고드미·바르미",
+        "guide_description": "충북의 올곧고 바른 마음을 상징하는 공식 대표 캐릭터. 호수, 숲, 마을길, 문화유산을 차분하고 친근하게 안내한다.",
     },
 }
 
@@ -109,25 +109,84 @@ def _detect_mission(req: GenerateRequest) -> str:
     return "CITY_STORY"
 
 
+def _trim_fact(value: Any, limit: int = 240) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) > limit:
+        return text[:limit].rstrip() + "..."
+    return text
+
+
+def _fact_line(label: str, value: Any, limit: int = 240) -> Optional[str]:
+    text = _trim_fact(value, limit)
+    if not text:
+        return None
+    return f"- {label}: {text}"
+
+
 def _build_context_block(req: GenerateRequest) -> str:
     ctx = req.local_context
     if not ctx:
-        return "- 선택된 지역 장소 컨텍스트 없음"
+        return "\n".join([
+            "[공식 Fact Pack]",
+            "- 선택된 지역 장소 컨텍스트 없음",
+            "[생성 금지]",
+            "- 특정 장소의 공식 역사, 연도, 인물, 사건, 문화재 지정 정보를 새로 만들지 않는다.",
+        ])
+
+    fact_lines = [
+        _fact_line("한줄 소개", ctx.introduction or ctx.subtitle, 220),
+        _fact_line("주요 특징", ctx.feature_summary, 260),
+        _fact_line("유래/역사 포인트", ctx.origin_story, 260),
+        _fact_line("스토리 참고 요약", ctx.description, 320),
+        _fact_line("동화 소재 힌트", ctx.story_seed, 260),
+    ]
+    fact_lines = [line for line in fact_lines if line]
+    visual_lines = [
+        _fact_line("관광사진 제목", ctx.photo_title, 120),
+        _fact_line("관광사진 촬영지", ctx.photo_location, 120),
+        _fact_line("관광사진 키워드", ctx.photo_keywords, 180),
+    ]
+    visual_lines = [line for line in visual_lines if line]
+
     return "\n".join([
+        "[공식 Fact Pack]",
         f"- 지역: {ctx.region_name or ctx.region_code or '미상'}",
-        f"- 장소명: {ctx.title or '미상'}",
+        f"- 공식 장소명: {ctx.title or '미상'}",
         f"- 구분/지역 단서: {ctx.district or '미상'}",
-        f"- 한줄 소개: {ctx.introduction or ctx.subtitle or '미상'}",
-        f"- 주요 특징: {ctx.feature_summary or '미상'}",
-        f"- 유래/역사 포인트: {ctx.origin_story or '미상'}",
-        f"- 스토리 참고 요약: {ctx.description or '미상'}",
-        f"- 동화 소재 힌트: {ctx.story_seed or '미상'}",
         f"- 주소: {ctx.address or '미상'}",
-        f"- 관광사진 제목: {ctx.photo_title or '미상'}",
-        f"- 관광사진 촬영지: {ctx.photo_location or '미상'}",
-        f"- 관광사진 키워드: {ctx.photo_keywords or '미상'}",
         f"- 공공데이터 출처: {ctx.data_sources or '미상'}",
+        "[사용 가능한 공식 사실]",
+        *(fact_lines or ["- 제공된 설명이 부족함. 공식 사실처럼 보이는 세부 정보를 새로 만들지 말 것."]),
+        "[사진/시각 근거]",
+        *(visual_lines or ["- 사진 키워드 없음. 함께 제공된 장소 이미지를 우선 관찰할 것."]),
+        "[생성 금지]",
+        "- Fact Pack에 없는 연도, 인물, 사건, 설화, 문화재 지정 정보, 순위, 수상 이력을 공식 사실처럼 쓰지 않는다.",
+        "- 정보가 부족하면 '그곳에 이런 역사가 있었다'고 단정하지 말고, 대표 캐릭터가 풍경을 관찰하고 궁금해하는 방식으로 처리한다.",
+        "[상상 허용]",
+        "- 대표 캐릭터의 행동, 감정, 페이지별 모험 순서, 대화 톤은 창작해도 된다.",
+        "- 단, 창작 요소와 공식 사실이 섞여 독자가 허위 사실로 이해하지 않게 한다.",
     ])
+
+
+def _selected_place_name(req: GenerateRequest) -> str:
+    ctx = req.local_context
+    return str((ctx.title if ctx else "") or "").strip()
+
+
+def _story_mentions_place(story_data: Dict[str, Any], place_name: str) -> bool:
+    if not place_name:
+        return True
+    story = story_data.get("story")
+    if not isinstance(story, dict):
+        return False
+    text = str(story.get("title") or "")
+    pages = story.get("pages")
+    if isinstance(pages, list):
+        for page in pages:
+            if isinstance(page, dict):
+                text += " " + str(page.get("text") or "")
+                text += " " + str(page.get("image_prompt") or page.get("imagePrompt") or "")
+    return place_name in text
 
 
 def _build_local_prompt(req: GenerateRequest) -> str:
@@ -135,10 +194,10 @@ def _build_local_prompt(req: GenerateRequest) -> str:
     lang_code = str(req.language).upper()
     lang_label = lang_map.get(lang_code, "한국어")
     region = _region_profile(req)
-    managed_guide_reference = region["code"] == "DAEGU"
+    managed_guide_reference = region["code"] in {"DAEGU", "CHUNGBUK"}
     mission = _detect_mission(req)
     mission_rules = {
-        "CITY_STORY": "지역 명소를 홍보문처럼 설명하지 말고, 주인공이 직접 걷고 발견하는 가족형 지역 탐험 이야기로 만든다.",
+        "CITY_STORY": "지역 명소를 홍보문처럼 설명하지 말고, 지역 대표 캐릭터가 직접 걷고 발견하는 지역 탐험 이야기로 만든다.",
         "HERITAGE": "제공된 역사/문화 정보만 사실로 사용하고, 불확실한 연도·인물·사건은 지어내지 않는다. 과거와 현재를 연결하는 시간여행 구조를 권장한다.",
         "NATURE": "호수·산·숲·물길 같은 자연 요소를 감각적으로 묘사하고, 생태와 문화유산을 부드럽게 연결한다.",
     }
@@ -153,10 +212,23 @@ def _build_local_prompt(req: GenerateRequest) -> str:
     art_style = f"{art_style_input}. {LOCAL_ART_STYLE}" if art_style_input else LOCAL_ART_STYLE
     guide_sheet_rule = (
         f"{region['guide']}는 서비스가 공식 참조 이미지로 별도 제공하므로 creative_concept.character_sheets에 넣지 말고 "
-        "다른 이름이나 slug로 복제하지 않는다."
+        "다른 이름이나 slug로 복제하지 않는다. 다른 반복 캐릭터도 새로 만들지 않는다."
         if managed_guide_reference
         else f"{region['guide']}는 공식 마스코트 이름이나 외형을 복제하지 않은 독창적인 캐릭터로 설계하고 "
         "creative_concept.character_sheets에 정확히 한 번 포함한다."
+    )
+    guide_presence_rule = (
+        f"{region['guide']}는 지역 대표 안내 캐릭터다. 모든 page.text와 page.image_prompt에 정확히 '{region['guide']}' 이름으로 등장시킨다. "
+        "첫 페이지와 마지막 페이지도 예외가 아니며, page.image_prompt에서 같은 캐릭터를 별칭으로 다시 만들지 않는다. "
+        "이 지역 공모전용 이야기에 이름 있는 전면 캐릭터는 지역 대표 안내 캐릭터만 사용한다."
+        if managed_guide_reference
+        else "지역 안내 캐릭터는 이야기의 대표 캐릭터다. 이름 있는 단일 캐릭터로 정하고, 모든 page.text와 page.image_prompt에 같은 이름으로 등장시킨다. "
+        "첫 페이지와 마지막 페이지도 예외가 아니며, creative_concept.character_sheets의 이름과 page.image_prompt의 이름을 반드시 일치시킨다."
+    )
+    character_sheet_rule = (
+        "creative_concept.character_sheets는 빈 배열 []로 둔다. 서비스가 별도로 제공하는 지역 대표 캐릭터만 사용하고, 어린이 주인공·동물 친구·요정 같은 새 반복 캐릭터를 만들지 않는다."
+        if managed_guide_reference
+        else "creative_concept.character_sheets에는 서비스가 별도 제공하는 공식 캐릭터를 제외한 반복 등장 인물을 빠짐없이 한 번씩 기록한다."
     )
 
     prompt = f"""
@@ -176,22 +248,25 @@ def _build_local_prompt(req: GenerateRequest) -> str:
 - 공통 아트 스타일: {art_style}
 - 지역 안내 캐릭터: {region['guide']} ({region['guide_description']})
 
-[지역 장소 컨텍스트]
+[지역 공식 Fact Pack]
 {_build_context_block(req)}
 
 [지역 스토리 규칙]
 - {region['rules']}
 - {mission_rules[mission]}
 - {region['guide']}는 지역을 안내하는 핵심 조력자로 등장한다. 단, 공식 캐릭터 참조 이미지가 없을 수 있으므로 외형은 과하게 구체화하지 말고 역할과 성격 중심으로 일관되게 표현한다.
+- {guide_presence_rule}
 - {guide_sheet_rule}
-- 이야기 전체에 반복 등장하는 어린이 주인공은 정확히 1명으로 정하고, 이름·나이·얼굴·머리 모양·상의·하의·신발·소품 색상을 모든 페이지에서 고정한다.
-- creative_concept.character_sheets에는 서비스가 별도 제공하는 공식 캐릭터를 제외한 반복 등장 인물을 빠짐없이 한 번씩 기록한다.
-- 장소 정보는 공공데이터 기반으로 쓰되, 설명문을 그대로 복사하지 말고 아이와 가족이 경험하는 장면으로 바꾼다.
+- 지역 대표 캐릭터가 문화재·명소·자연을 직접 소개하고 탐험한다. 어린이 주인공이나 새 조력자 캐릭터를 따로 만들지 않는다.
+- 배경 인물은 필요할 때만 작고 흐릿한 군중으로 처리하고, 이름·외형·대사를 가진 반복 캐릭터로 만들지 않는다.
+- {character_sheet_rule}
+- 장소 정보는 [지역 공식 Fact Pack]의 사용 가능한 공식 사실만 근거로 쓰되, 설명문을 그대로 복사하지 말고 지역 대표 캐릭터가 직접 보고 안내하는 장면으로 바꾼다.
+- Fact Pack에 없는 구체적 연도, 인물, 사건, 설화, 순위, 문화재 지정 정보는 새로 지어내지 않는다.
+- 공식 사실이 부족한 장소는 허위 역사를 만들지 말고, 사진/시각 근거와 지역 분위기를 활용한 탐험 이야기로 만든다.
 - 함께 제공된 공식 장소 사진을 가장 신뢰할 수 있는 시각 근거로 사용한다. 사진에 없는 유럽풍 골목, 시장, 건축물, 산, 강을 임의로 추가하지 않는다.
 - 공공데이터의 짧은 특징 문구가 장소 사진과 충돌하면 사진의 실제 건축·지형·재료·색상을 우선한다.
 - 선택 장소는 이야기의 중심 배경이다. 전체 페이지의 절반 이상에서 장소 자체 또는 사진에서 확인되는 핵심 외형이 분명히 드러나야 한다.
-- 데이터에 없는 구체적 연도, 인물, 사건, 문화재 지정 정보는 새로 지어내지 않는다.
-- 관광 소개문이 아니라 '가족이 함께 볼 수 있는 지역 이야기책'으로 구성한다.
+- 관광 소개문이 아니라 '대표 캐릭터가 안내하는 지역 이야기책'으로 구성한다.
 
 [필수 등장/반영 요소]
 {required_section}
@@ -201,6 +276,8 @@ def _build_local_prompt(req: GenerateRequest) -> str:
 - story.pages.text / story.title / quiz는 반드시 {lang_label}로 작성.
 - page.text는 각 페이지마다 충분한 서사(20단어 이상)를 갖는다.
 - page.image_prompt는 1~2문장으로 그 페이지에 실제 등장하는 인물만 이름으로 명시하고 장면·행동·감정을 구체적으로 묘사한다.
+- 지역 대표 안내 캐릭터는 모든 page.image_prompt에 반드시 이름으로 명시한다.
+- 지역 대표 안내 캐릭터 외의 이름 있는 캐릭터를 page.text나 page.image_prompt에 만들지 않는다.
 - page.image_prompt에서 같은 캐릭터를 두 번 설명하거나 별칭으로 중복 호출하지 않는다.
 - 반복 등장 인물은 creative_concept.character_sheets의 이름을 철자까지 동일하게 사용한다.
 - 선택 장소가 보이는 페이지의 image_prompt에는 장소 이름뿐 아니라 공식 사진에서 관찰한 지붕선, 외벽 재료, 구조, 주변 지형 중 2개 이상을 구체적으로 적는다.
@@ -227,6 +304,47 @@ def _build_local_prompt(req: GenerateRequest) -> str:
     return dedent(prompt).strip()
 
 
+def _contains_name(value: str, name: str) -> bool:
+    return bool(name and value and name.strip().lower() in value.strip().lower())
+
+
+def _pick_local_guide_name(region: Dict[str, str], sheets: list) -> str:
+    if region["code"] in {"DAEGU", "CHUNGBUK"}:
+        return region["guide"]
+
+    region_name = region.get("name", "")
+    guide_keywords = [
+        region_name,
+        "지역",
+        "길잡이",
+        "안내",
+        "가이드",
+        "guide",
+        "장소",
+        "문화",
+        "역사",
+        "자연",
+        "호수",
+        "숲",
+    ]
+    valid_sheets = [sheet for sheet in sheets if isinstance(sheet, dict) and str(sheet.get("name") or "").strip()]
+    for sheet in valid_sheets:
+        haystack = " ".join([
+            str(sheet.get("name") or ""),
+            str(sheet.get("slug") or ""),
+            str(sheet.get("visual_description") or ""),
+            str(sheet.get("voice_profile") or ""),
+        ]).lower()
+        if any(keyword and keyword.lower() in haystack for keyword in guide_keywords):
+            return str(sheet.get("name") or "").strip()
+
+    if len(valid_sheets) >= 2:
+        return str(valid_sheets[1].get("name") or "").strip()
+    if valid_sheets:
+        return str(valid_sheets[0].get("name") or "").strip()
+    return region["guide"]
+
+
 def _load_location_reference(req: GenerateRequest) -> Optional[Image.Image]:
     ctx = req.local_context
     image_url = (ctx.image_url if ctx else None) or (ctx.thumbnail_url if ctx else None)
@@ -246,12 +364,13 @@ def _load_location_reference(req: GenerateRequest) -> Optional[Image.Image]:
 
 def _enforce_local_visual_contract(story_data: Dict[str, Any], req: GenerateRequest) -> Dict[str, Any]:
     region = _region_profile(req)
+    managed_guide_reference = region["code"] in {"DAEGU", "CHUNGBUK"}
     concept = story_data.setdefault("creative_concept", {})
     sheets = concept.get("character_sheets")
     if not isinstance(sheets, list):
         sheets = []
 
-    if region["code"] == "DAEGU":
+    if managed_guide_reference:
         filtered_sheets = []
         for sheet in sheets:
             if not isinstance(sheet, dict):
@@ -259,14 +378,22 @@ def _enforce_local_visual_contract(story_data: Dict[str, Any], req: GenerateRequ
             slug = str(sheet.get("slug") or "").strip().lower()
             name = str(sheet.get("name") or "").strip().lower()
             is_dodalsu = slug in {"daegu-dodalsu", "dodalssu", "dodalsu"} or "도달쑤" in name or "dodalsu" in name
-            if not is_dodalsu:
+            is_chungbuk_mascot = (
+                slug in {"chungbuk-godeumi-bareumi", "godeumi-bareumi", "godeumi", "bareumi"}
+                or "고드미" in name
+                or "바르미" in name
+                or "godeumi" in name
+                or "bareumi" in name
+            )
+            if not is_dodalsu and not is_chungbuk_mascot:
                 filtered_sheets.append(sheet)
         sheets = filtered_sheets
 
-    if not sheets:
+    if not sheets and not managed_guide_reference:
         raise ValueError("Local story must include at least one consistent non-managed character sheet.")
 
-    concept["character_sheets"] = sheets
+    concept["character_sheets"] = [] if managed_guide_reference else sheets
+    guide_name = _pick_local_guide_name(region, sheets)
     story = story_data.get("story")
     pages = story.get("pages") if isinstance(story, dict) else None
     if isinstance(pages, list):
@@ -279,6 +406,11 @@ def _enforce_local_visual_contract(story_data: Dict[str, Any], req: GenerateRequ
             if not isinstance(page, dict):
                 continue
             image_prompt = str(page.get("image_prompt") or page.get("imagePrompt") or "").strip()
+            if guide_name and not _contains_name(image_prompt, guide_name):
+                image_prompt = (
+                    f"{guide_name}는 지역 대표 안내 캐릭터로 장면 안에 함께 등장한다. "
+                    f"{image_prompt}"
+                ).strip()
             page["image_prompt"] = f"{image_prompt}{suffix}".strip()
     return story_data
 
@@ -304,7 +436,11 @@ def _call_local_gemini(req: GenerateRequest, request_id: str) -> Dict[str, Any]:
     )
     raw_json_text = response.text or ""
     logger.info("Local Gemini raw response for %s: %s", request_id, raw_json_text)
-    return _enforce_local_visual_contract(_parse_json_response(raw_json_text, request_id, "Local story"), req)
+    story_data = _enforce_local_visual_contract(_parse_json_response(raw_json_text, request_id, "Local story"), req)
+    place_name = _selected_place_name(req)
+    if str(req.language).upper() == "KO" and place_name and not _story_mentions_place(story_data, place_name):
+        raise ValueError(f"Local story must mention the selected public-data place: {place_name}")
+    return story_data
 
 
 def _translate_local_story(story: StoryOutput, source_lang: str, target_lang: str, request_id: str) -> Optional[TranslationOutput]:

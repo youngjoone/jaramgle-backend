@@ -232,7 +232,10 @@ public class CharacterService {
     }
 
     private static List<String> parseFeaturedGlobalCharacterSlugs() {
-        String raw = System.getenv().getOrDefault("FEATURED_GLOBAL_CHARACTER_SLUGS", "busan-boogi,boogi");
+        String raw = System.getenv().getOrDefault(
+                "FEATURED_GLOBAL_CHARACTER_SLUGS",
+                "busan-boogi,boogi,daegu-dodalsu,dodalssu,chungbuk-godeumi-bareumi,godeumi-bareumi"
+        );
         return List.of(raw.split(",")).stream()
                 .map(String::trim)
                 .map(String::toLowerCase)

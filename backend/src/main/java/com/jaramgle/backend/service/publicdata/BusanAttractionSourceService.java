@@ -155,7 +155,13 @@ public class BusanAttractionSourceService {
 
             fetched += pageItems.size();
             for (BusanAttractionSourceDto item : pageItems) {
-                if (!hasImage(item)) {
+                if (!hasImage(item) || !hasUsableFacts(
+                        item.storyContext(),
+                        item.feature(),
+                        item.origin(),
+                        item.intro(),
+                        item.photoKeywords()
+                )) {
                     skipped++;
                     continue;
                 }
@@ -223,6 +229,7 @@ public class BusanAttractionSourceService {
 
     private BusanAttractionPageDto findBySourceId(String sourceId) {
         return busanStorySourceRepository.findFirstByActiveTrueAndExternalIdOrderByQualityScoreDesc(sourceId)
+                .filter(this::isStorySuitable)
                 .map(source -> new BusanAttractionPageDto(List.of(toDto(source)), 1, 1, 1L, false))
                 .orElseGet(() -> new BusanAttractionPageDto(List.of(), 1, 1, 0L, false));
     }
@@ -429,6 +436,21 @@ public class BusanAttractionSourceService {
     private boolean hasImage(BusanAttractionSourceDto item) {
         return item != null
                 && (notBlank(item.thumbnailUrl()) || notBlank(item.imageUrl()));
+    }
+
+    private boolean isStorySuitable(BusanStorySource source) {
+        return source != null
+                && hasUsableFacts(
+                        source.getStoryContext(),
+                        source.getFeature(),
+                        source.getOrigin(),
+                        source.getIntro(),
+                        source.getPhotoKeywords()
+                );
+    }
+
+    private boolean hasUsableFacts(String... values) {
+        return notBlank(firstNonBlank(values));
     }
 
     private BusanAttractionSourceDto enrichWithTourPhoto(BusanAttractionSourceDto item) {

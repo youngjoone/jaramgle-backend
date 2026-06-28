@@ -16,6 +16,13 @@ public interface BusanStorySourceRepository extends JpaRepository<BusanStorySour
             SELECT COUNT(s) FROM BusanStorySource s
             WHERE s.active = true
               AND (COALESCE(s.thumbnailUrl, '') <> '' OR COALESCE(s.imageUrl, '') <> '')
+              AND (
+                    COALESCE(s.storyContext, '') <> ''
+                    OR COALESCE(s.feature, '') <> ''
+                    OR COALESCE(s.origin, '') <> ''
+                    OR COALESCE(s.intro, '') <> ''
+                    OR COALESCE(s.photoKeywords, '') <> ''
+              )
             """)
     long countVisible();
 
@@ -37,6 +44,13 @@ public interface BusanStorySourceRepository extends JpaRepository<BusanStorySour
             SELECT s FROM BusanStorySource s
             WHERE s.active = true
               AND (COALESCE(s.thumbnailUrl, '') <> '' OR COALESCE(s.imageUrl, '') <> '')
+              AND (
+                    COALESCE(s.storyContext, '') <> ''
+                    OR COALESCE(s.feature, '') <> ''
+                    OR COALESCE(s.origin, '') <> ''
+                    OR COALESCE(s.intro, '') <> ''
+                    OR COALESCE(s.photoKeywords, '') <> ''
+              )
             """)
     Page<BusanStorySource> findVisible(Pageable pageable);
 
@@ -52,6 +66,13 @@ public interface BusanStorySourceRepository extends JpaRepository<BusanStorySour
             SELECT s FROM BusanStorySource s
             WHERE s.active = true
               AND (COALESCE(s.thumbnailUrl, '') <> '' OR COALESCE(s.imageUrl, '') <> '')
+              AND (
+                    COALESCE(s.storyContext, '') <> ''
+                    OR COALESCE(s.feature, '') <> ''
+                    OR COALESCE(s.origin, '') <> ''
+                    OR COALESCE(s.intro, '') <> ''
+                    OR COALESCE(s.photoKeywords, '') <> ''
+              )
               AND LOWER(CONCAT(
                     COALESCE(s.title, ''), ' ',
                     COALESCE(s.normalizedTitle, ''), ' ',

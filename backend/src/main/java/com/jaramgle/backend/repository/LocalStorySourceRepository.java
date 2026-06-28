@@ -18,6 +18,73 @@ public interface LocalStorySourceRepository extends JpaRepository<LocalStorySour
             WHERE s.regionCode = :regionCode
               AND s.active = true
               AND (COALESCE(s.thumbnailUrl, '') <> '' OR COALESCE(s.imageUrl, '') <> '')
+              AND (s.contentTypeId IS NULL OR s.contentTypeId = '' OR s.contentTypeId IN ('12', '14', '15', '28'))
+              AND (
+                    COALESCE(s.storyContext, '') <> ''
+                    OR COALESCE(s.feature, '') <> ''
+                    OR COALESCE(s.origin, '') <> ''
+                    OR COALESCE(s.intro, '') <> ''
+                    OR COALESCE(s.photoKeywords, '') <> ''
+              )
+              AND (
+                    COALESCE(s.photoKeywords, '') <> ''
+                    OR COALESCE(s.origin, '') <> ''
+                    OR LENGTH(COALESCE(s.storyContext, '')) >= 60
+              )
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%펜션%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%글램핑%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%카라반%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%숙박%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%식당%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%카페%'
             """)
     long countVisible(@Param("regionCode") String regionCode);
 
@@ -41,6 +108,73 @@ public interface LocalStorySourceRepository extends JpaRepository<LocalStorySour
             WHERE s.regionCode = :regionCode
               AND s.active = true
               AND (COALESCE(s.thumbnailUrl, '') <> '' OR COALESCE(s.imageUrl, '') <> '')
+              AND (s.contentTypeId IS NULL OR s.contentTypeId = '' OR s.contentTypeId IN ('12', '14', '15', '28'))
+              AND (
+                    COALESCE(s.storyContext, '') <> ''
+                    OR COALESCE(s.feature, '') <> ''
+                    OR COALESCE(s.origin, '') <> ''
+                    OR COALESCE(s.intro, '') <> ''
+                    OR COALESCE(s.photoKeywords, '') <> ''
+              )
+              AND (
+                    COALESCE(s.photoKeywords, '') <> ''
+                    OR COALESCE(s.origin, '') <> ''
+                    OR LENGTH(COALESCE(s.storyContext, '')) >= 60
+              )
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%펜션%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%글램핑%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%카라반%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%숙박%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%식당%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%카페%'
             """)
     Page<LocalStorySource> findVisible(@Param("regionCode") String regionCode, Pageable pageable);
 
@@ -58,6 +192,73 @@ public interface LocalStorySourceRepository extends JpaRepository<LocalStorySour
             WHERE s.regionCode = :regionCode
               AND s.active = true
               AND (COALESCE(s.thumbnailUrl, '') <> '' OR COALESCE(s.imageUrl, '') <> '')
+              AND (s.contentTypeId IS NULL OR s.contentTypeId = '' OR s.contentTypeId IN ('12', '14', '15', '28'))
+              AND (
+                    COALESCE(s.storyContext, '') <> ''
+                    OR COALESCE(s.feature, '') <> ''
+                    OR COALESCE(s.origin, '') <> ''
+                    OR COALESCE(s.intro, '') <> ''
+                    OR COALESCE(s.photoKeywords, '') <> ''
+              )
+              AND (
+                    COALESCE(s.photoKeywords, '') <> ''
+                    OR COALESCE(s.origin, '') <> ''
+                    OR LENGTH(COALESCE(s.storyContext, '')) >= 60
+              )
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%펜션%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%글램핑%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%카라반%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%숙박%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%식당%'
+              AND LOWER(CONCAT(
+                    COALESCE(s.title, ''), ' ',
+                    COALESCE(s.subtitle, ''), ' ',
+                    COALESCE(s.intro, ''), ' ',
+                    COALESCE(s.feature, ''), ' ',
+                    COALESCE(s.origin, ''), ' ',
+                    COALESCE(s.storyContext, ''), ' ',
+                    COALESCE(s.address, '')
+              )) NOT LIKE '%카페%'
               AND LOWER(CONCAT(
                     COALESCE(s.title, ''), ' ',
                     COALESCE(s.normalizedTitle, ''), ' ',

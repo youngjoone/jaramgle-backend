@@ -47,6 +47,11 @@ public class LocalStorySourceService {
     private static final int PHOTO_SEARCH_ROWS = 5;
     private static final int PHOTO_CACHE_MAX_SIZE = 512;
     private static final int MAX_STORY_CONTEXT_CHARS = 320;
+    private static final List<String> STORY_SUITABLE_CONTENT_TYPE_IDS = List.of("12", "14", "15", "28");
+    private static final List<String> EXCLUDED_STORY_SUBJECT_KEYWORDS = List.of(
+            "펜션", "글램핑", "카라반", "숙박", "모텔", "호텔", "리조트", "게스트하우스", "민박",
+            "식당", "한우", "갈비", "분식", "카페", "커피", "베이커리"
+    );
 
     private static final Map<String, RegionProfile> REGION_PROFILES = Map.of(
             "DAEGU", new RegionProfile("DAEGU", "대구", "4", "근대골목과 시장, 도시의 시간여행"),
@@ -62,7 +67,7 @@ public class LocalStorySourceService {
     @Value("${local.public-data.photo-enabled:${LOCAL_PHOTO_ENRICHMENT_ENABLED:true}}")
     private boolean photoEnrichmentEnabled;
 
-    @Value("${local.public-data.detail-enabled:${LOCAL_PUBLIC_DATA_DETAIL_ENABLED:false}}")
+    @Value("${local.public-data.detail-enabled:${LOCAL_PUBLIC_DATA_DETAIL_ENABLED:true}}")
     private boolean detailFetchEnabled;
 
     @Value("${local.public-data.sync-enabled:${LOCAL_PUBLIC_DATA_SYNC_ENABLED:false}}")
@@ -119,7 +124,7 @@ public class LocalStorySourceService {
     }
 
     public boolean hasActiveSources(String region) {
-        return localStorySourceRepository.countByRegionCodeAndActiveTrue(profile(region).code()) > 0;
+        return localStorySourceRepository.countVisible(profile(region).code()) > 0;
     }
 
     public StatusResult getStatus(String region) {
@@ -162,7 +167,11 @@ public class LocalStorySourceService {
                     continue;
                 }
                 upsertStorySource(item, syncedAt);
-                saved++;
+                if (isStorySuitable(item)) {
+                    saved++;
+                } else {
+                    skipped++;
+                }
             }
 
             if (pageItems.size() < pageSize) {
@@ -230,6 +239,7 @@ public class LocalStorySourceService {
 
     private LocalStorySourcePageDto findBySourceId(String regionCode, String sourceId) {
         return localStorySourceRepository.findFirstByRegionCodeAndActiveTrueAndExternalIdOrderByQualityScoreDesc(regionCode, sourceId)
+                .filter(this::isStorySuitable)
                 .map(source -> new LocalStorySourcePageDto(List.of(toDto(source)), 1, 1, 1L, false))
                 .orElseGet(() -> new LocalStorySourcePageDto(List.of(), 1, 1, 0L, false));
     }
@@ -298,8 +308,8 @@ public class LocalStorySourceService {
             DetailInfo detail = (!detailFetchEnabled || sourceId.isBlank())
                     ? DetailInfo.empty()
                     : fetchDetailInfo(sourceId, contentTypeId);
-            String intro = firstNonBlank(detail.overview(), title);
-            String feature = firstNonBlank(detail.overview(), profile.storyTone());
+            String intro = detail.overview();
+            String feature = detail.overview();
             String storyContext = buildStoryContext(intro, feature, "", detail.overview());
             String storySeed = buildStorySeed(profile, title, district, feature, "", "", "");
 
@@ -340,13 +350,8 @@ public class LocalStorySourceService {
                     .queryParam("MobileApp", "Jaramgle")
                     .queryParam("_type", "json")
                     .queryParam("contentId", contentId)
-                    .queryParam("contentTypeId", contentTypeId)
-                    .queryParam("defaultYN", "Y")
-                    .queryParam("firstImageYN", "Y")
-                    .queryParam("addrinfoYN", "Y")
-                    .queryParam("mapinfoYN", "Y")
-                    .queryParam("overviewYN", "Y")
-                    .build(true)
+                    .build()
+                    .encode(StandardCharsets.UTF_8)
                     .toUri();
 
             HttpRequest request = HttpRequest.newBuilder(uri)
@@ -356,9 +361,20 @@ public class LocalStorySourceService {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                log.debug("KTO detail API returned non-2xx status for contentId={}: {}", contentId, response.statusCode());
                 return DetailInfo.empty();
             }
             JsonNode root = objectMapper.readTree(response.body());
+            String directResultCode = text(root, "resultCode");
+            if (!directResultCode.isBlank() && !"0000".equals(directResultCode)) {
+                log.debug("KTO detail API returned resultCode={} for contentId={}: {}", directResultCode, contentId, text(root, "resultMsg"));
+                return DetailInfo.empty();
+            }
+            String headerResultCode = text(root.path("response").path("header"), "resultCode");
+            if (!headerResultCode.isBlank() && !"0000".equals(headerResultCode)) {
+                log.debug("KTO detail API returned header resultCode={} for contentId={}: {}", headerResultCode, contentId, text(root.path("response").path("header"), "resultMsg"));
+                return DetailInfo.empty();
+            }
             List<JsonNode> rows = asRows(root.path("response").path("body").path("items").path("item"));
             if (rows.isEmpty()) {
                 return DetailInfo.empty();
@@ -418,7 +434,7 @@ public class LocalStorySourceService {
         source.setLat(item.lat());
         source.setLng(item.lng());
         source.setQualityScore(score(item));
-        source.setActive(hasImage(item));
+        source.setActive(hasImage(item) && isStorySuitable(item));
         source.setLastSyncedAt(syncedAt);
 
         localStorySourceRepository.save(source);
@@ -650,6 +666,67 @@ public class LocalStorySourceService {
         return notBlank(item.thumbnailUrl()) || notBlank(item.imageUrl());
     }
 
+    private boolean isStorySuitable(LocalStorySource source) {
+        return source != null
+                && isStorySuitableContentType(source.getContentTypeId())
+                && !containsExcludedStorySubject(
+                        source.getTitle(),
+                        source.getSubtitle(),
+                        source.getIntro(),
+                        source.getFeature(),
+                        source.getOrigin(),
+                        source.getStoryContext(),
+                        source.getAddress()
+                )
+                && hasStrongStoryFacts(
+                        source.getStoryContext(),
+                        source.getOrigin(),
+                        source.getPhotoKeywords()
+                );
+    }
+
+    private boolean isStorySuitable(LocalStorySourceDto item) {
+        return item != null
+                && isStorySuitableContentType(item.contentTypeId())
+                && !containsExcludedStorySubject(
+                        item.title(),
+                        item.subtitle(),
+                        item.intro(),
+                        item.feature(),
+                        item.origin(),
+                        item.storyContext(),
+                        item.address()
+                )
+                && hasStrongStoryFacts(
+                        item.storyContext(),
+                        item.origin(),
+                        item.photoKeywords()
+                );
+    }
+
+    private boolean isStorySuitableContentType(String contentTypeId) {
+        if (contentTypeId == null || contentTypeId.isBlank()) {
+            return true;
+        }
+        return STORY_SUITABLE_CONTENT_TYPE_IDS.contains(contentTypeId.trim());
+    }
+
+    private boolean hasStrongStoryFacts(String storyContext, String origin, String photoKeywords) {
+        return notBlank(photoKeywords)
+                || notBlank(origin)
+                || normalizeWhitespace(storyContext).length() >= 60;
+    }
+
+    private boolean containsExcludedStorySubject(String... values) {
+        String haystack = String.join(" ", values == null ? List.of() : java.util.Arrays.stream(values)
+                .filter(value -> value != null && !value.isBlank())
+                .toList());
+        if (haystack.isBlank()) {
+            return false;
+        }
+        return EXCLUDED_STORY_SUBJECT_KEYWORDS.stream().anyMatch(haystack::contains);
+    }
+
     private String buildStorySeed(
             RegionProfile profile,
             String title,
@@ -808,6 +885,10 @@ public class LocalStorySourceService {
 
     private boolean notBlank(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String normalizeWhitespace(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", " ").trim();
     }
 
     private String compact(String value) {
