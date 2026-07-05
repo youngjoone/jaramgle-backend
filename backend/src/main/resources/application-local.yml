@@ -21,16 +21,16 @@ spring:
       client:
         registration:
           google:
-            client-id: ${GOOGLE_CLIENT_ID:}
-            client-secret: ${GOOGLE_CLIENT_SECRET:}
+            client-id: ${GOOGLE_CLIENT_ID:local-google-client-id}
+            client-secret: ${GOOGLE_CLIENT_SECRET:local-google-client-secret}
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
             scope:
               - openid
               - profile
               - email
           naver:
-            client-id: ${NAVER_CLIENT_ID:}
-            client-secret: ${NAVER_CLIENT_SECRET:}
+            client-id: ${NAVER_CLIENT_ID:local-naver-client-id}
+            client-secret: ${NAVER_CLIENT_SECRET:local-naver-client-secret}
             redirect-uri: http://localhost:8080/login/oauth2/code/naver
             authorization-grant-type: authorization_code
             scope:
@@ -38,8 +38,8 @@ spring:
               - email
             client-name: Naver
           kakao:
-            client-id: ${KAKAO_CLIENT_ID:}
-            client-secret: ${KAKAO_CLIENT_SECRET:}
+            client-id: ${KAKAO_CLIENT_ID:local-kakao-client-id}
+            client-secret: ${KAKAO_CLIENT_SECRET:local-kakao-client-secret}
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
             client-authentication-method: client_secret_post
             authorization-grant-type: authorization_code
@@ -62,7 +62,7 @@ spring:
             user-name-attribute: id
 
 jwt: # Added for JWT
-  secret: ${JWT_SECRET:}
+  secret: ${JWT_SECRET:local-development-jwt-secret-change-me-32-bytes}
   expiration-minutes: 60 # Token expiration time in minutes
   refresh-expiration-minutes: 10080 # 7 days (10080 minutes)
 
@@ -79,7 +79,7 @@ bucket4j: # Added for Rate Limiting
               unit: minutes
 
 admin: # Added for Admin API
-  token: ${ADMIN_TOKEN:}
+  token: ${ADMIN_TOKEN:local-development-admin-token}
 
 logging:
   level:
