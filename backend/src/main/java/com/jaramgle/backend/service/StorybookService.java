@@ -25,6 +25,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import com.jaramgle.backend.util.AssetUrlResolver;
+import com.jaramgle.backend.util.OfficialCharacterReferenceResolver;
 
 import java.io.File;
 import java.io.IOException;
@@ -345,8 +346,9 @@ public class StorybookService {
             if (visual.getVisualDescription() != null && !visual.getVisualDescription().isBlank()) {
                 node.put("visual_description", visual.getVisualDescription());
             }
-            if (visual.getImageUrl() != null && !visual.getImageUrl().isBlank()) {
-                node.put("image_url", visual.getImageUrl());
+            String resolvedReferenceImageUrl = resolveCharacterReferenceImageUrl(visual);
+            if (resolvedReferenceImageUrl != null && !resolvedReferenceImageUrl.isBlank()) {
+                node.put("image_url", resolvedReferenceImageUrl);
             }
             if (visual.getModelingStatus() != null && !visual.getModelingStatus().isBlank()) {
                 node.put("modeling_status", visual.getModelingStatus());
@@ -372,8 +374,9 @@ public class StorybookService {
                     if (visual.getVisualDescription() != null && !visual.getVisualDescription().isBlank()) {
                         node.put("visual_description", visual.getVisualDescription());
                     }
-                    if (visual.getImageUrl() != null && !visual.getImageUrl().isBlank()) {
-                        node.put("image_url", visual.getImageUrl());
+                    String resolvedReferenceImageUrl = resolveCharacterReferenceImageUrl(visual);
+                    if (resolvedReferenceImageUrl != null && !resolvedReferenceImageUrl.isBlank()) {
+                        node.put("image_url", resolvedReferenceImageUrl);
                     }
                     existingCharacterKeys.add(visual.getName().toLowerCase());
                 });
@@ -953,7 +956,8 @@ public class StorybookService {
                     + " | Modern casual outfit that matches the story's setting; avoid historical or anachronistic clothing unless explicitly defined.";
         }
 
-        String resolvedImageUrl = resolveImageUrl(imageUrl);
+        String resolvedImageUrl = OfficialCharacterReferenceResolver.resolveReferenceImageUrl(character.getSlug())
+                .orElseGet(() -> resolveImageUrl(imageUrl));
         String slug = character.getSlug();
         String modelingStatus = character.getModelingStatus() != null ? character.getModelingStatus().name() : "";
         return new CharacterVisualDto(name, slug, visualDescription, resolvedImageUrl, modelingStatus);
@@ -984,6 +988,14 @@ public class StorybookService {
             unixPath = "/" + unixPath;
         }
         return "file://" + unixPath;
+    }
+
+    private String resolveCharacterReferenceImageUrl(CharacterVisualDto visual) {
+        if (visual == null) {
+            return null;
+        }
+        return OfficialCharacterReferenceResolver.resolveReferenceImageUrl(visual.getSlug())
+                .orElse(visual.getImageUrl());
     }
 
     private String sanitizeVisualDescription(String description) {

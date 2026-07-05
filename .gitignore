@@ -16,6 +16,11 @@ data/character/*
 !data/character/busan-boogi.png
 !data/character/daegu-dodalsu.png
 !data/character/chungbuk-godeumi-bareumi.jpg
+!data/character-reference-sheets/
+data/character-reference-sheets/*
+!data/character-reference-sheets/busan-boogi-2d-sheet-approved.png
+!data/character-reference-sheets/daegu-dodalsu-2d-sheet-approved.png
+!data/character-reference-sheets/chungbuk-godeumi-bareumi-2d-sheet-approved.png
 backend/data/**
 ai-python/data/**
 !data/.gitkeep

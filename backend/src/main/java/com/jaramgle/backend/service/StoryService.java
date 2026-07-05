@@ -62,6 +62,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.jaramgle.backend.util.AssetUrlResolver;
+import com.jaramgle.backend.util.OfficialCharacterReferenceResolver;
 
 @Slf4j
 @Service
@@ -1062,7 +1063,7 @@ public class StoryService {
                     node.put("slug", character.getSlug());
                 }
                 node.put("visual_description", buildCoverVisualDescription(character));
-                String resolvedImage = resolveCharacterImageUrl(character.getImageUrl());
+                String resolvedImage = resolveCharacterReferenceImageUrl(character);
                 if (resolvedImage != null) {
                     node.put("image_url", resolvedImage);
                 }
@@ -1129,6 +1130,14 @@ public class StoryService {
             unixPath = "/" + unixPath;
         }
         return "file://" + unixPath;
+    }
+
+    private String resolveCharacterReferenceImageUrl(Character character) {
+        if (character == null) {
+            return null;
+        }
+        return OfficialCharacterReferenceResolver.resolveReferenceImageUrl(character.getSlug())
+                .orElseGet(() -> resolveCharacterImageUrl(character.getImageUrl()));
     }
 
     private String buildCoverVisualDescription(Character character) {
@@ -1271,7 +1280,7 @@ public class StoryService {
                     if (character.getVisualDescription() != null) {
                         visual.put("visual_description", character.getVisualDescription());
                     }
-                    String resolvedImageUrl = resolveCharacterImageUrl(character.getImageUrl());
+                    String resolvedImageUrl = resolveCharacterReferenceImageUrl(character);
                     if (resolvedImageUrl != null) {
                         visual.put("image_url", resolvedImageUrl);
                     }

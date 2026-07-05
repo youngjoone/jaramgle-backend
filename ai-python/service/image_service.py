@@ -120,6 +120,87 @@ def _is_boogi_visual(name: Optional[str], slug: Optional[str] = None) -> bool:
     return normalized_slug in {"busan-boogi", "boogi"} or "부기" in normalized_name or "boogi" in normalized_name
 
 
+def _uses_official_reference_sheet(visual: CharacterVisual) -> bool:
+    image_url = (getattr(visual, "image_url", None) or "").lower()
+    slug = (getattr(visual, "slug", None) or "").strip().lower()
+    return "character-reference-sheets" in image_url or slug in {
+        "busan-boogi",
+        "boogi",
+        "daegu-dodalsu",
+        "dodalssu",
+        "dodalsu",
+        "chungbuk-godeumi-bareumi",
+        "godeumi-bareumi",
+    }
+
+
+def _edge_ratios(image: Image.Image, predicate) -> Tuple[float, float, float, float]:
+    width, height = image.size
+    strip = max(8, int(min(width, height) * 0.035))
+    regions = (
+        image.crop((0, 0, width, strip)),
+        image.crop((0, height - strip, width, height)),
+        image.crop((0, 0, strip, height)),
+        image.crop((width - strip, 0, width, height)),
+    )
+    ratios = []
+    for region in regions:
+        pixels = list(region.getdata())
+        if not pixels:
+            ratios.append(0.0)
+            continue
+        matches = sum(1 for pixel in pixels if predicate(pixel))
+        ratios.append(matches / len(pixels))
+    return tuple(ratios)  # top, bottom, left, right
+
+
+def _max_dark_frame_ratios(image: Image.Image) -> Tuple[float, float, float, float]:
+    width, height = image.size
+    margin_x = max(2, int(width * 0.16))
+    margin_y = max(2, int(height * 0.16))
+    dark = lambda pixel: pixel[0] < 55 and pixel[1] < 55 and pixel[2] < 55
+
+    def col_ratio(x: int) -> float:
+        pixels = [image.getpixel((x, y)) for y in range(height)]
+        return sum(1 for pixel in pixels if dark(pixel)) / len(pixels)
+
+    def row_ratio(y: int) -> float:
+        pixels = [image.getpixel((x, y)) for x in range(width)]
+        return sum(1 for pixel in pixels if dark(pixel)) / len(pixels)
+
+    left = max((col_ratio(x) for x in range(margin_x)), default=0.0)
+    right = max((col_ratio(x) for x in range(width - margin_x, width)), default=0.0)
+    top = max((row_ratio(y) for y in range(margin_y)), default=0.0)
+    bottom = max((row_ratio(y) for y in range(height - margin_y, height)), default=0.0)
+    return top, bottom, left, right
+
+
+def _detect_page_margin_or_frame(image_bytes: bytes) -> Optional[str]:
+    if not Config.IMAGE_GENERATION_BORDER_CHECK_ENABLED:
+        return None
+
+    try:
+        image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Skipping image border check because image could not be opened: %s", exc)
+        return None
+
+    # Resize only for fast analysis; generation bytes are left untouched.
+    image.thumbnail((512, 512), Image.LANCZOS)
+    near_white = lambda pixel: pixel[0] >= 245 and pixel[1] >= 245 and pixel[2] >= 245
+    white_ratios = _edge_ratios(image, near_white)
+    white_sides = sum(1 for ratio in white_ratios if ratio >= 0.78)
+    if white_sides >= 3 and sum(white_ratios) / len(white_ratios) >= 0.70:
+        return f"white page margin detected around generated image (edge ratios={white_ratios})"
+
+    dark_ratios = _max_dark_frame_ratios(image)
+    dark_sides = sum(1 for ratio in dark_ratios if ratio >= 0.52)
+    if dark_sides >= 4:
+        return f"dark rectangular frame detected around generated image (frame ratios={dark_ratios})"
+
+    return None
+
+
 if _prefer_google_image:
     try:
         if not Config.GOOGLE_PROJECT_ID or not Config.GOOGLE_LOCATION:
@@ -157,6 +238,12 @@ if not _prefer_google_image:
 def _is_resource_exhausted_error(exc: Exception) -> bool:
     text = str(exc).upper()
     return "RESOURCE_EXHAUSTED" in text or "429" in text
+
+
+def _is_retryable_image_error(exc: Exception) -> bool:
+    text = str(exc).upper()
+    return _is_resource_exhausted_error(exc) or "IMAGE_QUALITY_REJECTED" in text
+
 
 def _generate_image_bytes(
     prompt: str,
@@ -199,6 +286,9 @@ def _generate_image_bytes(
                     request_id=request_id,
                     image_bytes=reference_images or [],
                 )
+                quality_issue = _detect_page_margin_or_frame(image_bytes)
+                if quality_issue:
+                    raise ImageProviderError(f"IMAGE_QUALITY_REJECTED: {quality_issue}")
                 logger.info("%s provider succeeded for request_id %s.", provider_name, request_id)
                 return image_bytes, provider_name
             except ImageProviderError as exc:
@@ -229,7 +319,7 @@ def _generate_image_bytes(
         should_retry = (
             attempt < max_attempts
             and last_error is not None
-            and _is_resource_exhausted_error(last_error)
+            and _is_retryable_image_error(last_error)
         )
         if not should_retry:
             break
@@ -237,7 +327,7 @@ def _generate_image_bytes(
         sleep_seconds = backoff_base * attempt
         if sleep_seconds > 0:
             logger.warning(
-                "Image provider throttled for request %s. Backing off %.1fs before retry.",
+                "Image generation failed with a retryable issue for request %s. Backing off %.1fs before retry.",
                 request_id,
                 sleep_seconds,
             )
@@ -420,6 +510,7 @@ def generate_image(
 
     character_descriptions = []
     has_boogi_character = False
+    official_reference_names: List[str] = []
 
 
     if character_visuals:
@@ -429,6 +520,8 @@ def generate_image(
             slug = getattr(visual, "slug", None)
             is_boogi = _is_boogi_visual(visual.name, slug)
             has_boogi_character = has_boogi_character or is_boogi
+            if _uses_official_reference_sheet(visual) and visual.name:
+                official_reference_names.append(visual.name)
 
 
             # Extract just the persona/personality part
@@ -525,6 +618,21 @@ def generate_image(
         rules = f"{rules}\n\n{_strict_2d_style_rules}"
         if has_boogi_character:
             rules = f"{rules}\n- For Boogi specifically: {_boogi_2d_visual_guide}"
+
+    if official_reference_names:
+        official_names = ", ".join(official_reference_names)
+        official_reference_rules = dedent(
+            f"""
+            - Official mascot identity lock: {official_names}.
+            - Official character reference sheets are identity references, not scene content. Use one suitable pose adapted from the sheet for each mascot.
+            - Never copy the reference sheet layout into the story image. Do not show multiple poses, thumbnails, labels, or the sheet background.
+            - If the approved mascot is a pair, show the pair once as one official guide unit and do not create extra children or clones.
+            - Mascot identity is higher priority than scene creativity. Keep silhouette, face, colors, accessories, costume, and shoes consistent with the reference sheet.
+            - If the requested action would distort the mascot identity, simplify the pose instead of redesigning the character.
+            - Do not add hats, clothes, bags, baskets, handheld props, new companions, feathers, crest details, human fingers, or alternate costumes to official mascots unless explicitly required by the approved reference sheet.
+            """
+        ).strip()
+        rules = f"{rules}\n\n{official_reference_rules}"
 
     if literal_detail_rules:
         rules = f"{rules}\n\n{literal_detail_rules}"
