@@ -27,6 +27,11 @@ DEFAULT_CAPTION_FONT_SIZE = 34
 DEFAULT_CAPTION_MAX_LINES = 3
 DEFAULT_CAPTION_MIN_SECONDS = 2.2
 
+# 오디오 기준 클립 패딩 / 애니메이션 루프
+DEFAULT_AUDIO_LEAD_IN = 1.0    # 오디오 시작 전 여백 (초)
+DEFAULT_AUDIO_LEAD_OUT = 1.5   # 오디오 종료 후 여백 (초)
+DEFAULT_CLIP_LOOP_DURATION = 6.0  # zoompan 한 사이클 길이 (초) — 이 길이로 루프
+
 
 @dataclass(frozen=True)
 class StoryPage:
@@ -69,20 +74,39 @@ def main() -> int:
     for directory in (media_dir, captions_dir, clips_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
+    lead_in = max(0.0, args.lead_in)
+    lead_out = max(0.0, args.lead_out)
+    loop_duration = max(1.0, args.loop_duration)
+
     clip_paths: list[Path] = []
     for index, page in enumerate(pages, start=1):
         print(f"- page {page.page}: preparing media")
         image_path = resolve_media(page.image, media_dir, f"page-{page.page}-image")
         audio_path = resolve_media(page.audio, media_dir, f"page-{page.page}-audio") if page.audio else None
-        duration = resolve_page_duration(ffmpeg, audio_path, page.duration)
+
+        # 오디오 실제 길이 측정 → 앞뒤 여백 포함한 총 클립 길이 계산
+        raw_audio_dur = probe_duration(ffmpeg, audio_path) if audio_path else None
+        if raw_audio_dur is not None:
+            audio_dur = raw_audio_dur
+            total_dur = min(audio_dur + lead_in + lead_out, MAX_AUDIO_PAGE_DURATION)
+        else:
+            audio_dur = max(1.0, page.duration)
+            total_dur = audio_dur  # 오디오 없으면 패딩 없이 fallback 그대로
+
         chunks = split_caption_chunks(
             page.text,
             width=args.width,
             max_lines=args.caption_max_lines,
             font_size=args.caption_font_size,
         )
-        duration = max(duration, len(chunks) * args.caption_min_seconds)
+        # 자막이 차지하는 최소 시간이 더 길면 audio_dur 늘리기 (total_dur도 함께 보정)
+        min_caption_dur = len(chunks) * args.caption_min_seconds
+        if min_caption_dur > audio_dur:
+            extra = min_caption_dur - audio_dur
+            audio_dur = min_caption_dur
+            total_dur = min(total_dur + extra, MAX_AUDIO_PAGE_DURATION)
 
+        # 자막 타이밍: lead_in 이후 오디오 구간에만 표시
         caption_tracks: list[CaptionTrack] = []
         for chunk_index, chunk in enumerate(chunks):
             caption_path = captions_dir / f"page-{page.page:03d}-{chunk_index + 1:02d}.png"
@@ -95,18 +119,24 @@ def main() -> int:
                 font_size=args.caption_font_size,
                 max_lines=args.caption_max_lines,
             )
-            start, end = caption_window(chunk_index, len(chunks), duration)
-            caption_tracks.append(CaptionTrack(path=caption_path, start=start, end=end))
+            raw_start, raw_end = caption_window(chunk_index, len(chunks), audio_dur)
+            caption_tracks.append(CaptionTrack(
+                path=caption_path,
+                start=lead_in + raw_start,
+                end=lead_in + raw_end,
+            ))
 
         clip_path = clips_dir / f"page-{page.page:03d}.mp4"
-        print(f"  rendering clip ({duration:.2f}s, captions={len(caption_tracks)})")
+        print(f"  rendering clip (audio={audio_dur:.1f}s + lead_in={lead_in}s + lead_out={lead_out}s = {total_dur:.1f}s, captions={len(caption_tracks)})")
         render_page_clip(
             ffmpeg=ffmpeg,
             image_path=image_path,
             caption_tracks=caption_tracks,
             audio_path=audio_path,
             output_path=clip_path,
-            duration=duration,
+            duration=total_dur,
+            lead_in=lead_in,
+            loop_duration=loop_duration,
             width=args.width,
             height=args.height,
             fps=args.fps,
@@ -150,6 +180,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--caption-font-size", type=int, default=DEFAULT_CAPTION_FONT_SIZE)
     parser.add_argument("--caption-max-lines", type=int, default=DEFAULT_CAPTION_MAX_LINES)
     parser.add_argument("--caption-min-seconds", type=float, default=DEFAULT_CAPTION_MIN_SECONDS)
+    parser.add_argument("--lead-in", type=float, default=DEFAULT_AUDIO_LEAD_IN,
+                        help="오디오 시작 전 여백(초). 기본 %(default)s")
+    parser.add_argument("--lead-out", type=float, default=DEFAULT_AUDIO_LEAD_OUT,
+                        help="오디오 종료 후 여백(초). 기본 %(default)s")
+    parser.add_argument("--loop-duration", type=float, default=DEFAULT_CLIP_LOOP_DURATION,
+                        help="zoompan 애니메이션 한 사이클 길이(초). 기본 %(default)s")
     return parser.parse_args()
 
 
@@ -220,15 +256,6 @@ def resolve_media(source: str | None, media_dir: Path, stem: str) -> Path:
 
 def safe_name(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]+", "-", value).strip("-") or "media"
-
-
-def resolve_page_duration(ffmpeg: str, audio_path: Path | None, fallback_duration: float) -> float:
-    if not audio_path:
-        return max(1.0, fallback_duration)
-    duration = probe_duration(ffmpeg, audio_path)
-    if duration is None:
-        return max(1.0, fallback_duration)
-    return min(max(1.0, duration + 0.25), MAX_AUDIO_PAGE_DURATION)
 
 
 def probe_duration(ffmpeg: str, media_path: Path) -> float | None:
@@ -479,23 +506,28 @@ def render_page_clip(
     width: int,
     height: int,
     fps: int,
+    lead_in: float = DEFAULT_AUDIO_LEAD_IN,
+    loop_duration: float = DEFAULT_CLIP_LOOP_DURATION,
 ) -> None:
-    frames = max(1, int(duration * fps))
+    # zoompan 한 사이클 프레임 수. 이 단위로 루프 반복
+    loop_frames = max(1, int(loop_duration * fps))
+
+    # 비디오: zoompan → loop=-1(무한 반복) → trim으로 총 길이 제한
     filter_parts = [
         f"[0:v]scale={width * 2}:{height * 2}:force_original_aspect_ratio=increase,"
         f"crop={width * 2}:{height * 2},"
-        f"zoompan=z='min(zoom+0.0007,1.08)':d={frames}:"
+        f"zoompan=z='min(zoom+0.0007,1.08)':d={loop_frames}:"
         f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={width}x{height}:fps={fps},"
+        f"loop=loop=-1:size={loop_frames}:start=0,"
         f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[base]"
     ]
 
     previous_label = "base"
     for index, track in enumerate(caption_tracks, start=1):
-        input_index = index
         cap_label = f"cap{index}"
         out_label = "v" if index == len(caption_tracks) else f"ov{index}"
         enable = f"between(t\\,{track.start:.3f}\\,{track.end:.3f})"
-        filter_parts.append(f"[{input_index}:v]scale={width}:{height},format=rgba[{cap_label}]")
+        filter_parts.append(f"[{index}:v]scale={width}:{height},format=rgba[{cap_label}]")
         filter_parts.append(
             f"[{previous_label}][{cap_label}]overlay=0:0:format=auto:enable='{enable}'[{out_label}]"
         )
@@ -505,81 +537,53 @@ def render_page_clip(
         filter_parts.append("[base]format=yuv420p[v]")
     else:
         filter_parts.append(f"[{previous_label}]format=yuv420p[v]")
-    zoom_filter = ";".join(filter_parts)
 
     caption_inputs: list[str] = []
     for track in caption_tracks:
         caption_inputs.extend(["-loop", "1", "-i", str(track.path)])
     audio_input_index = 1 + len(caption_tracks)
 
+    # 오디오: lead_in만큼 딜레이 적용 (ms 단위)
+    lead_in_ms = int(lead_in * 1000)
+
     if audio_path:
+        # adelay로 lead_in 여백, apad로 lead_out 구간까지 무음 채움
+        filter_parts.append(
+            f"[{audio_input_index}:a]"
+            f"adelay={lead_in_ms}|{lead_in_ms},"
+            f"apad=whole_dur={duration:.3f}"
+            f"[a_out]"
+        )
+        zoom_filter = ";".join(filter_parts)
         command = [
-            ffmpeg,
-            "-y",
-            "-loop",
-            "1",
-            "-i",
-            str(image_path),
+            ffmpeg, "-y",
+            "-loop", "1", "-i", str(image_path),
             *caption_inputs,
-            "-i",
-            str(audio_path),
-            "-filter_complex",
-            zoom_filter,
-            "-map",
-            "[v]",
-            "-map",
-            f"{audio_input_index}:a:0",
-            "-t",
-            f"{duration:.3f}",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "20",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "160k",
-            "-movflags",
-            "+faststart",
+            "-i", str(audio_path),
+            "-filter_complex", zoom_filter,
+            "-map", "[v]",
+            "-map", "[a_out]",
+            "-t", f"{duration:.3f}",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-c:a", "aac", "-b:a", "160k",
+            "-movflags", "+faststart",
             str(output_path),
         ]
     else:
+        zoom_filter = ";".join(filter_parts)
         command = [
-            ffmpeg,
-            "-y",
-            "-loop",
-            "1",
-            "-i",
-            str(image_path),
+            ffmpeg, "-y",
+            "-loop", "1", "-i", str(image_path),
             *caption_inputs,
-            "-f",
-            "lavfi",
-            "-t",
-            f"{duration:.3f}",
-            "-i",
-            "anullsrc=channel_layout=stereo:sample_rate=44100",
-            "-filter_complex",
-            zoom_filter,
-            "-map",
-            "[v]",
-            "-map",
-            f"{audio_input_index}:a:0",
-            "-t",
-            f"{duration:.3f}",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "20",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
+            "-f", "lavfi", "-t", f"{duration:.3f}",
+            "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-filter_complex", zoom_filter,
+            "-map", "[v]",
+            "-map", f"{audio_input_index}:a:0",
+            "-t", f"{duration:.3f}",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
             str(output_path),
         ]
     run(command)
